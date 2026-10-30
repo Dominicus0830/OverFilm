@@ -28,7 +28,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  OVERFILM_CRATES: -p overfilm-glossary -p overfilm-asr -p overfilm-captions -p overfilm-eval -p overfilm-ai
 
 jobs:
   overfilm:
@@ -44,15 +43,15 @@ jobs:
       - name: fmt
         run: cargo fmt --check
       - name: clippy
-        run: cargo clippy $OVERFILM_CRATES --all-targets -- -D warnings
+        run: cargo clippy -p overfilm-glossary -p overfilm-asr -p overfilm-captions -p overfilm-eval -p overfilm-ai --all-targets -- -D warnings
       - name: test
-        run: cargo test $OVERFILM_CRATES
+        run: cargo test -p overfilm-glossary -p overfilm-asr -p overfilm-captions -p overfilm-eval -p overfilm-ai
       - name: layers
         run: cargo xtask layers
       - name: assets
         run: cargo xtask assets
       - name: wasm
-        run: cargo check --target wasm32-unknown-unknown $OVERFILM_CRATES
+        run: cargo check --target wasm32-unknown-unknown -p overfilm-glossary -p overfilm-asr -p overfilm-captions -p overfilm-eval -p overfilm-ai
       - name: sample evaluation
         run: >-
           cargo run -q -p overfilm-eval -- --terms crates/overfilm-eval/samples/terms.txt
