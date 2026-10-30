@@ -1,0 +1,13 @@
+[package]
+name = "overfilm-ai"
+description = "OverFilm editing assistants for MCP: caption review, silence marks, cut and highlight suggestions, screen recognition, style learning"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]

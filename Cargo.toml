@@ -61,6 +61,11 @@ filmcraft-ui-egui = { path = "crates/ui-egui" }
 filmcraft-automation = { path = "crates/automation" }
 filmcraft-platform = { path = "crates/platform" }
 filmcraft-testkit = { path = "crates/testkit" }
+# OverFilm (kept in its own crates so upstream filmcraft merges stay clean; OVERFILM.md)
+overfilm-glossary = { path = "crates/overfilm-glossary" }
+overfilm-asr = { path = "crates/overfilm-asr" }
+overfilm-captions = { path = "crates/overfilm-captions" }
+overfilm-ai = { path = "crates/overfilm-ai" }
 
 # foundation
 thiserror = "2"

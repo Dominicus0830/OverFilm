@@ -4719,6 +4719,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "overfilm-ai"
+version = "0.14.0"
+
+[[package]]
+name = "overfilm-asr"
+version = "0.14.0"
+
+[[package]]
+name = "overfilm-captions"
+version = "0.14.0"
+
+[[package]]
+name = "overfilm-glossary"
+version = "0.14.0"
+
+[[package]]
 name = "p256"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

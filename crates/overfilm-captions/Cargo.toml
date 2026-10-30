@@ -1,0 +1,13 @@
+[package]
+name = "overfilm-captions"
+description = "OverFilm Korean caption layout: display-width line limits, penalty-based two-line breaking, protected terms and names, reading-speed checks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]

@@ -90,6 +90,12 @@ const LAYERS: &[(&str, u8)] = &[
     ("filmcraft", 6),
     ("cli", 6),
     ("web", 6),
+    // OverFilm crates (full names; OVERFILM.md)
+    ("overfilm-glossary", 1),
+    ("overfilm-asr", 2),
+    ("overfilm-captions", 2),
+    ("overfilm-eval", 3),
+    ("overfilm-ai", 4),
 ];
 
 /// L0 crates that are not codecs/containers (no `bitstream`-only restriction).
@@ -161,7 +167,7 @@ fn layers() -> Result<(), String> {
             if l < 5 && UI_ONLY.contains(&d.as_str()) {
                 errors.push(format!("{name} (L{l}) depends on UI/OS crate `{d}`"));
             }
-            if !d.starts_with("filmcraft-") {
+            if !d.starts_with("filmcraft-") && !d.starts_with("overfilm-") {
                 continue;
             }
             let Some(dl) = layer_of(d) else { continue };

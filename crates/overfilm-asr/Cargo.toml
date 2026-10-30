@@ -1,0 +1,13 @@
+[package]
+name = "overfilm-asr"
+description = "OverFilm speech recognition: Qwen3-ASR and Qwen3-ForcedAligner in pure Rust (candle) behind filmcraft-speech's Transcriber, streamer/hero-voice separation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
