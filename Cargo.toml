@@ -65,6 +65,7 @@ filmcraft-testkit = { path = "crates/testkit" }
 overfilm-glossary = { path = "crates/overfilm-glossary" }
 overfilm-asr = { path = "crates/overfilm-asr" }
 overfilm-captions = { path = "crates/overfilm-captions" }
+overfilm-eval = { path = "crates/overfilm-eval" }
 overfilm-ai = { path = "crates/overfilm-ai" }
 
 # foundation

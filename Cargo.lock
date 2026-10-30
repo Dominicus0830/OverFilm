@@ -4731,6 +4731,16 @@ name = "overfilm-captions"
 version = "0.14.0"
 
 [[package]]
+name = "overfilm-eval"
+version = "0.14.0"
+dependencies = [
+ "filmcraft-captions",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "overfilm-glossary"
 version = "0.14.0"
 
