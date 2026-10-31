@@ -12,6 +12,9 @@
 //!    centroid; a Viterbi pass makes speaker changes cheap at pauses and sentence ends and costly
 //!    inside fluent speech ([`label_words`]).
 //!
+//! 5. **Overlap** ([`overlap`], optional): [`seg`] (pyannote segmentation-3.0) finds where two
+//!    people talk at once, and such words get the other voice as a second speaker.
+//!
 //! Speakers are numbered by first appearance. Game voice (hero lines) is detected separately by
 //! text (`overfilm_glossary::voicelines`) and can mark a whole speaker as game audio.
 
@@ -19,6 +22,8 @@ pub mod cluster;
 pub mod fbank;
 #[cfg(feature = "qwen")]
 pub mod net;
+pub mod overlap;
+pub mod seg;
 
 use serde::{Deserialize, Serialize};
 
@@ -70,6 +75,9 @@ impl Default for Params {
 pub struct Labels {
     pub words: Vec<Option<usize>>,
     pub speakers: Vec<SpeakerStat>,
+    /// Second speaker per word where two talk at once ([`overlap`]; empty when not looked for).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<Option<usize>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -327,7 +335,7 @@ fn boundary(a: &Word, b: &Word) -> f64 {
 pub fn label_words(words: &[Word], wins: &[(i64, i64)], vecs: &[Option<Vec<f32>>], c: &Clusters, p: &Params) -> Labels {
     let k = c.centroids.len();
     if k == 0 || words.is_empty() {
-        return Labels { words: vec![None; words.len()], speakers: Vec::new() };
+        return Labels { words: vec![None; words.len()], ..Labels::default() };
     }
     // per-word similarity to each centroid (None: no window reached it)
     let mut emit: Vec<Option<Vec<f64>>> = Vec::with_capacity(words.len());
@@ -409,7 +417,7 @@ pub fn label_words(words: &[Word], wins: &[(i64, i64)], vecs: &[Option<Vec<f32>>
             s.seconds += (w.end_ms - w.start_ms).max(0) as f32 / 1000.0;
         }
     }
-    Labels { words: words_out, speakers }
+    Labels { words: words_out, speakers, also: Vec::new() }
 }
 
 /// The whole method with the network loaded (feature `qwen`).

@@ -153,9 +153,25 @@ pub static SPEAKER: Model = Model {
     }],
 };
 
+/// Overlapped-speech model: pyannote segmentation-3.0 (MIT). The original repository needs a
+/// Hugging Face sign-in; this is the ONNX export published openly by onnx-community (same
+/// weights, checked against the PyTorch-exported graph with onnxruntime).
+pub static SEGMENT: Model = Model {
+    id: "pyannote-segmentation-3.0",
+    name: "pyannote segmentation 3.0 (겹친 말)",
+    source: "https://huggingface.co/onnx-community/pyannote-segmentation-3.0",
+    license: "MIT",
+    files: &[ModelFile {
+        name: "model.onnx",
+        url: "https://huggingface.co/onnx-community/pyannote-segmentation-3.0/resolve/733a93b6473d019a773298e08cefa686894b1854/onnx/model.onnx",
+        sha256: "057ee564753071c0b09b5b611648b50ac188d50846bff5f01e9f7bbf1591ea25",
+        size: 5_986_908,
+    }],
+};
+
 /// Every model, recogniser first.
-pub fn all() -> [&'static Model; 3] {
-    [&ASR, &ALIGNER, &SPEAKER]
+pub fn all() -> [&'static Model; 4] {
+    [&ASR, &ALIGNER, &SPEAKER, &SEGMENT]
 }
 
 /// Download whatever is missing of `m` into `models_dir/<id>/`; `progress(done, total, file)`
@@ -176,7 +192,7 @@ mod tests {
     fn pinned_and_complete() {
         for m in all() {
             assert!(m.files.iter().all(|f| f.url.starts_with("https://huggingface.co/") && f.url.ends_with(f.name) && f.sha256.len() == 64));
-            if m.id == SPEAKER.id {
+            if m.id == SPEAKER.id || m.id == SEGMENT.id {
                 continue;
             }
             for need in ["config.json", "vocab.json", "merges.txt", "tokenizer_config.json"] {
