@@ -52,9 +52,18 @@ const SURE: f32 = 0.8;
 /// said by a caster is one edit from Sojourn's "여기까지다".
 const EXACT_BELOW: usize = 8;
 
-fn is_sure(m: &overfilm_glossary::voicelines::Match, lines: &VoiceLines) -> bool {
+/// Line kind for communication-wheel lines ("방어구가 필요해"): people say them too, so they only
+/// count towards a speaker being game voice, never on their own.
+const COMM: &str = "comm";
+
+/// Exact, or a long line nearly said.
+fn is_close(m: &overfilm_glossary::voicelines::Match, lines: &VoiceLines) -> bool {
     let len = lines.lines.get(m.line).map_or(0, |l| l.len());
-    !m.short && (m.score >= 1.0 || (len >= EXACT_BELOW && m.score >= SURE))
+    m.score >= 1.0 || (len >= EXACT_BELOW && m.score >= SURE)
+}
+
+fn is_sure(m: &overfilm_glossary::voicelines::Match, lines: &VoiceLines) -> bool {
+    lines.lines.get(m.line).is_some_and(|l| l.kind != COMM) && !m.short && is_close(m, lines)
 }
 
 /// Write per-word speakers and the speaker list into `t` (people numbered 화자1, 화자2… by first
@@ -105,6 +114,8 @@ pub fn mark_game_voice(t: &mut Transcript, lines: &VoiceLines) -> usize {
     let found = lines.find(&refs);
     let mut game = vec![false; texts.len()];
     let mut weak = vec![false; texts.len()];
+    // near misses of short lines ("하겠습니다" for "알겠습니다") are ordinary speech
+    let found: Vec<_> = found.into_iter().filter(|m| is_close(m, lines)).collect();
     for m in &found {
         let sure = is_sure(m, lines);
         for g in game.get_mut(m.start..m.end).into_iter().flatten() {
@@ -268,6 +279,11 @@ mod tests {
         let mut near = transcript(&[("여기까지", 0, None)]);
         assert_eq!(mark_game_voice(&mut near, &VoiceLines::parse("hero\tkind\ttext\n소전\tult\t여기까지다\n")), 0);
         assert!(!near.words().any(|w| w.game));
+        // a communication-wheel line said by a person stays theirs
+        let mut comm = transcript(&[("방어구가", 0, Some(0)), ("필요해요", 500, Some(0))]);
+        comm.speakers = vec![Speaker::default()];
+        assert_eq!(mark_game_voice(&mut comm, &VoiceLines::parse("hero\tkind\ttext\n키리코\tcomm\t방어구가 필요해요\n")), 0);
+        assert!(!comm.words().any(|w| w.game));
         // one match is not enough to call speaker 3 a game voice, but the words are game audio
         assert!(!t.speakers[2].game);
         assert!(t.words().filter(|w| w.game).count() == 2);
