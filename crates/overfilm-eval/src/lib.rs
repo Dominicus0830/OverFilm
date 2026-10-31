@@ -195,6 +195,19 @@ fn stem(p: &Path) -> String {
 /// name without extension (`clip01.srt` with `clip01.txt`), and references with no hypothesis are
 /// listed in [`Report::missing`].
 pub fn evaluate(reference: &Path, hyp: &Path, terms: Option<&TermList>) -> Result<Report> {
+    evaluate_corrected(reference, hyp, terms, None)
+}
+
+/// [`evaluate`], with each hypothesis first corrected by `corrector` (the glossary step that runs
+/// after recognition).
+pub fn evaluate_corrected(reference: &Path, hyp: &Path, terms: Option<&TermList>, corrector: Option<&overfilm_glossary::Corrector>) -> Result<Report> {
+    let load_hyp = |p: &Path| -> Result<String> {
+        let text = load_transcript(p)?;
+        Ok(match corrector {
+            Some(c) => c.apply(&text).text,
+            None => text,
+        })
+    };
     let mut report = Report::default();
     if reference.is_dir() {
         let refs = transcript_files(reference)?;
@@ -208,11 +221,11 @@ pub fn evaluate(reference: &Path, hyp: &Path, terms: Option<&TermList>) -> Resul
                 report.missing.push(name);
                 continue;
             };
-            let s = score(&load_transcript(&r)?, &load_transcript(h)?, terms)?;
+            let s = score(&load_transcript(&r)?, &load_hyp(h)?, terms)?;
             report.push(name, s);
         }
     } else {
-        let s = score(&load_transcript(reference)?, &load_transcript(hyp)?, terms)?;
+        let s = score(&load_transcript(reference)?, &load_hyp(hyp)?, terms)?;
         report.push(stem(reference), s);
     }
     Ok(report)
@@ -233,6 +246,9 @@ mod tests {
         // Old names count as the hero; one-character short forms do not count at all.
         assert_eq!(terms.score("맥크리 궁", "캐서디 궁").accuracy(), 1.0);
         assert_eq!(terms.score("궁", "").reference, 0);
+        // The glossary's corrector fixes known misrecognitions and masks profanity.
+        let c = overfilm_glossary::Corrector::new(&load_glossary(&dir).unwrap());
+        assert_eq!(c.apply("로도그가 씨발").text, "로드호그가 ㅅㅂ");
     }
 
     #[test]

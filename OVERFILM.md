@@ -41,6 +41,9 @@ cargo run -p overfilm-eval -- --terms terms.txt --json refs/ hyps/
 - **Term accuracy**: share of the reference's game-term occurrences the hypothesis spells right.
   A term list has one term per line, `canonical | other accepted spelling`, `#` for comments;
   `--terms packs/overwatch/ko/glossary` builds it from the glossary instead.
+- `--correct packs/overwatch/ko/glossary` first runs the glossary correction on each hypothesis
+  (`overfilm_glossary::Corrector`: known misrecognitions, near-misses of names by jamo distance,
+  profanity to initial consonants), to measure what the correction step adds.
   Matching ignores spacing and punctuation and takes the longest term at each position.
 - Both sides are normalized the same way: caption markup removed, decomposed Hangul composed,
   full-width ASCII folded, digits read out in Korean (`6개` = `여섯 개`, `1위` = `일 위`),

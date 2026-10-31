@@ -18,10 +18,14 @@
 //! Blank lines and lines starting with `#` are ignored; missing trailing columns are empty.
 //! [`Glossary::term_list`] exports the term list `overfilm-eval` scores with.
 //!
-//! Still planned: `transcript.applyGlossary` post-correction and jamo similarity matching. See
-//! `OVERFILM.md`.
+//! [`Corrector`] applies a glossary to a transcript (misrecognitions, profanity masking). Still
+//! planned: the `transcript.applyGlossary` command and jamo similarity matching. See `OVERFILM.md`.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
+
+pub mod correct;
+
+pub use correct::{Correction, Corrector};
 
 /// The columns every table has, in order.
 pub const COLUMNS: [&str; 8] = ["id", "ko", "en", "aliases", "old", "misheard", "flags", "note"];

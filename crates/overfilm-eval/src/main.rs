@@ -6,31 +6,37 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use overfilm_eval::{Report, evaluate, load_terms};
+use overfilm_eval::{Report, evaluate_corrected, load_glossary, load_terms};
+use overfilm_glossary::Corrector;
 
-const USAGE: &str = "usage: overfilm-eval [--terms FILE] [--json] <reference> <hypothesis>
+const USAGE: &str = "usage: overfilm-eval [--terms PATH] [--correct DIR] [--json] <reference> <hypothesis>
 
   <reference> <hypothesis>  two transcript files (.srt .vtt .ttml .dfxp or plain .txt), or two
                             directories whose files pair up by name without extension
   --terms PATH              game-term list, one term per line (`canonical | other spelling`),
                             or a glossary directory of .tsv tables (packs/overwatch/ko/glossary)
+  --correct DIR             correct each hypothesis with the glossary in DIR before scoring
+                            (misrecognitions to glossary spellings, profanity to initials)
   --json                    print the full report as JSON";
 
 struct Args {
     reference: PathBuf,
     hyp: PathBuf,
     terms: Option<PathBuf>,
+    correct: Option<PathBuf>,
     json: bool,
 }
 
 fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
     let mut paths = Vec::new();
     let mut terms = None;
+    let mut correct = None;
     let mut json = false;
     let mut args = args;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--terms" => terms = Some(PathBuf::from(args.next().ok_or("--terms needs a file")?)),
+            "--correct" => correct = Some(PathBuf::from(args.next().ok_or("--correct needs a glossary directory")?)),
             "--json" => json = true,
             "-h" | "--help" => return Err(String::new()),
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
@@ -39,7 +45,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
     }
     let mut paths = paths.into_iter();
     match (paths.next(), paths.next(), paths.next()) {
-        (Some(reference), Some(hyp), None) => Ok(Args { reference, hyp, terms, json }),
+        (Some(reference), Some(hyp), None) => Ok(Args { reference, hyp, terms, correct, json }),
         _ => Err("expected a reference and a hypothesis".into()),
     }
 }
@@ -72,7 +78,8 @@ fn print_table(r: &Report) {
 
 fn run(a: &Args) -> Result<(), String> {
     let terms = a.terms.as_deref().map(load_terms).transpose().map_err(|e| e.to_string())?;
-    let report = evaluate(&a.reference, &a.hyp, terms.as_ref()).map_err(|e| e.to_string())?;
+    let corrector = a.correct.as_deref().map(load_glossary).transpose().map_err(|e| e.to_string())?.map(|g| Corrector::new(&g).fuzzy(&g));
+    let report = evaluate_corrected(&a.reference, &a.hyp, terms.as_ref(), corrector.as_ref()).map_err(|e| e.to_string())?;
     if a.json {
         println!("{}", serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?);
     } else {
@@ -111,7 +118,8 @@ mod tests {
 
     #[test]
     fn parses_options_anywhere() {
-        let a = args(&["--json", "r.srt", "--terms", "t.txt", "h.srt"]).unwrap();
+        let a = args(&["--json", "r.srt", "--terms", "t.txt", "h.srt", "--correct", "g"]).unwrap();
+        assert_eq!(a.correct, Some(PathBuf::from("g")));
         assert!(a.json);
         assert_eq!(a.terms, Some(PathBuf::from("t.txt")));
         assert_eq!((a.reference, a.hyp), (PathBuf::from("r.srt"), PathBuf::from("h.srt")));
@@ -122,6 +130,7 @@ mod tests {
         assert!(args(&["r.srt"]).is_err());
         assert!(args(&["a", "b", "c"]).is_err());
         assert!(args(&["a", "b", "--terms"]).is_err());
+        assert!(args(&["a", "b", "--correct"]).is_err());
         assert!(args(&["--bogus", "a", "b"]).is_err());
     }
 }
