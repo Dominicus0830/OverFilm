@@ -104,10 +104,22 @@ fn joined_width(words: &[TimedWord]) -> u32 {
     words.iter().map(|w| width(&w.text)).fold(spaces, u32::saturating_add)
 }
 
+/// Whether `words` fit in `o.max_lines` lines of `o.max_line` without breaking a word. Two lines
+/// fit when the longest first line that fits leaves a second line that fits too.
+fn fits(words: &[TimedWord], o: &Layout) -> bool {
+    if joined_width(words) <= o.max_line {
+        return true;
+    }
+    if o.max_lines < 2 {
+        return false;
+    }
+    let first = (1..words.len()).rev().find(|&k| words.get(..k).is_some_and(|a| joined_width(a) <= o.max_line));
+    first.is_some_and(|k| words.get(k..).is_some_and(|b| joined_width(b) <= o.max_line))
+}
+
 /// Split one sentence-or-pause segment into captions (DP over break points).
 fn split_segment(words: &[TimedWord], o: &Layout) -> Vec<std::ops::Range<usize>> {
     let n = words.len();
-    let cap = o.max_line.saturating_mul(o.max_lines.clamp(1, 2));
     // best[i] = (cost, previous break) for words[..i]
     let mut best: Vec<(u64, usize)> = vec![(u64::MAX, 0); n + 1];
     if let Some(b) = best.get_mut(0) {
@@ -119,7 +131,8 @@ fn split_segment(words: &[TimedWord], o: &Layout) -> Vec<std::ops::Range<usize>>
             let single = end - start == 1;
             let dur = slice.last().map_or(0, |l| l.end_ms) - slice.first().map_or(0, |f| f.start_ms);
             let w = joined_width(slice);
-            if !single && (w > cap || dur > o.max_cue_ms) {
+            // Adding words in front never makes a caption fit again, so stop here.
+            if !single && (!fits(slice, o) || dur > o.max_cue_ms) {
                 break;
             }
             if prev == u64::MAX {
@@ -281,6 +294,21 @@ mod tests {
             assert!(c.lines.iter().all(|l| width(l) <= o.max_line), "{c:?}");
             assert!(c.end_ms - c.start_ms <= o.max_cue_ms + o.hold_ms);
         }
+    }
+
+    #[test]
+    fn full_width_caption_that_cannot_split_in_two_is_not_cut_mid_word() {
+        // 64 units = two full lines, but no word boundary gives two lines of at most 32: this used
+        // to come out as three lines with `대한` cut in half.
+        let w = seq("거기에서 좀 순위가 많이 갈리고 있고 경기력 그리고 뭐 전략에 대한", 300);
+        let o = Layout::default();
+        let c = layout(&w, &o);
+        assert!(c.len() >= 2);
+        for c in &c {
+            assert!(c.lines.len() <= 2 && c.lines.iter().all(|l| width(l) <= o.max_line), "{c:?}");
+        }
+        let all: Vec<String> = c.iter().flat_map(|c| c.lines.iter().flat_map(|l| l.split(' ').map(String::from))).collect();
+        assert_eq!(all.join(" "), "거기에서 좀 순위가 많이 갈리고 있고 경기력 그리고 뭐 전략에 대한");
     }
 
     #[test]
