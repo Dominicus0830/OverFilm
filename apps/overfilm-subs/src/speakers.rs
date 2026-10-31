@@ -46,8 +46,16 @@ impl GameVoice {
 
 /// Label used for game voice turns.
 pub const GAME_LABEL: &str = "게임";
-/// Match score a voice line needs on its own.
+/// Match score a long voice line needs on its own.
 const SURE: f32 = 0.8;
+/// Lines shorter than this (compared characters) must match exactly on their own: "여기까지"
+/// said by a caster is one edit from Sojourn's "여기까지다".
+const EXACT_BELOW: usize = 8;
+
+fn is_sure(m: &overfilm_glossary::voicelines::Match, lines: &VoiceLines) -> bool {
+    let len = lines.lines.get(m.line).map_or(0, |l| l.len());
+    !m.short && (m.score >= 1.0 || (len >= EXACT_BELOW && m.score >= SURE))
+}
 
 /// Write per-word speakers and the speaker list into `t` (people numbered 화자1, 화자2… by first
 /// appearance).
@@ -90,7 +98,7 @@ pub fn mark_game_voice(t: &mut Transcript, lines: &VoiceLines) -> usize {
     let mut game = vec![false; texts.len()];
     let mut weak = vec![false; texts.len()];
     for m in &found {
-        let sure = !m.short && m.score >= SURE;
+        let sure = is_sure(m, lines);
         for g in game.get_mut(m.start..m.end).into_iter().flatten() {
             *g |= sure;
         }
@@ -121,7 +129,7 @@ pub fn mark_game_voice(t: &mut Transcript, lines: &VoiceLines) -> usize {
         }
     }
     name_speakers(t);
-    found.iter().filter(|m| !m.short && m.score >= SURE).count()
+    found.iter().filter(|m| is_sure(m, lines)).count()
 }
 
 /// Number of speakers who are people.
@@ -214,6 +222,10 @@ mod tests {
         assert_eq!(t.speakers.iter().map(|s| s.label.as_str()).collect::<Vec<_>>(), ["화자1", "화자2", "화자3"]);
         let lines = VoiceLines::parse("hero\tkind\ttext\n캐서디\tult_enemy\t석양이 진다\n");
         assert_eq!(mark_game_voice(&mut t, &lines), 1);
+        // one edit away from a short line is ordinary speech
+        let mut near = transcript(&[("여기까지", 0, None)]);
+        assert_eq!(mark_game_voice(&mut near, &VoiceLines::parse("hero\tkind\ttext\n소전\tult\t여기까지다\n")), 0);
+        assert!(!near.words().any(|w| w.game));
         // one match is not enough to call speaker 3 a game voice, but the words are game audio
         assert!(!t.speakers[2].game);
         assert!(t.words().filter(|w| w.game).count() == 2);

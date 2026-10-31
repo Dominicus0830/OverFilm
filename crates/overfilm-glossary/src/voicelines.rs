@@ -20,6 +20,17 @@ pub struct Line {
     norm: Vec<char>,
 }
 
+impl Line {
+    /// Compared characters (letters and digits).
+    pub fn len(&self) -> usize {
+        self.norm.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.norm.is_empty()
+    }
+}
+
 /// A match: words `[start, end)` say `line` with `score` (1 = exact).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Match {

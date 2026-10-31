@@ -84,8 +84,8 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
 
   The generator and scorer are kept with the M1 evaluation files (outside the repository).
 - **Game voice**: `overfilm_glossary::voicelines` matches runs of words against
-  `voicelines.tsv` on letters only (edit distance at most a fifth of the line). A match of a line
-  of 5+ syllables with score ≥ 0.8 marks its words as game audio; a speaker with 2+ matches whose
+  `voicelines.tsv` on letters only (edit distance at most a fifth of the line). An exact match of a line
+  of 5+ characters (score ≥ 0.8 for lines of 8+) marks its words as game audio; a speaker with 2+ matches whose
   words are at least half voice lines becomes a game voice as a whole. Captions drop game audio
   by default (`--game-voice label|keep` to show it). Recognising game audio by sound rather than
   text (hero voices, effects, music) is not done yet.
