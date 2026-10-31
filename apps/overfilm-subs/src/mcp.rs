@@ -13,6 +13,7 @@ use crate::job::{self, Options};
 use crate::pack::{self, Mode};
 use crate::review;
 use crate::speakers::{self, GameVoice};
+use crate::voices;
 
 /// `x.overfilm.json` for `x.overfilm.json` or `x.srt`, and the transcript in it.
 fn load_transcript(p: &Path) -> Result<(PathBuf, overfilm_asr::Transcript), String> {
@@ -71,7 +72,14 @@ fn tools() -> Value {
             "speakers": {"type": "boolean", "description": "목소리를 구별해 사람이 둘 이상이면 자막에 (화자1), (화자2)를 붙임 (기본 true)"},
             "num_speakers": {"type": "integer", "minimum": 1, "maximum": 20, "description": "사람 수를 알면 지정 (없으면 자동으로 셈)"},
             "game_voice": {"type": "string", "enum": ["drop", "label", "keep"], "description": "영웅 대사·아나운서 같은 게임 음성: drop 자막에서 빼기(기본), label (게임) 표시, keep 그대로"},
-            "per_speaker": {"type": "boolean", "description": "사람마다 SRT를 따로 저장 (이름.화자1.srt …, 기본 false)"}}}},
+            "per_speaker": {"type": "boolean", "description": "사람마다 SRT를 따로 저장 (이름.화자1.srt …, 기본 false)"},
+            "only_voices": {"type": "boolean", "description": "등록한 목소리(add_voice)의 말만 자막으로, 예: 스트리머 말만 (기본 false)"},
+            "use_voices": {"type": "boolean", "description": "등록한 목소리와 같은 사람이면 그 이름을 붙임 (기본 true)"}}}},
+        {"name": "add_voice", "description": "한 사람만 말하는 구간(10~30초 권장)으로 목소리를 등록합니다. 이후 추출에서 그 사람은 화자1 대신 이 이름으로 나오고, only_voices로 그 사람 말만 자막으로 만들 수 있습니다.",
+         "inputSchema": {"type": "object", "required": ["name", "file"], "properties": {"name": {"type": "string"}, "file": {"type": "string", "description": "영상 또는 오디오 파일"},
+            "start": {"type": "string", "description": "시작 (예: 1:23, 생략하면 처음)"}, "end": {"type": "string", "description": "끝 (예: 1:45, 생략하면 끝, 최대 2분)"}}}},
+        {"name": "list_voices", "description": "등록한 목소리 목록.", "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "remove_voice", "description": "등록한 목소리를 지웁니다.", "inputSchema": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}}},
         {"name": "list_speakers", "description": "추출 결과(.overfilm.json, 또는 그 옆의 .srt)에서 구별된 화자 목록: 이름, 말한 시간, 단어 수, 게임 음성 여부.",
          "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": path}}},
         {"name": "rename_speaker", "description": "화자 이름을 바꾸고(예: 화자1 → 아이치) 자막을 다시 만듭니다. game을 주면 그 화자를 게임 음성으로(또는 사람으로) 바꿉니다. path는 .overfilm.json 또는 그 옆의 .srt.",
@@ -197,6 +205,8 @@ impl Server {
             o.game_voice = GameVoice::parse(g).ok_or_else(|| format!("모르는 game_voice: {g}"))?;
         }
         o.per_speaker = a.get("per_speaker").and_then(Value::as_bool).unwrap_or(false);
+        o.only_voices = a.get("only_voices").and_then(Value::as_bool).unwrap_or(false);
+        o.use_voices = a.get("use_voices").and_then(Value::as_bool).unwrap_or(true);
         let d = user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         if !o.input.is_file() {
@@ -283,12 +293,31 @@ impl Server {
     fn call(&self, name: &str, a: &Value) -> Result<Value, String> {
         match name {
             "extract_subtitles" => self.extract(a),
+            "add_voice" => {
+                let name = s(a, "name").ok_or("name이 필요합니다")?;
+                let file = s(a, "file").map(PathBuf::from).ok_or("file이 필요합니다")?;
+                let t = |k: &str| -> Result<Option<u64>, String> {
+                    s(a, k).map(|v| voices::parse_time(v).ok_or_else(|| format!("{k}: 시간 형식 (예: 1:23)"))).transpose()
+                };
+                let (from, to) = (t("start")?, t("end")?);
+                let v = job::guarded(|| voices::enroll(name, &file, from, to))?;
+                Ok(json!({"name": v.name, "sample_seconds": v.seconds}))
+            }
+            "list_voices" => {
+                let l: Vec<Value> = voices::list().iter().map(|v| json!({"name": v.name, "sample_seconds": v.seconds, "source": v.source})).collect();
+                Ok(json!({"voices": l}))
+            }
+            "remove_voice" => {
+                let name = s(a, "name").ok_or("name이 필요합니다")?;
+                voices::remove_in(&voices::dir(), name)?;
+                Ok(json!({"removed": name}))
+            }
             "list_speakers" => {
                 let (_, t) = load_transcript(&path_arg(a)?)?;
                 let list: Vec<Value> = t
                     .speakers
                     .iter()
-                    .map(|s| json!({"name": s.label, "seconds": (s.seconds * 10.0).round() / 10.0, "words": s.words, "game": s.game}))
+                    .map(|s| json!({"name": s.label, "seconds": (s.seconds * 10.0).round() / 10.0, "words": s.words, "game": s.game, "enrolled": s.enrolled}))
                     .collect();
                 Ok(json!({"people": speakers::people(&t), "speakers": list}))
             }
@@ -538,7 +567,7 @@ mod tests {
             chunks: vec![ChunkText {
                 start_ms: 0, end_ms: 3000, text: String::new(), words: vec![w("안녕", 0, 0), w("네", 1000, 1), w("영웅은", 2000, 2)]
             }],
-            speakers: (1..=3).map(|n| Speaker { label: format!("화자{n}"), seconds: 0.4, words: 1, game: false }).collect(),
+            speakers: (1..=3).map(|n| Speaker { label: format!("화자{n}"), seconds: 0.4, words: 1, ..Speaker::default() }).collect(),
             ..Transcript::default()
         };
         std::fs::write(&j, serde_json::to_string(&t).unwrap()).unwrap();

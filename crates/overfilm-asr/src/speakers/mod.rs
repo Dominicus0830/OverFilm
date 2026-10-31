@@ -44,11 +44,24 @@ pub struct Params {
     /// Cost (similarity × seconds) of changing speaker between two words of fluent speech; at a
     /// pause or sentence end it is nearly free.
     pub switch_cost: f32,
+    /// Enrolled voices: a speaker whose centroid is within [`KNOWN_MATCH`] of one takes its name.
+    #[serde(default)]
+    pub known: Vec<KnownVoice>,
 }
 
 impl Default for Params {
     fn default() -> Self {
-        Self { window_ms: 1500, step_ms: 500, pause_ms: 250, threshold: 0.7, speakers: None, max_speakers: 8, min_speaker_seconds: 10.0, switch_cost: 0.4 }
+        Self {
+            window_ms: 1500,
+            step_ms: 500,
+            pause_ms: 250,
+            threshold: 0.7,
+            speakers: None,
+            max_speakers: 8,
+            min_speaker_seconds: 10.0,
+            switch_cost: 0.4,
+            known: Vec::new(),
+        }
     }
 }
 
@@ -66,7 +79,25 @@ pub struct SpeakerStat {
     /// Seconds of words.
     pub seconds: f32,
     pub words: usize,
+    /// The enrolled voice this speaker matched ([`Params::known`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
+
+/// A voice the user enrolled: a name and the mean voice vector of a sample (unit length).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct KnownVoice {
+    pub name: String,
+    pub vector: Vec<f32>,
+}
+
+/// Size of a voice vector (also without the network compiled in).
+pub const fn net_embed_size() -> usize {
+    256
+}
+
+/// Cosine distance at which a speaker is taken to be an enrolled voice.
+pub const KNOWN_MATCH: f32 = 0.55;
 
 /// Speech regions `[start, end)` in ms: the words, joined across pauses shorter than `pause`.
 pub fn speech_regions(words: &[Word], pause: i64) -> Vec<(i64, i64)> {
@@ -131,6 +162,11 @@ pub fn block_of(s: i64, e: i64) -> usize {
     }
 }
 
+#[cfg_attr(not(feature = "qwen"), allow(dead_code))]
+fn ms_of(samples: usize) -> i64 {
+    i64::try_from(samples / (SAMPLE_RATE as usize / 1000)).unwrap_or(i64::MAX)
+}
+
 fn ms_to_sample(ms: i64) -> usize {
     usize::try_from(ms.max(0)).unwrap_or(0).saturating_mul(SAMPLE_RATE as usize / 1000)
 }
@@ -185,13 +221,44 @@ pub fn window_vectors(
 pub struct Clusters {
     pub labels: Vec<Option<usize>>,
     pub centroids: Vec<Vec<f32>>,
+    /// Enrolled name of each centroid's speaker, if it matched one.
+    pub names: Vec<Option<String>>,
+}
+
+/// Give enrolled names to centroids: closest pairs first, each voice and centroid used once,
+/// only within [`KNOWN_MATCH`].
+pub fn match_known(centroids: &[Vec<f32>], known: &[KnownVoice]) -> Vec<Option<String>> {
+    let mut pairs: Vec<(f32, usize, usize)> = Vec::new();
+    for (ci, c) in centroids.iter().enumerate() {
+        for (ki, k) in known.iter().enumerate() {
+            if k.vector.len() == c.len() {
+                let d = cluster::cosine_distance(c, &k.vector);
+                if d <= KNOWN_MATCH {
+                    pairs.push((d, ci, ki));
+                }
+            }
+        }
+    }
+    pairs.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut names = vec![None; centroids.len()];
+    let mut used = vec![false; known.len()];
+    for (_, ci, ki) in pairs {
+        if names.get(ci).is_some_and(Option::is_none)
+            && !used.get(ki).copied().unwrap_or(true)
+            && let (Some(n), Some(u), Some(k)) = (names.get_mut(ci), used.get_mut(ki), known.get(ki))
+        {
+            *n = Some(k.name.clone());
+            *u = true;
+        }
+    }
+    names
 }
 
 /// Speaker of each window from its voice vector (`None` stays `None`).
 pub fn cluster_windows(vecs: &[Option<Vec<f32>>], wins: &[(i64, i64)], p: &Params) -> Clusters {
     let have: Vec<usize> = (0..vecs.len()).filter(|&i| vecs.get(i).is_some_and(Option::is_some)).collect();
     if have.is_empty() {
-        return Clusters { labels: vec![None; vecs.len()], centroids: Vec::new() };
+        return Clusters { labels: vec![None; vecs.len()], centroids: Vec::new(), names: Vec::new() };
     }
     let dim = vecs.iter().flatten().next().map_or(0, Vec::len);
     // subsample evenly for the tree when there are too many windows
@@ -217,6 +284,13 @@ pub fn cluster_windows(vecs: &[Option<Vec<f32>>], wins: &[(i64, i64)], p: &Param
             }
         }
         let total: f32 = secs.iter().sum();
+        // a speaker that is an enrolled voice is kept however little it says
+        let named = match_known(&cents, &p.known);
+        for (s, n) in secs.iter_mut().zip(&named) {
+            if n.is_some() {
+                *s = f32::INFINITY;
+            }
+        }
         let keep_min = if want.is_some() { 0.0 } else { p.min_speaker_seconds.min(0.08 * total) };
         let over = cents.len() > p.max_speakers.max(1);
         let smallest = secs.iter().enumerate().min_by(|a, b| a.1.total_cmp(b.1)).map(|(i, &s)| (i, s));
@@ -228,7 +302,8 @@ pub fn cluster_windows(vecs: &[Option<Vec<f32>>], wins: &[(i64, i64)], p: &Param
             _ => break,
         }
     }
-    Clusters { labels: lab, centroids: cents }
+    let names = match_known(&cents, &p.known);
+    Clusters { labels: lab, centroids: cents, names }
 }
 
 /// How strongly the boundary after word `a` (before `b`) separates turns: 1 at a sentence end or
@@ -326,7 +401,8 @@ pub fn label_words(words: &[Word], wins: &[(i64, i64)], vecs: &[Option<Vec<f32>>
         }
     }
     let words_out: Vec<Option<usize>> = raw.iter().map(|l| order.iter().position(|o| o == l)).collect();
-    let mut speakers: Vec<SpeakerStat> = (0..order.len()).map(|id| SpeakerStat { id, ..Default::default() }).collect();
+    let mut speakers: Vec<SpeakerStat> =
+        order.iter().enumerate().map(|(id, &o)| SpeakerStat { id, name: c.names.get(o).cloned().flatten(), ..Default::default() }).collect();
     for (w, l) in words.iter().zip(&words_out) {
         if let Some(s) = l.and_then(|l| speakers.get_mut(l)) {
             s.words += 1;
@@ -341,21 +417,92 @@ pub fn label_words(words: &[Word], wins: &[(i64, i64)], vecs: &[Option<Vec<f32>>
 pub struct Diarizer {
     net: net::Net,
     fbank: fbank::Fbank,
+    /// The convolutions on the GPU, when [`Diarizer::use_gpu`] found one that matches the CPU.
+    gpu: Option<crate::gpu::speaker::SpeakerNet>,
+    /// Where the network runs ("CPU" or "GPU <adapter>").
+    pub device: String,
 }
 
 #[cfg(feature = "qwen")]
 impl Diarizer {
     /// Load the speaker model from its folder (see [`crate::catalogue::SPEAKER`]).
     pub fn load(dir: &std::path::Path) -> Result<Self, crate::AsrError> {
-        Ok(Self { net: net::Net::load(&dir.join("pytorch_model.bin"))?, fbank: fbank::Fbank::new() })
+        Ok(Self { net: net::Net::load(&dir.join("pytorch_model.bin"))?, fbank: fbank::Fbank::new(), gpu: None, device: "CPU".into() })
     }
 
-    /// Frame map of a block of audio: (output frames, map).
+    /// Run the convolutions on the GPU (Vulkan, DX12, Metal) if there is one and it gives the
+    /// CPU's numbers on a test block; otherwise stay on the CPU. Returns where it runs.
+    pub fn use_gpu(&mut self) -> String {
+        match self.try_gpu() {
+            Ok((g, name)) => {
+                self.gpu = Some(g);
+                self.device = format!("GPU {name}");
+            }
+            Err(e) => {
+                self.gpu = None;
+                self.device = format!("CPU ({e})");
+            }
+        }
+        self.device.clone()
+    }
+
+    fn try_gpu(&self) -> Result<(crate::gpu::speaker::SpeakerNet, String), crate::AsrError> {
+        let ctx = crate::gpu::Ctx::new()?;
+        self.gpu_with(&ctx)
+    }
+
+    /// Build the GPU network on `ctx` and compare it with the CPU on 2 s of test features.
+    pub fn gpu_with(&self, ctx: &std::sync::Arc<crate::gpu::Ctx>) -> Result<(crate::gpu::speaker::SpeakerNet, String), crate::AsrError> {
+        let (stem, blocks) = self.net.specs()?;
+        let g = crate::gpu::speaker::SpeakerNet::new(ctx, &stem, &blocks)?;
+        // a chirp with harmonics: varied, speech-like features
+        let audio: Vec<f32> = (0..32_000)
+            .map(|i| {
+                let t = i as f32 / 16_000.0;
+                let f = 120.0 + 80.0 * t;
+                (1..6).map(|h| (std::f32::consts::TAU * f * h as f32 * t).sin() / h as f32).sum::<f32>() * 0.2
+            })
+            .collect();
+        let frames = fbank::frames(audio.len());
+        let mut feats = self.fbank.compute(&audio);
+        fbank::subtract_mean(&mut feats);
+        let cpu = self.net.frame_map(&feats, frames)?;
+        let gpu = Self::gpu_map(&g, &feats, frames)?;
+        let scale = cpu.iter().map(|v| v.abs()).fold(0f32, f32::max).max(1e-6);
+        let err = cpu.iter().zip(&gpu).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max) / scale;
+        if cpu.len() != gpu.len() || !err.is_finite() || err > 1e-3 {
+            return Err(crate::AsrError::Model(format!("GPU speaker network differs from the CPU (relative error {err:.2e})")));
+        }
+        Ok((g, ctx.name.clone()))
+    }
+
+    /// GPU frame map rearranged like [`net::Net::frame_map`]: `out_frames × FEAT`.
+    fn gpu_map(g: &crate::gpu::speaker::SpeakerNet, feats: &[f32], frames: usize) -> Result<Vec<f32>, crate::AsrError> {
+        let (raw, t) = g.forward(feats, frames, fbank::N_MELS)?;
+        if raw.len() != net::FEAT * t {
+            return Err(crate::AsrError::Model("GPU speaker network: unexpected output size".into()));
+        }
+        let mut out = vec![0f32; raw.len()];
+        for (r, row) in raw.chunks(t.max(1)).enumerate() {
+            for (f, &v) in row.iter().enumerate() {
+                if let Some(slot) = out.get_mut(f * net::FEAT + r) {
+                    *slot = v;
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Frame map of a block of audio: (output frames, map). On the GPU when enabled; a GPU error
+    /// falls back to the CPU for that block.
     pub fn frame_map(&self, block: &[f32]) -> Result<(usize, Vec<f32>), crate::AsrError> {
         let frames = fbank::frames(block.len());
         let mut feats = self.fbank.compute(block);
         fbank::subtract_mean(&mut feats);
-        let map = self.net.frame_map(&feats, frames)?;
+        let map = match self.gpu.as_ref().filter(|_| frames > 0).map(|g| Self::gpu_map(g, &feats, frames)) {
+            Some(Ok(m)) => m,
+            _ => self.net.frame_map(&feats, frames)?,
+        };
         Ok((map.len() / net::FEAT, map))
     }
 
@@ -371,6 +518,31 @@ impl Diarizer {
             cluster::normalize(&mut v);
             v
         }))
+    }
+
+    /// Voice profile of a sample of one person speaking (a few seconds to a minute): the mean of
+    /// its 1.5 s windows' voice vectors, skipping quiet windows. `None` if it has no speech.
+    pub fn profile(&self, audio: &[f32]) -> Result<Option<Vec<f32>>, crate::AsrError> {
+        let len = ms_of(audio.len());
+        let rms = |s: i64, e: i64| -> f32 {
+            let x = audio.get(ms_to_sample(s).min(audio.len())..ms_to_sample(e).min(audio.len())).unwrap_or(&[]);
+            if x.is_empty() { 0.0 } else { (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt() }
+        };
+        let all = windows(&[(0, len)], 1500, 500);
+        let loud = all.iter().map(|&(s, e)| rms(s, e)).fold(0f32, f32::max);
+        let wins: Vec<(i64, i64)> = all.into_iter().filter(|&(s, e)| loud > 0.0 && rms(s, e) >= 0.1 * loud).collect();
+        let vecs = window_vectors(audio, &wins, &mut |b| self.frame_map(b), &|m, a, b| self.net.embed(m, a, b), &mut |_, _| true)?;
+        let mut sum = vec![0f32; net::EMBED];
+        let mut n = 0;
+        for v in vecs.iter().flatten() {
+            sum.iter_mut().zip(v).for_each(|(a, b)| *a += b);
+            n += 1;
+        }
+        if n == 0 {
+            return Ok(None);
+        }
+        cluster::normalize(&mut sum);
+        Ok(Some(sum))
     }
 
     /// Label the words of `audio` (16 kHz mono). `progress(fraction)` returns false to cancel.
@@ -449,10 +621,30 @@ mod tests {
     }
 
     #[test]
+    fn enrolled_voices_name_the_nearest_speaker_only() {
+        let unit = |v: &[f32]| {
+            let mut v = v.to_vec();
+            cluster::normalize(&mut v);
+            v
+        };
+        let cents = vec![unit(&[1.0, 0.0, 0.0]), unit(&[0.0, 1.0, 0.0])];
+        let known = vec![
+            KnownVoice { name: "스트리머".into(), vector: unit(&[0.1, 1.0, 0.0]) },
+            KnownVoice { name: "없는 사람".into(), vector: unit(&[0.0, 0.0, 1.0]) },
+            KnownVoice { name: "짧은 벡터".into(), vector: vec![1.0] },
+        ];
+        assert_eq!(match_known(&cents, &known), vec![None, Some("스트리머".to_string())]);
+        assert_eq!(match_known(&cents, &[]), vec![None, None]);
+        // two voices close to one speaker: only the closer one gets it
+        let twins = vec![KnownVoice { name: "a".into(), vector: unit(&[1.0, 0.2, 0.0]) }, KnownVoice { name: "b".into(), vector: unit(&[1.0, 0.0, 0.0]) }];
+        assert_eq!(match_known(&cents, &twins), vec![Some("b".to_string()), None]);
+    }
+
+    #[test]
     fn turns_change_at_pauses_not_mid_sentence() {
         let a = vec![1.0f32, 0.0];
         let b = vec![0.0f32, 1.0];
-        let c = Clusters { labels: Vec::new(), centroids: vec![a.clone(), b.clone()] };
+        let c = Clusters { labels: Vec::new(), centroids: vec![a.clone(), b.clone()], names: vec![None, Some("아이치".into())] };
         let word = |t: &str, s: i64, e: i64| Word { text: t.into(), start_ms: s, end_ms: e, ..Default::default() };
         // A speaks two fluent words, one window in the middle of a sentence sounds like B
         let words = vec![word("이거", 0, 400), word("진짜", 400, 800), word("좋네요.", 800, 1200), word("네", 1800, 2200), word("맞아요", 2200, 2600)];
@@ -461,6 +653,7 @@ mod tests {
         let l = label_words(&words, &wins, &vecs, &c, &Params::default());
         assert_eq!(l.words, vec![Some(0), Some(0), Some(0), Some(1), Some(1)], "the stray window does not split the sentence");
         assert_eq!(l.speakers.len(), 2);
+        assert_eq!(l.speakers[1].name.as_deref(), Some("아이치"));
         // without a pause the same evidence over two words is still a change only if it is strong
         assert!(boundary(&words[2], &words[3]) > 0.99);
         assert!(boundary(&words[0], &words[1]) < 0.01);

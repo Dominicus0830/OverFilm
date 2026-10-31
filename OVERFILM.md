@@ -90,6 +90,18 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   fluent speech and almost nothing after a sentence end or a 400 ms pause. On the T1 vs 로제
   clip this cut speaker changes in the middle of a sentence (no punctuation, gap under 200 ms)
   from 24 to 1.
+- **Enrolled voices**: `Diarizer::profile` averages a sample's 1.5 s window vectors (quiet
+  windows skipped); `apps/overfilm-subs/src/voices.rs` saves it as `voices/<name>.json` beside
+  the models. After clustering, `match_known` gives each enrolled name to the nearest centroid
+  within cosine distance 0.55 (closest pairs first, one each), and an enrolled speaker is never
+  folded away as too small. `--only-voices` keeps only enrolled speakers' words (streamer mode).
+  Synthetic check (24 conversations, every speaker enrolled from a different 10 s utterance of
+  the same person): 95.8% of words get a name, 94.7% the right one, 1.1% a wrong one.
+- **GPU**: `gpu/conv.wgsl` runs every convolution of the network (one dispatch each, one
+  submission per block, only the last frame map read back). `Diarizer::use_gpu` compares GPU and
+  CPU frame maps on a 2 s test block first (relative error ≤ 1e-3) and stays on the CPU
+  otherwise; a GPU error on a block falls back to the CPU for that block. `gpu-check` includes a
+  small residual network against a plain-loop reference.
 - **Game voice**: `overfilm_glossary::voicelines` matches runs of words against
   `voicelines.tsv` on letters only (edit distance at most a fifth of the line). An exact match of a line
   of 5+ characters (score ≥ 0.8 for lines of 8+) marks its words as game audio; a speaker with 2+ matches whose

@@ -16,7 +16,7 @@ use super::fbank::N_MELS;
 use crate::AsrError;
 
 /// Size of a voice vector.
-pub const EMBED: usize = 256;
+pub const EMBED: usize = super::net_embed_size();
 /// Feature frames per output frame (three stride-2 stages).
 pub const DOWN: usize = 8;
 const BN_EPS: f64 = 1e-5;
@@ -29,6 +29,19 @@ struct Conv {
 }
 
 impl Conv {
+    fn spec(&self) -> Result<crate::gpu::speaker::ConvSpec, AsrError> {
+        let d = self.w.dims4()?;
+        Ok(crate::gpu::speaker::ConvSpec {
+            w: self.w.flatten_all()?.to_vec1()?,
+            b: self.b.flatten_all()?.to_vec1()?,
+            cout: d.0,
+            cin: d.1,
+            k: d.2,
+            stride: self.stride,
+            pad: self.pad,
+        })
+    }
+
     fn forward(&self, x: &Tensor) -> candle_core::Result<Tensor> {
         x.conv2d(&self.w, self.pad, self.stride, 1, 1)?.broadcast_add(&self.b)
     }
@@ -130,6 +143,22 @@ impl Net {
         let seg_w = seg.flatten_all()?.to_vec1()?;
         let seg_b = w.get("seg_1.bias")?.to_vec1()?;
         Ok(Self { stem, blocks, seg_w, seg_b, dev: Device::Cpu })
+    }
+
+    /// The convolutions for the GPU: stem, then (first, second, shortcut) per block.
+    #[allow(clippy::type_complexity)]
+    pub fn specs(
+        &self,
+    ) -> Result<
+        (crate::gpu::speaker::ConvSpec, Vec<(crate::gpu::speaker::ConvSpec, crate::gpu::speaker::ConvSpec, Option<crate::gpu::speaker::ConvSpec>)>),
+        AsrError,
+    > {
+        let blocks = self
+            .blocks
+            .iter()
+            .map(|b| Ok((b.c1.spec()?, b.c2.spec()?, b.short.as_ref().map(Conv::spec).transpose()?)))
+            .collect::<Result<Vec<_>, AsrError>>()?;
+        Ok((self.stem.spec()?, blocks))
     }
 
     /// Output frames for `frames` feature frames.

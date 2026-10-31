@@ -100,6 +100,9 @@ pub struct Speaker {
     /// Mostly in-game voice lines: a hero or the announcer, not a person.
     #[serde(default)]
     pub game: bool,
+    /// Matched a voice the user enrolled (its label is that voice's name).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub enrolled: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

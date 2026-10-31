@@ -67,25 +67,33 @@ pub fn apply_labels(t: &mut Transcript, labels: &Labels) {
             i += 1;
         }
     }
-    t.speakers = labels.speakers.iter().map(|s| Speaker { label: String::new(), seconds: s.seconds, words: s.words, game: false }).collect();
+    t.speakers = labels
+        .speakers
+        .iter()
+        .map(|s| Speaker { label: s.name.clone().unwrap_or_default(), seconds: s.seconds, words: s.words, game: false, enrolled: s.name.is_some() })
+        .collect();
     name_speakers(t);
 }
 
-/// Name speakers: people 화자1, 화자2… in order, game voices "게임 음성". Names the user gave
-/// (anything not of that form) are kept.
+/// Name speakers: unnamed people get the next free 화자N, game voices "게임 음성". Existing names
+/// (numbers given earlier, names the user gave, enrolled names) stay, so renaming one speaker
+/// never renumbers the others.
 pub fn name_speakers(t: &mut Transcript) {
-    let mut n = 0;
+    const GAME: &str = "게임 음성";
+    let mut used: Vec<u32> = t.speakers.iter().filter_map(|s| s.label.strip_prefix("화자").and_then(|r| r.parse().ok())).collect();
     for s in &mut t.speakers {
-        let auto = s.label.is_empty() || s.label == "게임 음성" || s.label.strip_prefix("화자").is_some_and(|r| r.parse::<u32>().is_ok());
+        let numbered = s.label.strip_prefix("화자").is_some_and(|r| r.parse::<u32>().is_ok());
         if s.game {
-            if auto {
-                s.label = "게임 음성".into();
+            if s.label.is_empty() || numbered {
+                if let Some(n) = s.label.strip_prefix("화자").and_then(|r| r.parse::<u32>().ok()) {
+                    used.retain(|&u| u != n);
+                }
+                s.label = GAME.into();
             }
-        } else {
-            n += 1;
-            if auto {
-                s.label = format!("화자{n}");
-            }
+        } else if s.label.is_empty() || s.label == GAME {
+            let n = (1..).find(|n| !used.contains(n)).unwrap_or(1);
+            used.push(n);
+            s.label = format!("화자{n}");
         }
     }
 }
@@ -137,10 +145,27 @@ pub fn people(t: &Transcript) -> usize {
     t.speakers.iter().filter(|s| !s.game).count()
 }
 
-/// Caption turns: consecutive words of one speaker. Labels are given when there are two or more
-/// people (or the turn is game voice shown as such); `only` keeps one speaker's words.
-pub fn turns(t: &Transcript, game: GameVoice, only: Option<usize>) -> Vec<(Option<String>, Vec<TimedWord>)> {
-    let label_people = people(t) > 1 && only.is_none();
+/// Which speakers' words captions keep.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Keep {
+    All,
+    /// Only voices the user enrolled (e.g. the streamer).
+    Enrolled,
+    /// One speaker (per-speaker files).
+    One(usize),
+}
+
+/// Caption turns: consecutive words of one speaker. Labels are given when two or more people are
+/// shown (or the turn is game voice shown as such).
+pub fn turns(t: &Transcript, game: GameVoice, keep: Keep) -> Vec<(Option<String>, Vec<TimedWord>)> {
+    let shown = |s: Option<usize>| match keep {
+        Keep::All => true,
+        Keep::Enrolled => s.and_then(|s| t.speakers.get(s)).is_some_and(|s| s.enrolled && !s.game),
+        Keep::One(i) => s == Some(i),
+    };
+    let shown_people = t.speakers.iter().enumerate().filter(|(i, s)| !s.game && shown(Some(*i))).count();
+    let label_people = shown_people > 1 && !matches!(keep, Keep::One(_));
+    let only = matches!(keep, Keep::One(_) | Keep::Enrolled);
     let mut out: Vec<(Option<String>, Vec<TimedWord>)> = Vec::new();
     let mut key: Option<(Option<usize>, bool)> = None;
     for w in t.words() {
@@ -149,7 +174,7 @@ pub fn turns(t: &Transcript, game: GameVoice, only: Option<usize>) -> Vec<(Optio
             key = None;
             continue;
         }
-        if only.is_some() && (w.speaker != only || is_game) {
+        if !shown(w.speaker) || (only && is_game) {
             key = None;
             continue;
         }
@@ -174,7 +199,12 @@ pub fn turns(t: &Transcript, game: GameVoice, only: Option<usize>) -> Vec<(Optio
 
 /// Captions of a transcript.
 pub fn captions(t: &Transcript, game: GameVoice, layout: &Layout) -> Vec<Caption> {
-    overfilm_captions::layout_turns(&turns(t, game, None), layout)
+    captions_keep(t, game, Keep::All, layout)
+}
+
+/// Captions of the speakers `keep` selects.
+pub fn captions_keep(t: &Transcript, game: GameVoice, keep: Keep, layout: &Layout) -> Vec<Caption> {
+    overfilm_captions::layout_turns(&turns(t, game, keep), layout)
 }
 
 /// One caption list per person (speaker index, label, captions).
@@ -183,20 +213,31 @@ pub fn captions_per_speaker(t: &Transcript, layout: &Layout) -> Vec<(usize, Stri
         .iter()
         .enumerate()
         .filter(|(_, s)| !s.game)
-        .map(|(i, s)| (i, s.label.clone(), overfilm_captions::layout_turns(&turns(t, GameVoice::Drop, Some(i)), layout)))
+        .map(|(i, s)| (i, s.label.clone(), overfilm_captions::layout_turns(&turns(t, GameVoice::Drop, Keep::One(i)), layout)))
         .collect()
 }
 
-/// Run the speaker network over `audio` and label `t`'s words.
-pub fn label(audio: &[f32], t: &mut Transcript, model_dir: &std::path::Path, p: &Params, progress: &mut dyn FnMut(f32) -> bool) -> Result<(), String> {
+/// Run the speaker network over `audio` (on the GPU when `gpu` and one matches the CPU) and
+/// label `t`'s words. Returns where the network ran.
+pub fn label(
+    audio: &[f32],
+    t: &mut Transcript,
+    model_dir: &std::path::Path,
+    p: &Params,
+    gpu: bool,
+    progress: &mut dyn FnMut(f32) -> bool,
+) -> Result<String, String> {
     let words: Vec<overfilm_asr::Word> = t.words().cloned().collect();
     if words.is_empty() {
-        return Ok(());
+        return Ok(String::new());
     }
-    let d = Diarizer::load(model_dir).map_err(|e| format!("화자 구별 모델: {e}"))?;
+    let mut d = Diarizer::load(model_dir).map_err(|e| format!("화자 구별 모델: {e}"))?;
+    if gpu {
+        d.use_gpu();
+    }
     let labels = d.run(audio, &words, p, progress).map_err(|e| e.to_string())?;
     apply_labels(t, &labels);
-    Ok(())
+    Ok(d.device.clone())
 }
 
 #[cfg(test)]
@@ -216,10 +257,11 @@ mod tests {
             transcript(&[("자", 0, None), ("들어가요", 500, None), ("석양이", 1000, None), ("진다", 1400, None), ("네", 2000, None), ("좋아요", 2400, None)]);
         let labels = Labels {
             words: vec![Some(0), Some(0), Some(2), Some(2), Some(1), Some(1)],
-            speakers: (0..3).map(|id| SpeakerStat { id, seconds: 0.8, words: 2 }).collect(),
+            speakers: (0..3).map(|id| SpeakerStat { id, seconds: 0.8, words: 2, name: (id == 1).then(|| "스트리머".into()) }).collect(),
         };
         apply_labels(&mut t, &labels);
-        assert_eq!(t.speakers.iter().map(|s| s.label.as_str()).collect::<Vec<_>>(), ["화자1", "화자2", "화자3"]);
+        assert_eq!(t.speakers.iter().map(|s| s.label.as_str()).collect::<Vec<_>>(), ["화자1", "스트리머", "화자2"]);
+        assert!(t.speakers[1].enrolled);
         let lines = VoiceLines::parse("hero\tkind\ttext\n캐서디\tult_enemy\t석양이 진다\n");
         assert_eq!(mark_game_voice(&mut t, &lines), 1);
         // one edit away from a short line is ordinary speech
@@ -232,7 +274,10 @@ mod tests {
         let lay = Layout::default();
         let caps = captions(&t, GameVoice::Drop, &lay);
         let text: Vec<String> = caps.iter().map(|c| c.lines.join(" ")).collect();
-        assert_eq!(text, ["(화자1) 자 들어가요", "(화자2) 네 좋아요"]);
+        assert_eq!(text, ["(화자1) 자 들어가요", "(스트리머) 네 좋아요"]);
+        // only the enrolled voice, without a label
+        let mine = captions_keep(&t, GameVoice::Drop, Keep::Enrolled, &lay);
+        assert_eq!(mine.iter().map(|c| c.lines.join(" ")).collect::<Vec<_>>(), ["네 좋아요"]);
         let shown = captions(&t, GameVoice::Label, &lay);
         assert!(shown.iter().any(|c| c.lines.join(" ") == "(게임) 석양이 진다"));
         let per = captions_per_speaker(&t, &lay);
@@ -244,7 +289,7 @@ mod tests {
     #[test]
     fn one_person_gets_no_labels_and_renames_survive() {
         let mut t = transcript(&[("하나", 0, Some(0)), ("둘", 500, Some(0))]);
-        t.speakers = vec![Speaker { label: "아이치".into(), seconds: 1.0, words: 2, game: false }];
+        t.speakers = vec![Speaker { label: "아이치".into(), seconds: 1.0, words: 2, ..Speaker::default() }];
         name_speakers(&mut t);
         assert_eq!(t.speakers[0].label, "아이치");
         let caps = captions(&t, GameVoice::Drop, &Layout::default());

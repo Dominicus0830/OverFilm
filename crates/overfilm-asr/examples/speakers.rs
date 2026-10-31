@@ -32,7 +32,10 @@ fn main() {
             }
         }
         Some("embed") => {
-            let d = Diarizer::load(Path::new(&a[1])).expect("model");
+            let mut d = Diarizer::load(Path::new(&a[1])).expect("model");
+            if std::env::var("SPK_GPU").is_ok() {
+                eprintln!("{}", d.use_gpu());
+            }
             let audio = read_f32(&a[2]);
             let t = std::time::Instant::now();
             let v = d.embed(&audio).expect("embed").unwrap_or_default();
@@ -40,7 +43,10 @@ fn main() {
             println!("{}", serde_json::to_string(&v).unwrap());
         }
         Some("diarize") => {
-            let d = Diarizer::load(Path::new(&a[1])).expect("model");
+            let mut d = Diarizer::load(Path::new(&a[1])).expect("model");
+            if std::env::var("SPK_GPU").is_ok() {
+                eprintln!("{}", d.use_gpu());
+            }
             let audio = read_f32(&a[2]);
             let words: Vec<Word> = serde_json::from_str(&std::fs::read_to_string(&a[3]).unwrap()).unwrap();
             let mut p = Params::default();
@@ -60,6 +66,12 @@ fn main() {
                     }
                     "--step" => {
                         p.step_ms = a[i + 1].parse().unwrap();
+                        i += 1;
+                    }
+                    "--known" => {
+                        let (name, file) = a[i + 1].split_once('=').unwrap();
+                        let v = d.profile(&read_f32(file)).unwrap().expect("speech in sample");
+                        p.known.push(speakers::KnownVoice { name: name.into(), vector: v });
                         i += 1;
                     }
                     "--load" => {

@@ -16,6 +16,9 @@ OverFilm에서 자막 추출만 떼어 낸 독립 프로그램입니다. 영상�
   붙입니다. 자막 하나에 두 사람 말이 섞이지 않습니다. 사람 수를 알면 정해 줄 수 있고(`--speakers 3`), 이름은 나중에
   바꿀 수 있습니다(`relayout … --rename 화자1=아이치`, MCP `rename_speaker`). 사람마다 SRT를 따로 저장할 수도 있습니다
   (`--per-speaker`, Premiere에서 해설자마다 자막 트랙을 따로 둘 때).
+- 목소리 등록: 스트리머·해설자처럼 자주 나오는 사람의 목소리를 한 번 등록해 두면(그 사람만 말하는 10~30초), 다음
+  영상부터 `화자1` 대신 그 이름이 붙고, **등록한 목소리만 자막**을 켜면 그 사람 말만 자막으로 만듭니다(게임 음성·다른
+  사람 제외). `overfilm-subs voice add 이름 영상.mp4 --from 1:23 --to 1:45`, 창의 **목소리 등록…**, MCP `add_voice`.
 - 게임 음성: 영웅 궁극기 대사·아나운서 같은 게임 소리를 찾아 자막에서 뺍니다(기본). `(게임)`으로 표시하거나 그대로 둘 수도
   있습니다(`--game-voice label|keep`). 자세한 방식과 한계는 아래 "목소리 구별과 게임 음성".
 - 결과: 입력 파일 옆에 `이름.srt`(UTF-8 BOM, Premiere에서 바로 가져오기)와 `이름.overfilm.json`(단어별 시간과 화자).
@@ -53,6 +56,9 @@ overfilm-subs relayout 경기.overfilm.json --line-chars 18   인식을 다시 �
 overfilm-subs extract "합방.mp4" --speakers 3 --per-speaker     사람 3명, 사람마다 SRT도 저장
 overfilm-subs extract "방송.mp4" --game-voice label             게임 음성을 빼지 않고 (게임)으로 표시
 overfilm-subs relayout 합방.overfilm.json --rename 화자1=아이치 --rename 화자2=게스트   화자 이름 바꾸기
+overfilm-subs voice add 아이치 "방송.mp4" --from 1:23 --to 1:45   목소리 등록 (그 사람만 말하는 구간)
+overfilm-subs extract "방송.mp4" --only-voices                    등록한 목소리(스트리머)의 말만 자막
+overfilm-subs voice list
 ```
 
 ## MCP로 검토하기 (Claude Desktop)
@@ -79,6 +85,7 @@ overfilm-subs relayout 합방.overfilm.json --rename 화자1=아이치 --rename 
 | `edit_subtitle`, `split_subtitle`, `merge_subtitles`, `delete_subtitle` | 고치기 (처음 고칠 때 `.srt.bak` 백업) |
 | `apply_glossary` | 단어집·맞춤법·숫자 교정 적용 |
 | `relayout_subtitles` | 줄바꿈 다시 하기 |
+| `add_voice`, `list_voices`, `remove_voice` | 목소리 등록·목록·삭제 (`extract_subtitles`의 `only_voices`로 그 사람 말만 자막) |
 | `list_speakers`, `rename_speaker` | 구별된 화자 목록(말한 시간, 게임 음성 여부), 이름 바꾸기·게임 음성으로 돌리기 (자막 다시 만듦) |
 | `add_glossary_term` | 자주 틀리는 표기를 사용자 단어집(`%LOCALAPPDATA%\OverFilm\glossary\user.tsv`)에 추가 |
 
@@ -88,8 +95,8 @@ overfilm-subs relayout 합방.overfilm.json --rename 화자1=아이치 --rename 
 
 - **어떻게**: 인식된 단어가 있는 곳을 1.5초 창으로 0.5초마다 훑으며 목소리 특징(256개 숫자)을 뽑고, 비슷한 것끼리
   묶어(평균 연결 군집, 코사인 거리 0.7에서 멈춤) 사람 수를 정합니다. 말이 10초(짧은 영상은 전체의 8%)가 안 되는
-  목소리는 가장 비슷한 사람에게 합칩니다. 단어마다 가장 많이 겹친 사람을 붙이고, 같은 사람 사이에 낀 0.5초 미만
-  토막은 앞뒤 사람으로 봅니다.
+  목소리는 가장 비슷한 사람에게 합칩니다. 단어마다 각 사람과 얼마나 비슷한지 점수를 매기고, 사람이 바뀌는
+  곳은 쉼(0.4초 이상)이나 문장 끝에서만 쉽게 바뀌도록 정합니다. 그래서 한 문장이 중간에 다른 사람으로 쪼개지지 않습니다.
 - **모델**: WeSpeaker ResNet34 (VoxCeleb으로 학습, pyannote 배포본, CC-BY-4.0, 27MB). 처음 한 번 받습니다.
   Rust(candle)로 옮겼고 원본(ONNX)과 결과가 같습니다(코사인 1.0000).
 - **정확도**: 한국어 낭독 음성(Zeroth, 10명)으로 만든 2~5명 대화 24개(각 2분 30초, 짧은 맞장구 포함)에서 사람 수
@@ -98,6 +105,10 @@ overfilm-subs relayout 합방.overfilm.json --rename 화자1=아이치 --rename 
   이상인 대사와 같으면(여덟 글자 이상은 한두 글자 달라도) 게임 음성으로 보고, 한 목소리의 말이 대부분 대사이면 그 목소리 전체를 '게임 음성'으로
   봅니다. 목록에 없는 대사(라마트라·벤처·주노·해저드 등 빠진 영웅, 일반 대사)는 아직 못 찾고, 스트리머가 대사를
   따라 하면 같이 빠질 수 있습니다. 잘못 빠졌으면 `--game-voice label`로 다시 만들어 확인하세요.
+- **목소리 등록**: 샘플의 목소리 특징 평균을 `%LOCALAPPDATA%\OverFilm\voices\이름.json`에 저장합니다(소리는
+  저장하지 않음). 영상에서 구별된 사람 중 등록한 목소리와 충분히 가까운(코사인 거리 0.55 이하) 사람에게 그 이름을
+  붙이고, 가장 가까운 짝부터 하나씩만 붙입니다. 등록한 사람은 말이 적어도 따로 남깁니다.
+  합성 대화 24개로 시험하면 단어의 94.7%에 맞는 이름이 붙고, 틀린 이름은 1.1%입니다.
 - **한계**: 두 사람이 동시에 말하면 한 사람으로 붙습니다. 목소리가 아주 비슷하거나 한 사람이 목소리를 크게 바꾸면
   틀릴 수 있습니다. 틀린 이름은 `rename_speaker`로 고치고, 사람 수를 알면 정해 주는 것이 가장 확실합니다.
 
@@ -107,7 +118,8 @@ overfilm-subs relayout 합방.overfilm.json --rename 화자1=아이치 --rename 
 - GPU가 없거나 GPU에서 오류가 나면 자동으로 CPU로 이어서 처리합니다. 완료 메시지에 어느 쪽에서 돌았는지 나옵니다.
 - CPU만 쓸 때는 AVX2가 있는 x86-64 CPU(2013년 이후 인텔·AMD)가 필요하고 메모리는 약 4GB를 씁니다. 4코어 기준 소리 1분에 약 2분 40초 걸립니다 (모델 불러오기 포함, 2분짜리 영상 실측 5분 15초).
 
-- 목소리 구별은 CPU에서 돌고 소리 10분에 1~2분 더 걸립니다(4코어 실측: 20초에 2.3초). 끄면(`--speakers off`) 이 시간이 빠집니다.
+- 목소리 구별도 그래픽카드에서 돕니다(시작할 때 CPU와 결과를 비교해 다르면 CPU로). CPU만 쓰면 소리 10분에 1~2분 더
+  걸립니다(4코어 실측: 20초에 2.3초). 끄면(`--speakers off`) 이 시간이 빠집니다.
   10분짜리 해설 영상 전체(인식 + 목소리 구별)를 4코어 CPU만으로 처리하는 데 32분 걸렸습니다.
 
 ## 빌드
