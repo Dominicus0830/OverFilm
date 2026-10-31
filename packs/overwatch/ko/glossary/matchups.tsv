@@ -1,0 +1,39 @@
+id	ko	en	aliases	old	misheard	flags	note
+# 팀 대진 약칭: 두 팀 앞글자 + 전 (라제전 = 크레이지 라쿤 대 제타). 순서는 둘 다 쓰임.
+# 라제전·제라전·라팔전은 사용자 제보, 나머지는 같은 규칙으로 만든 것 (verify).
+crazy_raccoon-zeta_division	라제전		제라전				크레이지 라쿤 대 제타 디비전
+crazy_raccoon-team_falcons	라팔전		팔라전				크레이지 라쿤 대 팀 팰컨스
+crazy_raccoon-t1	라티전		티라전			verify	크레이지 라쿤 대 T1
+crazy_raccoon-rode_zanside	라로전		로라전			verify	크레이지 라쿤 대 로제
+crazy_raccoon-cheeseburger	라치전		치라전			verify	크레이지 라쿤 대 치즈버거
+crazy_raccoon-o2_blast	라오전		오라전			verify	크레이지 라쿤 대 오투 블래스트
+crazy_raccoon-poker_face	라포전		포라전			verify	크레이지 라쿤 대 포커페이스
+crazy_raccoon-superbad	라슈전		슈라전			verify	크레이지 라쿤 대 슈퍼배드
+zeta_division-team_falcons	제팔전		팔제전			verify	제타 디비전 대 팀 팰컨스
+zeta_division-t1	제티전		티제전			verify	제타 디비전 대 T1
+zeta_division-rode_zanside	제로전		로제전			verify noeval	제타 디비전 대 로제
+zeta_division-cheeseburger	제치전		치제전			verify	제타 디비전 대 치즈버거
+zeta_division-o2_blast	제오전		오제전			verify	제타 디비전 대 오투 블래스트
+zeta_division-poker_face	제포전		포제전			verify	제타 디비전 대 포커페이스
+zeta_division-superbad	제슈전		슈제전			verify	제타 디비전 대 슈퍼배드
+team_falcons-t1	팔티전		티팔전			verify	팀 팰컨스 대 T1
+team_falcons-rode_zanside	팔로전		로팔전			verify	팀 팰컨스 대 로제
+team_falcons-cheeseburger	팔치전		치팔전			verify	팀 팰컨스 대 치즈버거
+team_falcons-o2_blast	팔오전		오팔전			verify	팀 팰컨스 대 오투 블래스트
+team_falcons-poker_face	팔포전		포팔전			verify	팀 팰컨스 대 포커페이스
+team_falcons-superbad	팔슈전		슈팔전			verify	팀 팰컨스 대 슈퍼배드
+t1-rode_zanside	티로전		로티전			verify	T1 대 로제
+t1-cheeseburger	티치전		치티전			verify	T1 대 치즈버거
+t1-o2_blast	티오전		오티전			verify	T1 대 오투 블래스트
+t1-poker_face	티포전		포티전			verify	T1 대 포커페이스
+t1-superbad	티슈전		슈티전			verify	T1 대 슈퍼배드
+rode_zanside-cheeseburger	로치전		치로전			verify	로제 대 치즈버거
+rode_zanside-o2_blast	로오전		오로전			verify	로제 대 오투 블래스트
+rode_zanside-poker_face	로포전		포로전			verify	로제 대 포커페이스
+rode_zanside-superbad	로슈전		슈로전			verify	로제 대 슈퍼배드
+cheeseburger-o2_blast	치오전		오치전			verify	치즈버거 대 오투 블래스트
+cheeseburger-poker_face	치포전		포치전			verify	치즈버거 대 포커페이스
+cheeseburger-superbad	치슈전		슈치전			verify	치즈버거 대 슈퍼배드
+o2_blast-poker_face	오포전		포오전			verify	오투 블래스트 대 포커페이스
+o2_blast-superbad	오슈전		슈오전			verify	오투 블래스트 대 슈퍼배드
+poker_face-superbad	포슈전		슈포전			verify	포커페이스 대 슈퍼배드

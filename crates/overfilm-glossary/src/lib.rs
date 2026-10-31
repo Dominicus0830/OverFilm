@@ -219,6 +219,8 @@ mod tests {
             ("terms", include_str!("../../../packs/overwatch/ko/glossary/terms.tsv")),
             ("teams", include_str!("../../../packs/overwatch/ko/glossary/teams.tsv")),
             ("players", include_str!("../../../packs/overwatch/ko/glossary/players.tsv")),
+            ("slang", include_str!("../../../packs/overwatch/ko/glossary/slang.tsv")),
+            ("matchups", include_str!("../../../packs/overwatch/ko/glossary/matchups.tsv")),
         ];
         let mut g = Glossary::default();
         for (category, text) in tables {
@@ -228,6 +230,8 @@ mod tests {
         assert_eq!(cassidy.ko, "캐서디");
         assert!(cassidy.old.iter().any(|o| o == "맥크리"));
         assert!(g.entries.iter().filter(|e| e.category == "heroes").count() >= 50);
+        assert!(g.get("matchups", "crazy_raccoon-zeta_division").is_some_and(|m| m.ko == "라제전" && m.aliases == ["제라전"]));
+        assert!(g.get("teams", "crazy_raccoon").is_some_and(|t| t.aliases.iter().any(|a| a == "CR")));
         // Every ability id starts with a hero id.
         for a in g.entries.iter().filter(|e| e.category == "abilities") {
             let hero = a.id.split('.').next().unwrap();

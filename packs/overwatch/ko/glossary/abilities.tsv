@@ -4,7 +4,7 @@ dva.boosters	부스터	Boosters				noeval	디바
 dva.defense_matrix	방어 매트릭스	Defense Matrix	매트릭스				디바
 dva.micro_missiles	마이크로 미사일	Micro Missiles					디바
 dva.self_destruct	자폭	Self-Destruct					디바 궁극기
-dva.call_mech	메카 호출	Call Mech					디바
+dva.call_mech	메카 호출	Call Mech	리필				디바
 doomfist.hand_cannon	핸드 캐논	Hand Cannon					둠피스트
 doomfist.seismic_slam	지진 강타	Seismic Slam					둠피스트
 doomfist.power_block	파워 블락	Power Block	파워 블록				둠피스트
@@ -28,11 +28,11 @@ roadhog.take_a_breather	숨 돌리기	Take a Breather					로드호그
 roadhog.whole_hog	돼재앙	Whole Hog					로드호그 궁극기
 roadhog.trash_compactor		Trash Compactor				verify	로드호그, 2026 5시즌 개편 신기술. 한국어 이름 확인 필요
 zarya.particle_barrier	입자 방벽	Particle Barrier	셀프 방벽				자리야
-zarya.projected_barrier	방벽 씌우기	Projected Barrier					자리야
-zarya.graviton_surge	중력자탄	Graviton Surge	그라비				자리야 궁극기
+zarya.projected_barrier	방벽 씌우기	Projected Barrier	주방; 버블				자리야
+zarya.graviton_surge	중력자탄	Graviton Surge	그라비; 자탄				자리야 궁극기
 mauga.overrun	돌진	Overrun				noeval verify	마우가
 mauga.cardiac_overdrive	심장 과부하	Cardiac Overdrive				verify	마우가
-mauga.cage_fight	철창 결투	Cage Fight				verify	마우가 궁극기
+mauga.cage_fight	케이지 혈투	Cage Fight	케이지; 우끼끼				마우가 궁극기
 junker_queen.jagged_blade	톱니칼	Jagged Blade					정커퀸
 junker_queen.commanding_shout	지휘의 외침	Commanding Shout					정커퀸
 junker_queen.carnage	도륙	Carnage					정커퀸
@@ -45,7 +45,7 @@ reinhardt.rocket_hammer	로켓 해머	Rocket Hammer					라인하르트
 reinhardt.barrier_field	방벽 방패	Barrier Field					라인하르트
 reinhardt.charge	돌진	Charge				noeval	라인하르트
 reinhardt.fire_strike	화염 강타	Fire Strike					라인하르트
-reinhardt.earthshatter	대지 분쇄	Earthshatter	대지분쇄				라인하르트 궁극기
+reinhardt.earthshatter	대지 분쇄	Earthshatter	대지분쇄; 망치				라인하르트 궁극기
 sigma.hyperspheres	초구체	Hyperspheres					시그마
 sigma.experimental_barrier	실험용 방벽	Experimental Barrier					시그마
 sigma.kinetic_grasp	키네틱 손아귀	Kinetic Grasp					시그마
@@ -69,12 +69,12 @@ ashe.bob	밥	B.O.B.				noeval	애쉬 궁극기
 cassidy.peacekeeper	피스키퍼	Peacekeeper					캐서디
 cassidy.combat_roll	구르기	Combat Roll				noeval	캐서디
 cassidy.magnetic_grenade	자력 수류탄	Magnetic Grenade		섬광탄			캐서디
-cassidy.deadeye	황야의 무법자	Deadeye					캐서디 궁극기 ("석양이 진다")
+cassidy.deadeye	황야의 무법자	Deadeye	석양				캐서디 궁극기 ("석양이 진다")
 hanzo.storm_bow	폭풍활	Storm Bow					한조
 hanzo.storm_arrows	폭풍 화살	Storm Arrows					한조
 hanzo.sonic_arrow	음파 화살	Sonic Arrow					한조
 hanzo.lunge	순보	Lunge				noeval	한조, 키리코와 같은 이름
-hanzo.dragonstrike	용의 일격	Dragonstrike					한조 궁극기
+hanzo.dragonstrike	용의 일격	Dragonstrike	용				한조 궁극기
 sojourn.railgun	레일건	Railgun					소전
 sojourn.power_slide	파워 슬라이드	Power Slide					소전
 sojourn.disruptor_shot	분열 사격	Disruptor Shot					소전
@@ -93,15 +93,15 @@ anran.ignite	점화						안란 지속 능력
 genji.shuriken	표창	Shuriken					겐지
 genji.swift_strike	질풍참	Swift Strike					겐지
 genji.deflect	튕겨내기	Deflect					겐지
-genji.dragonblade	용검	Dragonblade					겐지 궁극기
+genji.dragonblade	용검	Dragonblade	뽕검				겐지 궁극기
 reaper.hellfire_shotguns	헬파이어 샷건	Hellfire Shotguns					리퍼
 reaper.wraith_form	망령화	Wraith Form					리퍼
 reaper.shadow_step	그림자 밟기	Shadow Step					리퍼
 reaper.death_blossom	죽음의 꽃	Death Blossom					리퍼 궁극기
 tracer.pulse_pistols	펄스 쌍권총	Pulse Pistols					트레이서
 tracer.blink	점멸	Blink					트레이서
-tracer.recall	시간 역행	Recall	역행				트레이서
-tracer.pulse_bomb	펄스 폭탄	Pulse Bomb					트레이서 궁극기
+tracer.recall	시간 역행	Recall	역행; 리콜				트레이서
+tracer.pulse_bomb	펄스 폭탄	Pulse Bomb	펄스				트레이서 궁극기
 venture.burrow	잠복	Burrow				verify	벤처
 venture.drill_dash	드릴 돌진	Drill Dash				verify	벤처
 venture.tectonic_shock	지각 충격	Tectonic Shock				verify	벤처 궁극기
@@ -113,7 +113,7 @@ emre.burst_rifle	합성 점사 소총						엠레 기본 무기
 emre.take_aim	정조준						엠레 보조 발사
 emre.siphon_blaster	사이펀 블라스터						엠레
 emre.cyber_frag	사이버 파편 수류탄						엠레
-emre.override_protocol	오버라이드 프로토콜						엠레 궁극기
+emre.override_protocol	오버라이드 프로토콜		아쎄이 투하				엠레 궁극기
 emre.biosignal	생체 신호 변조						엠레 지속 능력
 junkrat.frag_launcher	고폭 유탄 발사기	Frag Launcher				verify	정크랫
 junkrat.concussion_mine	충격 지뢰	Concussion Mine					정크랫
@@ -122,15 +122,15 @@ junkrat.rip_tire	죽이는 타이어	RIP-Tire	타이어				정크랫 궁극기
 mei.endothermic_blaster	냉각총	Endothermic Blaster					메이
 mei.cryo_freeze	급속 빙결	Cryo-Freeze					메이
 mei.ice_wall	빙벽	Ice Wall					메이
-mei.blizzard	눈보라	Blizzard					메이 궁극기
+mei.blizzard	눈보라	Blizzard	설구				메이 궁극기
 soldier_76.pulse_rifle	중펄스 소총	Heavy Pulse Rifle					솔저: 76
 soldier_76.sprint	질주	Sprint					솔저: 76
 soldier_76.biotic_field	생체장	Biotic Field					솔저: 76
 soldier_76.helix_rockets	나선 로켓	Helix Rockets					솔저: 76
-soldier_76.tactical_visor	전술 조준경	Tactical Visor					솔저: 76 궁극기
+soldier_76.tactical_visor	전술 조준경	Tactical Visor	바이저				솔저: 76 궁극기
 symmetra.photon_projector	광자 발사기	Photon Projector					시메트라
 symmetra.sentry_turret	감시 포탑	Sentry Turret					시메트라
-symmetra.teleporter	순간이동기	Teleporter	텔레포터				시메트라
+symmetra.teleporter	순간이동기	Teleporter	텔레포터; TP				시메트라
 symmetra.photon_barrier	광자 방벽	Photon Barrier					시메트라 궁극기
 torbjorn.deploy_turret	포탑 설치	Deploy Turret	포탑				토르비욘
 torbjorn.overload	과부하	Overload					토르비욘
@@ -143,18 +143,19 @@ pharah.rocket_launcher	로켓 발사기	Rocket Launcher					파라
 pharah.jump_jet	점프 추진기	Jump Jet					파라
 pharah.concussive_blast	충격탄	Concussive Blast					파라
 pharah.barrage	포화	Barrage					파라 궁극기
+freja.bola_shot	올가미 사격	Bola Shot	올가미; 누방가다				프레야 궁극기 (누방가다는 대사)
 sombra.machine_pistol	기관권총	Machine Pistol					솜브라
 sombra.translocator	위치 변환기	Translocator					솜브라
 sombra.emp	EMP	EMP	이엠피				솜브라 궁극기
 sombra.hotfix		Hotfix		해킹		verify	솜브라 2026 5시즌 지원 개편 (해킹 대체). 한국어 이름 확인 필요
-sombra.cyberspace		Cyberspace		바이러스		verify	솜브라 2026 5시즌 지원 개편 (바이러스 대체). 한국어 이름 확인 필요
+sombra.cyberspace	사이버 스페이스	Cyberspace	사스; 사슾	바이러스		verify	솜브라 2026 5시즌 지원 개편 (바이러스 대체). 위키 표기, 게임 내 표기 확인 필요
 ana.biotic_rifle	생체 소총	Biotic Rifle					아나
 ana.sleep_dart	수면총	Sleep Dart	재우기				아나
 ana.biotic_grenade	생체 수류탄	Biotic Grenade	힐밴 수류탄				아나
-ana.nano_boost	나노 강화제	Nano Boost	나노				아나 궁극기
+ana.nano_boost	나노 강화제	Nano Boost	나노; 뽕				아나 궁극기
 baptiste.regenerative_burst	치유 파동	Regenerative Burst					바티스트
 baptiste.immortality_field	불사 장치	Immortality Field	불사				바티스트
-baptiste.amplification_matrix	증폭 매트릭스	Amplification Matrix					바티스트 궁극기
+baptiste.amplification_matrix	증폭 매트릭스	Amplification Matrix	윈도우; 비냉				바티스트 궁극기
 baptiste.exo_boots	외골격 전투화	Exo Boots					바티스트 지속 능력
 jetpack_cat.biotic_pawjectiles	생체 냥냥탄						제트팩 캣 기본 무기
 jetpack_cat.lifeline	생명줄						제트팩 캣
@@ -166,7 +167,7 @@ lucio.sonic_amplifier	음파 증폭기	Sonic Amplifier					루시우
 lucio.crossfade	분위기 전환	Crossfade					루시우
 lucio.amp_it_up	볼륨을 높여라	Amp It Up	볼륨업				루시우
 lucio.soundwave	소리 파동	Soundwave	밀치기				루시우
-lucio.sound_barrier	소리 방벽	Sound Barrier					루시우 궁극기
+lucio.sound_barrier	소리 방벽	Sound Barrier	비트				루시우 궁극기
 lucio.wall_ride	벽 타기	Wall Ride	벽타기				루시우 지속 능력
 zenyatta.orb_of_harmony	조화의 구슬	Orb of Harmony					젠야타
 zenyatta.orb_of_discord	부조화의 구슬	Orb of Discord	부조화				젠야타
@@ -174,12 +175,12 @@ zenyatta.transcendence	초월	Transcendence					젠야타 궁극기
 kiriko.healing_ofuda	치유의 부적	Healing Ofuda	부적				키리코
 kiriko.kunai	쿠나이	Kunai					키리코
 kiriko.swift_step	순보	Swift Step					키리코
-kiriko.protection_suzu	정화의 방울	Protection Suzu	방울				키리코
-kiriko.kitsune_rush	여우길	Kitsune Rush					키리코 궁극기
+kiriko.protection_suzu	정화의 방울	Protection Suzu	방울; 스즈				키리코
+kiriko.kitsune_rush	여우길	Kitsune Rush	키츠네				키리코 궁극기
 lifeweaver.healing_blossom	치유의 꽃	Healing Blossom					라이프위버
 lifeweaver.petal_platform	연꽃 단상	Petal Platform	단상				라이프위버
 lifeweaver.life_grip	구원의 손길	Life Grip	당기기				라이프위버
-lifeweaver.tree_of_life	생명의 나무	Tree of Life					라이프위버 궁극기
+lifeweaver.tree_of_life	생명의 나무	Tree of Life	나무; 생생보				라이프위버 궁극기
 mercy.caduceus_staff	카두세우스 지팡이	Caduceus Staff					메르시
 mercy.guardian_angel	수호천사	Guardian Angel					메르시
 mercy.resurrect	부활	Resurrect				noeval	메르시
@@ -192,7 +193,7 @@ brigitte.rocket_flail	도리깨	Rocket Flail					브리기테
 brigitte.repair_pack	수리 팩	Repair Pack	수리팩				브리기테
 brigitte.whip_shot	도리깨 투척	Whip Shot					브리기테
 brigitte.shield_bash	방패 밀쳐내기	Shield Bash					브리기테
-brigitte.rally	집결	Rally					브리기테 궁극기
+brigitte.rally	집결	Rally	랠리				브리기테 궁극기
 brigitte.inspire	격려	Inspire					브리기테 지속 능력
 illari.solar_rifle	태양 소총	Solar Rifle					일리아리
 illari.healing_pylon	치유의 태양석	Healing Pylon	태양석; 파일런				일리아리
@@ -200,8 +201,8 @@ illari.outburst	분출	Outburst					일리아리
 illari.captive_sun	태양 작렬	Captive Sun					일리아리 궁극기
 juno.mediblaster	메디블래스터	Mediblaster					주노
 juno.pulsar_torpedoes	펄사 어뢰	Pulsar Torpedoes	어뢰				주노
-juno.hyper_ring	하이퍼 링	Hyper Ring					주노
-juno.orbital_ray	궤도 광선	Orbital Ray					주노 궁극기
+juno.hyper_ring	하이퍼 링	Hyper Ring	링				주노
+juno.orbital_ray	궤도 광선	Orbital Ray	궤도; 오빗				주노 궁극기
 juno.glide_boost	활공 부스트	Glide Boost					주노
 mizuki.spirit_shuriken	영혼 수리검						미즈키 기본 무기
 mizuki.healing_kasa	치유의 삿갓		삿갓				미즈키
