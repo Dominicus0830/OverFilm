@@ -18,6 +18,7 @@ One TSV table per category, all with the columns described in `crates/overfilm-g
 | `players.tsv` | OWCS Korea players and coaches (2026 Stage 3), then earlier players: Korean pronunciation in `ko`, handle in `en`, real name in `note` |
 | `slang.tsv` | community and broadcast slang: role and comp names (`멘딜`, `정파탱`), tactics (`앵커링`, `딜각`), memes (`딸깍`, `C9`), platforms |
 | `profanity.tsv` | swear words: captions write only the initial consonants (`씨발` → `ㅅㅂ`, `존나` → `ㅈㄴ`); spoken forms are in `misheard`, flag `mask` |
+| `spelling.tsv` | spelling fixes that are not terms: `벤` for `밴` (ban: `강벤` → `강밴`, `벤률` → `밴률`), tier words written apart (`저 티어` → `저티어`), statistics words (`괴류율` → `괴리율`), and common misspellings (`몇일` → `며칠`, `어의없` → `어이없`); all `noeval`, `inword` for forms that are wrong inside a word too (`뵈요` → `봬요`). Grammar rules that are not single words (particles, `할 수 있다`, `할게요`) are code: `overfilm-glossary` `ko` module |
 | `matchups.tsv` | team-vs-team short names: first syllables of both teams + `전` (`라제전` = 크레이지 라쿤 vs 제타, also `제라전`; 치즈버거 as 치 and 처 from 치벅/처벅) |
 
 - `ko` is how captions should write the term. For players it is the pronunciation commentators
@@ -27,7 +28,8 @@ One TSV table per category, all with the columns described in `crates/overfilm-g
 - `flags`: `noeval` keeps a term out of term-accuracy scoring because it is an ordinary word too
   (`지원`, `부활`); `verify` marks a spelling not yet confirmed from an official Korean source;
   `mask` marks profanity, which the correction step replaces with `ko` even inside a word
-  (`씨발아` → `ㅅㅂ아`), longest form first.
+  (`씨발아` → `ㅅㅂ아`), longest form first; `inword` makes an ordinary `misheard` form match inside
+  a word too.
 
 Score with the whole glossary:
 

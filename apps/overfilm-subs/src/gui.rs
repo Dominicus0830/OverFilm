@@ -25,6 +25,7 @@ struct App {
     mode: pack::Mode,
     terms: String,
     mask: bool,
+    digits: bool,
     gpu: bool,
     line_chars: u32,
     two_lines: bool,
@@ -46,6 +47,7 @@ impl App {
             mode: pack::Mode::General,
             terms: String::new(),
             mask: true,
+            digits: true,
             gpu: true,
             line_chars: 16,
             two_lines: true,
@@ -65,6 +67,7 @@ impl App {
         o.mode = self.mode;
         o.extra_terms = self.terms.clone();
         o.mask_profanity = self.mask;
+        o.digits = self.digits;
         o.gpu = self.gpu;
         o.line_chars = self.line_chars;
         o.max_lines = if self.two_lines { 2 } else { 1 };
@@ -158,6 +161,7 @@ impl App {
         });
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.mask, "욕설은 초성으로 (씨발 → ㅅㅂ)");
+            ui.checkbox(&mut self.digits, "숫자는 숫자로 (오 시즌 → 5시즌)");
             ui.separator();
             ui.label("한 줄");
             ui.add(egui::DragValue::new(&mut self.line_chars).range(8..=30).suffix("자"));

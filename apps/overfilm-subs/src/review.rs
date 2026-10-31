@@ -85,7 +85,9 @@ pub fn review(caps: &[Caption], o: &Layout, corrector: &Corrector) -> Vec<Issue>
         let fixed = corrector.apply(&c.text());
         if fixed.replaced > 0 {
             let list: Vec<String> = fixed.changes.iter().map(|(a, b)| format!("{a} → {b}")).collect();
-            out.push(Issue { index: i, kind: "glossary", message: format!("단어집과 다릅니다: {}", list.join(", ")), suggestion: Some(fixed.text) });
+            out.push(Issue {
+                index: i, kind: "glossary", message: format!("단어집·맞춤법과 다릅니다: {}", list.join(", ")), suggestion: Some(fixed.text)
+            });
         }
     }
     out

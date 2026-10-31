@@ -23,6 +23,9 @@ pub struct Options {
     /// Swear words as initial consonants (씨발 → ㅅㅂ).
     #[serde(default = "yes")]
     pub mask_profanity: bool,
+    /// Spoken numbers before counters as digits (오 시즌 → 5시즌, 사십칠 퍼센트 → 47%).
+    #[serde(default = "yes")]
+    pub digits: bool,
     /// Folder of extra glossary `.tsv` tables.
     #[serde(default)]
     pub glossary_dir: Option<PathBuf>,
@@ -55,6 +58,7 @@ impl Options {
             mode: Mode::General,
             extra_terms: String::new(),
             mask_profanity: true,
+            digits: true,
             glossary_dir: None,
             line_chars: 16,
             max_lines: 2,
@@ -142,7 +146,7 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         return Err("소리가 비어 있습니다".into());
     }
     let g = pack::glossary(o.glossary_dir.as_deref(), o.mask_profanity)?;
-    let corrector = pack::corrector(&g);
+    let corrector = pack::corrector_with(&g, o.digits);
     let context = pack::context(&g, o.mode, &o.extra_terms);
     let corrections = std::sync::Mutex::new(Vec::new());
     let correct = |t: &str| {

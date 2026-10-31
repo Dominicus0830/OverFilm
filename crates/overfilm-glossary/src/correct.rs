@@ -50,6 +50,13 @@ pub struct Corrector {
     names: Vec<Name>,
     /// Every Hangul spelling in the name tables, which fuzzy matching leaves alone.
     known: std::collections::HashSet<String>,
+    /// Words of multi-word spellings (`제트팩` of `제트팩 캣`): left alone only as a whole word
+    /// (with a particle), so `제트팩켓` can still become `제트팩 캣`.
+    parts: std::collections::HashSet<String>,
+    /// Also apply [`crate::ko::tidy`] (Korean spelling and spacing).
+    korean: bool,
+    /// Also apply [`crate::digits::write_digits`] (spoken numbers before counters as digits).
+    digits: bool,
 }
 
 fn is_syllable(c: char) -> bool {
@@ -133,7 +140,7 @@ impl Corrector {
     pub fn new(glossary: &Glossary) -> Corrector {
         let mut by_first: HashMap<char, Vec<Rule>> = HashMap::new();
         for e in glossary.entries.iter().filter(|e| !e.ko.is_empty()) {
-            let anywhere = e.has_flag("mask");
+            let anywhere = e.has_flag("mask") || e.has_flag("inword");
             for m in e.misheard.iter().filter(|m| **m != e.ko) {
                 let from: Vec<char> = m.chars().collect();
                 if let Some(&c) = from.first() {
@@ -158,7 +165,7 @@ impl Corrector {
                 // spelling (`라이프` of `라이프 위버`).
                 self.known.insert(chars.iter().collect());
                 if s.contains(' ') {
-                    self.known.extend(s.split_whitespace().map(String::from));
+                    self.parts.extend(s.split_whitespace().filter(|p| !self.known.contains(*p)).map(String::from));
                 }
                 if name_table && chars.len() >= 3 && !e.has_flag("noeval") && !e.has_flag("verify") {
                     self.names.push(Name { spelling: s.clone(), syllables: chars.len(), jamo: j });
@@ -173,6 +180,10 @@ impl Corrector {
         let word = rest.iter().take_while(|c| is_syllable(**c)).count();
         // A known spelling at this position (with or without particles) is left alone.
         if (1..=word).any(|n| self.known.contains(&rest.iter().take(n).collect::<String>())) {
+            return None;
+        }
+        let part_alone = |n: usize| n == word || (n + 1 == word && rest.get(n).is_some_and(|c| PARTICLES.contains(c)));
+        if (1..=word).any(|n| part_alone(n) && self.parts.contains(&rest.iter().take(n).collect::<String>())) {
             return None;
         }
         let mut best: Option<(usize, usize, &Name)> = None;
@@ -201,13 +212,43 @@ impl Corrector {
         best.map(|(_, n, name)| (n, name.spelling.as_str()))
     }
 
+    /// Also fix Korean spelling and spacing slips after the glossary rules (see [`crate::ko`]).
+    pub fn korean(mut self) -> Corrector {
+        self.korean = true;
+        self
+    }
+
+    /// Also write spoken numbers before counters as digits (`오 시즌` → `5시즌`, see
+    /// [`crate::digits`]).
+    pub fn digits(mut self, on: bool) -> Corrector {
+        self.digits = on;
+        self
+    }
+
     /// Whether there is nothing to replace.
     pub fn is_empty(&self) -> bool {
-        self.by_first.is_empty() && self.names.is_empty()
+        self.by_first.is_empty() && self.names.is_empty() && !self.korean && !self.digits
     }
 
     /// Correct `text`.
     pub fn apply(&self, text: &str) -> Correction {
+        let mut out = self.apply_glossary(text);
+        if self.korean {
+            let t = crate::ko::tidy(&out.text);
+            out.replaced = out.replaced.saturating_add(t.changes.len());
+            out.changes.extend(t.changes);
+            out.text = t.text;
+        }
+        if self.digits {
+            let t = crate::digits::write_digits(&out.text);
+            out.replaced = out.replaced.saturating_add(t.changes.len());
+            out.changes.extend(t.changes);
+            out.text = t.text;
+        }
+        out
+    }
+
+    fn apply_glossary(&self, text: &str) -> Correction {
         let chars: Vec<char> = text.chars().collect();
         let mut out = Correction { text: String::with_capacity(text.len()), ..Correction::default() };
         let mut pos = 0;
@@ -216,6 +257,7 @@ impl Corrector {
             let rest = chars.get(pos..).unwrap_or_default();
             let rule = self.by_first.get(&c).and_then(|rules| rules.iter().find(|r| (r.anywhere || word_start) && rest.starts_with(&r.from)));
             let hit = rule.map(|r| (r.from.len(), r.to.as_str())).or_else(|| if word_start && !self.names.is_empty() { self.fuzzy_match(rest) } else { None });
+            let hit = hit.filter(|(len, to)| rest.iter().take(*len).copied().ne(to.chars()));
             match hit {
                 Some((len, to)) => {
                     out.text.push_str(to);
@@ -270,6 +312,10 @@ mod tests {
         // Ordinary words, particles and correct names stay.
         assert_eq!(c.apply("자리에 앉아 자리가 젠야타가 메르시").text, "자리에 앉아 자리가 젠야타가 메르시");
         assert_eq!(c.apply("라이프 위버").text, "라이프 위버");
+        assert_eq!(c.apply("라이프가 좋다").text, "라이프가 좋다");
+        let c = fuzzy("jc\t제트팩 캣\nlw\t라이프 위버\n");
+        assert_eq!(c.apply("제트팩켓 제트팩켓이").text, "제트팩 캣 제트팩 캣이");
+        assert_eq!(c.apply("제트팩 캣 제트팩이 라이프 위버").replaced, 0);
         assert_eq!(c.apply("가나다라마바").replaced, 0);
     }
 

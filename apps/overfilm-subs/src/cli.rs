@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! overfilm-subs extract <video or audio> [-o out.srt] [--mode general|commentary]
-//!               [--terms "이름, 용어"] [--no-mask] [--glossary <folder>] [--line-chars 16]
+//!               [--terms "이름, 용어"] [--no-mask] [--no-digits] [--glossary <folder>] [--line-chars 16]
 //! overfilm-subs review <file.srt>
 //! overfilm-subs fix <file.srt>          apply the glossary (misrecognitions, profanity initials)
 //! overfilm-subs relayout <file.overfilm.json> [-o out.srt] [--line-chars 16] [--one-line]
@@ -21,7 +21,7 @@ use std::process::ExitCode;
 use overfilm_subs::{job, mcp, pack, review};
 
 const USAGE: &str = "사용법:
-  overfilm-subs extract <영상/오디오> [-o 저장.srt] [--mode general|commentary] [--terms \"이름, 용어\"] [--no-mask] [--glossary 폴더] [--line-chars 16] [--cpu]
+  overfilm-subs extract <영상/오디오> [-o 저장.srt] [--mode general|commentary] [--terms \"이름, 용어\"] [--no-mask] [--no-digits] [--glossary 폴더] [--line-chars 16] [--cpu]
   overfilm-subs review <자막.srt>
   overfilm-subs fix <자막.srt>      단어집 교정 적용 (원본은 .srt.bak)
   overfilm-subs relayout <이름.overfilm.json> [-o 저장.srt] [--line-chars 16] [--one-line]   인식 다시 안 하고 자막만 다시 나누기
@@ -53,6 +53,7 @@ fn extract(args: &[String]) -> Result<(), String> {
             "--mode" => o.mode = pack::Mode::parse(&val()?).ok_or("--mode는 general 또는 commentary")?,
             "--terms" => o.extra_terms = val()?,
             "--no-mask" => o.mask_profanity = false,
+            "--no-digits" => o.digits = false,
             "--glossary" => o.glossary_dir = Some(PathBuf::from(val()?)),
             "--line-chars" => o.line_chars = val()?.parse().map_err(|_| "--line-chars는 숫자")?,
             "--one-line" => o.max_lines = 1,

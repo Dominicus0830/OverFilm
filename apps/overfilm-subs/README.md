@@ -7,6 +7,10 @@ OverFilm에서 자막 추출만 떼어 낸 독립 프로그램입니다. 영상�
   둘 다 Rust(candle)로 옮긴 것이라 Python이나 다른 프로그램이 필요 없습니다.
 - 인식 뒤 단어집 교정(`packs/overwatch/ko/glossary`, 프로그램 안에 들어 있음): 자주 틀리는 표기, 이름 근접 오타,
   욕설 초성(씨발 → ㅅㅂ, 끌 수 있음).
+- 맞춤법·띄어쓰기: 떨어진 조사 붙이기(이거 는 → 이거는), 의존 명사 띄우기(할수있다 → 할 수 있다, 하는거 → 하는 거),
+  자주 틀리는 표기(할께요 → 할게요, 됬다 → 됐다, 그럴려면 → 그러려면, 벤 → 밴).
+- 숫자: 말로 한 숫자를 자막식 숫자로(오 시즌 → 5시즌, 일 위 → 1위, 사십칠 퍼센트 → 47%, 여섯 개 → 6개). 뒤에
+  단위가 올 때만 바꾸므로 '이 영웅', '이번 시즌'은 그대로입니다. 끌 수 있음(`--no-digits`).
 - 자막: 최대 두 줄, 한 줄 16자, 쉼표·어미에서 자연스럽게 끊기.
 - 결과: 입력 파일 옆에 `이름.srt`(UTF-8 BOM, Premiere에서 바로 가져오기)와 `이름.overfilm.json`(단어별 시간).
 
@@ -60,10 +64,10 @@ overfilm-subs relayout 경기.overfilm.json --line-chars 18   인식을 다시 �
 |---|---|
 | `extract_subtitles`, `job_status`, `cancel_job` | 자막 추출 (백그라운드, 진행률 확인) |
 | `read_subtitles` | 자막 읽기 |
-| `review_subtitles` | 검토: 단어집과 다른 표기(고칠 글자 제안), 읽기 속도, 줄 길이·줄 수, 너무 짧음, 겹침, 반복, 빈 자막 |
+| `review_subtitles` | 검토: 단어집·맞춤법과 다른 표기(고칠 글자 제안), 읽기 속도, 줄 길이·줄 수, 너무 짧음, 겹침, 반복, 빈 자막 |
 | `find_silences` | 말 없는 구간 표시 (지우지 않음) |
 | `edit_subtitle`, `split_subtitle`, `merge_subtitles`, `delete_subtitle` | 고치기 (처음 고칠 때 `.srt.bak` 백업) |
-| `apply_glossary` | 단어집 교정 적용 |
+| `apply_glossary` | 단어집·맞춤법·숫자 교정 적용 |
 | `relayout_subtitles` | 줄바꿈 다시 하기 |
 | `add_glossary_term` | 자주 틀리는 표기를 사용자 단어집(`%LOCALAPPDATA%\OverFilm\glossary\user.tsv`)에 추가 |
 

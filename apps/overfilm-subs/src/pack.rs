@@ -15,6 +15,7 @@ const TABLES: &[(&str, &str)] = &[
     ("players", include_str!("../../../packs/overwatch/ko/glossary/players.tsv")),
     ("profanity", include_str!("../../../packs/overwatch/ko/glossary/profanity.tsv")),
     ("slang", include_str!("../../../packs/overwatch/ko/glossary/slang.tsv")),
+    ("spelling", include_str!("../../../packs/overwatch/ko/glossary/spelling.tsv")),
     ("teams", include_str!("../../../packs/overwatch/ko/glossary/teams.tsv")),
     ("terms", include_str!("../../../packs/overwatch/ko/glossary/terms.tsv")),
 ];
@@ -85,9 +86,14 @@ pub fn glossary(extra_dir: Option<&Path>, mask_profanity: bool) -> Result<Glossa
 }
 
 /// Glossary correction: misrecognitions, profanity initials (when in the glossary), near-miss
-/// names.
+/// names, Korean spelling and spacing, spoken numbers as digits.
 pub fn corrector(g: &Glossary) -> Corrector {
-    Corrector::new(g).fuzzy(g)
+    corrector_with(g, true)
+}
+
+/// [`corrector`], with spoken numbers turned into digits or left as spoken.
+pub fn corrector_with(g: &Glossary, digits: bool) -> Corrector {
+    Corrector::new(g).fuzzy(g).korean().digits(digits)
 }
 
 fn names(g: &Glossary, category: &str) -> Vec<String> {
@@ -98,7 +104,13 @@ fn names(g: &Glossary, category: &str) -> Vec<String> {
 pub fn context(g: &Glossary, mode: Mode, extra_terms: &str) -> String {
     let mut s = CONTEXT.trim().to_string();
     if mode == Mode::Commentary {
-        s.push_str(&format!(" 팀: {}. 선수: {}.", names(g, "teams").join(", "), names(g, "players").join(", ")));
+        let teams: Vec<String> = g
+            .entries
+            .iter()
+            .filter(|e| e.category == "teams" && !e.ko.is_empty() && !e.has_flag("noeval"))
+            .flat_map(|e| std::iter::once(e.ko.clone()).chain(e.aliases.iter().filter(|a| a.chars().any(|c| ('가'..='힣').contains(&c))).cloned()))
+            .collect();
+        s.push_str(&format!(" 팀: {}. 선수: {}.", teams.join(", "), names(g, "players").join(", ")));
     }
     let extra: Vec<&str> = extra_terms.split([',', '\n', ';']).map(str::trim).filter(|t| !t.is_empty()).collect();
     if !extra.is_empty() {
@@ -122,12 +134,23 @@ mod tests {
     }
 
     #[test]
+    fn spelling_and_numbers() {
+        let g = glossary(None, true).unwrap();
+        let fixed = corrector(&g).apply("오 시즌 강벤 이거 는 할수있어요 저 티어");
+        assert_eq!(fixed.text, "5시즌 강밴 이거는 할 수 있어요 저티어");
+        assert_eq!(corrector_with(&g, false).apply("오 시즌 일 위").text, "오 시즌 일 위");
+        // the spelling table is not scored as game terms
+        assert!(!g.term_list().contains("강밴"));
+    }
+
+    #[test]
     fn contexts() {
         let g = glossary(None, true).unwrap();
         let general = context(&g, Mode::General, "");
         assert!(general.contains("정커퀸") && general.contains("독트린"));
         let comm = context(&g, Mode::Commentary, "새 선수, 다른 팀");
         assert!(comm.contains("팀: ") && comm.contains("추가 용어: 새 선수, 다른 팀"));
+        assert!(comm.contains("치벅"), "team nicknames are context too");
         assert!(comm.chars().count() <= MAX_CONTEXT_CHARS);
     }
 }

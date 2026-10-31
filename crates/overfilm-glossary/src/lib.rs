@@ -12,18 +12,21 @@
 //! | `aliases` | other accepted spellings and common short forms, `;`-separated |
 //! | `old` | former names still heard (`맥크리` for `캐서디`), `;`-separated |
 //! | `misheard` | known recognizer errors to correct into `ko`, `;`-separated |
-//! | `flags` | space-separated: `noeval` (too generic to score), `verify` (unconfirmed spelling), `mask` (profanity: captions write `ko`, its initial consonants, for every `misheard` form) |
+//! | `flags` | space-separated: `noeval` (too generic to score), `verify` (unconfirmed spelling), `mask` (profanity: captions write `ko`, its initial consonants, for every `misheard` form), `inword` (also replace a `misheard` form inside a word) |
 //! | `note` | free text |
 //!
 //! Blank lines and lines starting with `#` are ignored; missing trailing columns are empty.
 //! [`Glossary::term_list`] exports the term list `overfilm-eval` scores with.
 //!
-//! [`Corrector`] applies a glossary to a transcript (misrecognitions, profanity masking). Still
-//! planned: the `transcript.applyGlossary` command and jamo similarity matching. See `OVERFILM.md`.
+//! [`Corrector`] applies a glossary to a transcript (misrecognitions, profanity masking, near-miss
+//! names) and, with [`Corrector::korean`], the Korean spelling and spacing rules of [`ko`]. Still
+//! planned: the `transcript.applyGlossary` command. See `OVERFILM.md`.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
 pub mod correct;
+pub mod digits;
+pub mod ko;
 
 pub use correct::{Correction, Corrector};
 
