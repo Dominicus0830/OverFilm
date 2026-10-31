@@ -96,7 +96,7 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   within cosine distance 0.55 (closest pairs first, one each), and an enrolled speaker is never
   folded away as too small. `--only-voices` keeps only enrolled speakers' words (streamer mode).
   Synthetic check (24 conversations, every speaker enrolled from a different 10 s utterance of
-  the same person): 95.8% of words get a name, 94.7% the right one, 1.1% a wrong one.
+  the same person): every word gets a name, 97.9% the right one, 2.1% a wrong one.
 - **GPU**: `gpu/conv.wgsl` runs every convolution of the network (one dispatch each, one
   submission per block, only the last frame map read back). `Diarizer::use_gpu` compares GPU and
   CPU frame maps on a 2 s test block first (relative error ≤ 1e-3) and stays on the CPU
