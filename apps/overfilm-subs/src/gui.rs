@@ -1,17 +1,42 @@
-//! `OverFilmSubs`: the window. Pick a video or audio file (or drop it on the window), choose the
-//! kind of video, press the button; the SRT is saved next to the file.
+//! `OverFilmSubs`: the window. A navigation rail (새 자막, 최근, 목소리, 설정) and, under 새 자막,
+//! four steps: drop a file, pick the kind of video, wait, then review and fix the result. The
+//! look follows the built-in Windows 11 apps (see `ui::theme`).
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 #![windows_subsystem = "windows"]
 
-use std::path::PathBuf;
+mod ui;
+
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
 
 use eframe::egui;
-use overfilm_subs::speakers::GameVoice;
-use overfilm_subs::{MEDIA_EXTENSIONS, job, mcp, pack, review, voices};
+use overfilm_subs::edit::{self, Opened, Preset, Recent};
+use overfilm_subs::{job, mcp, pack, review, voices};
+use serde::{Deserialize, Serialize};
 
+/// What the navigation rail shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Page {
+    New,
+    Recent,
+    Voices,
+    Settings,
+}
+
+/// The steps under 새 자막.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Step {
+    Empty,
+    Prep,
+    Running,
+    Review,
+}
+
+/// Background work shared with the window.
 #[derive(Default)]
 struct Shared {
     running: bool,
@@ -20,36 +45,89 @@ struct Shared {
     result: Option<Result<job::Done, String>>,
 }
 
+/// What the window remembers between runs (`gui.json` beside the models).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Prefs {
+    #[serde(default)]
+    preset: Preset,
+    /// Caption shape, masking, numbers, game voice… (the input is not kept).
+    options: job::Options,
+    /// Where the last run's recognition ran ("GPU …" or "CPU").
+    #[serde(default)]
+    last_device: String,
+    /// Seconds of work per minute of sound on the last run (for the time estimate).
+    #[serde(default)]
+    secs_per_audio_min: f32,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        let mut options = job::Options::new(PathBuf::new());
+        Preset::General.apply(&mut options);
+        Self { preset: Preset::General, options, last_device: String::new(), secs_per_audio_min: 0.0 }
+    }
+}
+
+fn prefs_path() -> PathBuf {
+    edit::data_dir().join("gui.json")
+}
+
+fn recent_path() -> PathBuf {
+    edit::data_dir().join("recent.json")
+}
+
+fn load_prefs() -> Prefs {
+    let p = prefs_path();
+    match std::fs::metadata(&p) {
+        Ok(m) if m.len() < 1 << 20 => std::fs::read_to_string(&p).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+        _ => Prefs::default(),
+    }
+}
+
+/// A finished result being reviewed.
+struct Review {
+    opened: Opened,
+    /// The input the result was made from (for voice enrolment), when known.
+    input: Option<PathBuf>,
+    /// Options the captions were made with (re-used when speakers change).
+    options: job::Options,
+    issues: Vec<review::Issue>,
+    ignored: HashSet<(usize, &'static str)>,
+    filter: Option<&'static str>,
+    selected: Option<usize>,
+    /// Text box under the table for the selected caption.
+    draft: String,
+    /// Speaker being renamed and the name typed so far.
+    renaming: Option<(usize, String)>,
+    /// Scroll the table to the selected row on the next frame.
+    jump: bool,
+    undo: Vec<(Vec<overfilm_captions::Caption>, Option<overfilm_asr::Transcript>)>,
+    summary: Option<String>,
+}
+
 struct App {
+    page: Page,
+    step: Step,
     input: Option<PathBuf>,
     output: Option<PathBuf>,
-    mode: pack::Mode,
-    terms: String,
-    mask: bool,
-    digits: bool,
-    gpu: bool,
-    line_chars: u32,
-    two_lines: bool,
-    speakers: bool,
-    /// 0 = count automatically
-    num_speakers: usize,
-    game_voice: GameVoice,
-    per_speaker: bool,
-    only_voices: bool,
-    voices: Vec<String>,
-    show_enroll: bool,
-    enroll_name: String,
-    enroll_from: String,
-    enroll_to: String,
-    /// Enrollment running in the background: its result when done.
-    enroll: Arc<Mutex<Option<Result<String, String>>>>,
-    enrolling: Arc<AtomicBool>,
+    prefs: Prefs,
     shared: Arc<Mutex<Shared>>,
     cancel: Arc<AtomicBool>,
-    issues: Vec<(String, String)>,
-    preview: Vec<String>,
+    started: Option<Instant>,
+    /// Stage being shown and when it started (for the remaining time).
+    stage_clock: Option<(usize, Instant, f32)>,
+    review: Option<Review>,
+    recent: Vec<Recent>,
+    voices: Vec<voices::Voice>,
+    enroll_name: String,
+    enroll_file: Option<PathBuf>,
+    enroll_from: String,
+    enroll_to: String,
+    enroll: Arc<Mutex<Option<Result<String, String>>>>,
+    enrolling: Arc<AtomicBool>,
     models_ready: bool,
-    show_mcp: bool,
+    models_dl: Arc<Mutex<Option<(f32, String, Option<Result<(), String>>)>>>,
+    /// Message for the bottom of the current page (success or error).
     status: Option<Result<String, String>>,
 }
 
@@ -57,66 +135,76 @@ impl App {
     fn new() -> Self {
         let dir = job::models_dir();
         Self {
+            page: Page::New,
+            step: Step::Empty,
             input: None,
             output: None,
-            mode: pack::Mode::General,
-            terms: String::new(),
-            mask: true,
-            digits: true,
-            gpu: true,
-            line_chars: 16,
-            two_lines: true,
-            speakers: true,
-            num_speakers: 0,
-            game_voice: GameVoice::Drop,
-            per_speaker: false,
-            only_voices: false,
-            voices: voices::list().into_iter().map(|v| v.name).collect(),
-            show_enroll: false,
+            prefs: load_prefs(),
+            shared: Arc::default(),
+            cancel: Arc::default(),
+            started: None,
+            stage_clock: None,
+            review: None,
+            recent: edit::load_recent(&recent_path()),
+            voices: voices::list(),
             enroll_name: String::new(),
+            enroll_file: None,
             enroll_from: String::new(),
             enroll_to: String::new(),
             enroll: Arc::default(),
             enrolling: Arc::default(),
-            shared: Arc::default(),
-            cancel: Arc::default(),
-            issues: Vec::new(),
-            preview: Vec::new(),
             models_ready: overfilm_asr::catalogue::all().iter().all(|m| m.installed(&dir)),
-            show_mcp: false,
+            models_dl: Arc::default(),
             status: None,
         }
     }
 
+    fn save_prefs(&mut self) {
+        let p = prefs_path();
+        let r = (|| {
+            if let Some(d) = p.parent() {
+                std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+            }
+            let json = serde_json::to_string_pretty(&self.prefs).map_err(|e| e.to_string())?;
+            std::fs::write(&p, json).map_err(|e| e.to_string())
+        })();
+        if let Err(e) = r {
+            self.status = Some(Err(format!("설정을 저장하지 못했습니다: {e}")));
+        }
+    }
+
+    /// Options for a run on the chosen file.
     fn options(&self) -> Option<job::Options> {
-        let mut o = job::Options::new(self.input.clone()?);
+        let mut o = self.prefs.options.clone();
+        o.input = self.input.clone()?;
         o.output = self.output.clone();
-        o.mode = self.mode;
-        o.extra_terms = self.terms.clone();
-        o.mask_profanity = self.mask;
-        o.digits = self.digits;
-        o.gpu = self.gpu;
-        o.line_chars = self.line_chars;
-        o.max_lines = if self.two_lines { 2 } else { 1 };
-        o.speakers = self.speakers;
-        o.num_speakers = (self.num_speakers > 0).then_some(self.num_speakers);
-        o.game_voice = self.game_voice;
-        o.per_speaker = self.per_speaker;
-        o.only_voices = self.only_voices && self.speakers;
+        o.only_voices = o.only_voices && o.speakers;
         let d = mcp::user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         Some(o)
     }
 
+    fn choose_file(&mut self, p: PathBuf) {
+        self.input = Some(p.clone());
+        self.output = None;
+        self.enroll_file = Some(p);
+        self.page = Page::New;
+        self.step = Step::Prep;
+        self.status = None;
+    }
+
     fn start(&mut self, ctx: &egui::Context) {
         let Some(o) = self.options() else { return };
+        self.save_prefs();
         {
             let mut s = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
             *s = Shared { running: true, message: "시작".into(), ..Shared::default() };
         }
-        self.issues.clear();
-        self.preview.clear();
         self.cancel.store(false, Ordering::Relaxed);
+        self.started = Some(Instant::now());
+        self.stage_clock = None;
+        self.step = Step::Running;
+        self.status = None;
         let (shared, cancel, ctx) = (self.shared.clone(), self.cancel.clone(), ctx.clone());
         std::thread::spawn(move || {
             let r = job::guarded(|| {
@@ -135,152 +223,76 @@ impl App {
         });
     }
 
-    /// After a run: preview lines and review findings from the written SRT.
-    fn load_result(&mut self, srt: &std::path::Path) {
-        let Ok(caps) = job::read_srt(srt) else { return };
-        self.preview = caps.iter().take(200).map(|c| format!("{}  {}", review::clock(c.start_ms), c.text().replace('\n', " / "))).collect();
-        if let Ok(g) = pack::glossary(None, self.mask) {
-            let o = overfilm_captions::Layout { max_line: self.line_chars * 2, max_lines: if self.two_lines { 2 } else { 1 }, ..Default::default() };
-            self.issues = review::review(&caps, &o, &pack::corrector(&g))
-                .into_iter()
-                .take(300)
-                .map(|i| {
-                    (format!("#{} {}", i.index, i.message), caps.get(i.index.saturating_sub(1)).map(|c| c.text().replace('\n', " / ")).unwrap_or_default())
-                })
-                .collect();
-        }
+    fn finished(&mut self, done: job::Done) {
         self.models_ready = true;
-    }
-
-    fn file_row(&mut self, ui: &mut egui::Ui, running: bool) {
-        ui.horizontal(|ui| {
-            if ui.add_enabled(!running, egui::Button::new("📂 영상/오디오 파일 열기")).clicked()
-                && let Some(p) = rfd::FileDialog::new().add_filter("영상·오디오", MEDIA_EXTENSIONS).add_filter("모든 파일", &["*"]).pick_file()
-            {
-                self.input = Some(p);
-                self.output = None;
-            }
-            match &self.input {
-                Some(p) => ui.label(p.display().to_string()),
-                None => ui.weak("파일을 고르거나 이 창에 끌어다 놓으세요"),
-            };
-        });
-        if let Some(o) = self.options() {
-            ui.horizontal(|ui| {
-                ui.label(format!("저장: {}", o.srt_path().display()));
-                if ui.add_enabled(!running, egui::Button::new("다른 곳에 저장…")).clicked()
-                    && let Some(p) = rfd::FileDialog::new()
-                        .add_filter("SRT 자막", &["srt"])
-                        .set_file_name(o.srt_path().file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
-                        .save_file()
-                {
-                    self.output = Some(p);
+        self.prefs.last_device = done.device.clone();
+        if done.audio_seconds > 0 {
+            self.prefs.secs_per_audio_min = done.seconds_taken as f32 * 60.0 / done.audio_seconds as f32;
+        }
+        self.save_prefs();
+        let options = self.options().unwrap_or_else(|| self.prefs.options.clone());
+        let summary = format!(
+            "{} 분량을 {}에 만들었습니다 ({}). 단어집 교정 {}곳{}.",
+            ui::widgets::duration(done.audio_seconds as f64),
+            ui::widgets::duration(done.seconds_taken as f64),
+            done.device,
+            done.corrections.len(),
+            if done.voice_lines > 0 { format!(", 게임 대사 {}줄 찾음", done.voice_lines) } else { String::new() }
+        );
+        let note = (!done.note.is_empty()).then(|| done.note.clone());
+        match self.open_result(&done.srt, self.input.clone(), options) {
+            Ok(()) => {
+                if let Some(r) = &mut self.review {
+                    r.summary = Some(match note {
+                        Some(n) => format!("{summary} {n}"),
+                        None => summary,
+                    });
                 }
-            });
+            }
+            Err(e) => self.status = Some(Err(e)),
         }
     }
 
-    fn settings(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.label("영상 종류");
-            for m in [pack::Mode::General, pack::Mode::Commentary] {
-                ui.radio_value(&mut self.mode, m, m.label());
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("추가 이름·용어");
-            ui.add(egui::TextEdit::singleline(&mut self.terms).hint_text("예: 스트리머 이름, 팀 이름 (쉼표로 구분)").desired_width(f32::INFINITY));
-        });
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.mask, "욕설은 초성으로 (씨발 → ㅅㅂ)");
-            ui.checkbox(&mut self.digits, "숫자는 숫자로 (오 시즌 → 5시즌)");
-            ui.separator();
-            ui.label("한 줄");
-            ui.add(egui::DragValue::new(&mut self.line_chars).range(8..=30).suffix("자"));
-            ui.checkbox(&mut self.two_lines, "최대 두 줄");
-            ui.separator();
-            ui.checkbox(&mut self.gpu, "그래픽카드(GPU) 사용")
-                .on_hover_text("AMD·NVIDIA·Intel 그래픽카드로 빠르게 처리합니다. 없거나 문제가 생기면 자동으로 CPU를 씁니다.");
-        });
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.speakers, "목소리 구별 (화자1, 화자2…)").on_hover_text(
-                "말하는 사람이 둘 이상이면 몇 명인지 세고, 자막마다 누가 말했는지 (화자1)처럼 붙입니다. 자막 하나에 두 사람 말이 섞이지 않습니다.",
-            );
-            ui.add_enabled_ui(self.speakers, |ui| {
-                ui.label("사람 수");
-                ui.add(
-                    egui::DragValue::new(&mut self.num_speakers)
-                        .range(0..=20)
-                        .custom_formatter(|v, _| if v < 0.5 { "자동".into() } else { format!("{v:.0}명") }),
-                )
-                .on_hover_text("알면 정해 주세요. 자동이면 목소리로 셉니다.");
-                ui.checkbox(&mut self.per_speaker, "사람마다 SRT 따로 저장");
-            });
-            ui.separator();
-            ui.label("게임 음성(영웅 대사)");
-            for g in [GameVoice::Drop, GameVoice::Label, GameVoice::Keep] {
-                ui.radio_value(&mut self.game_voice, g, g.label());
-            }
-        });
-        ui.add_enabled_ui(self.speakers, |ui| self.voices_row(ui));
-    }
-
-    fn voices_row(&mut self, ui: &mut egui::Ui) {
-        if let Some(r) = self.enroll.lock().unwrap_or_else(PoisonError::into_inner).take() {
-            self.status = Some(r);
-            self.voices = voices::list().into_iter().map(|v| v.name).collect();
+    /// Open a result for review (after a run, or from the recent list).
+    fn open_result(&mut self, srt: &Path, input: Option<PathBuf>, options: job::Options) -> Result<(), String> {
+        let opened = Opened::load(srt)?;
+        let mut r = Review {
+            opened,
+            input: input.clone(),
+            options,
+            issues: Vec::new(),
+            ignored: HashSet::new(),
+            filter: None,
+            selected: None,
+            draft: String::new(),
+            renaming: None,
+            jump: false,
+            undo: Vec::new(),
+            summary: None,
+        };
+        r.refresh_issues(self.prefs.options.mask_profanity);
+        let entry = Recent {
+            input: input.unwrap_or_else(|| srt.with_extension("")),
+            srt: srt.to_path_buf(),
+            preset: self.prefs.preset,
+            captions: r.opened.captions.len(),
+            people: r.opened.transcript.as_ref().map_or(0, overfilm_subs::speakers::people),
+            open_issues: r.open_issues(),
+        };
+        if let Err(e) = edit::push_recent(&recent_path(), &mut self.recent, entry) {
+            self.status = Some(Err(format!("최근 목록을 저장하지 못했습니다: {e}")));
         }
-        let busy = self.enrolling.load(Ordering::Relaxed);
-        ui.horizontal_wrapped(|ui| {
-            ui.label("등록한 목소리");
-            if self.voices.is_empty() {
-                ui.weak("없음");
-            } else {
-                ui.strong(self.voices.join(", "));
-            }
-            ui.checkbox(&mut self.only_voices, "등록한 목소리만 자막")
-                .on_hover_text("예: 스트리머 목소리를 등록해 두면 스트리머 말만 자막으로 만듭니다 (게임 음성, 다른 사람 제외).");
-            ui.toggle_value(&mut self.show_enroll, "목소리 등록…");
-            if busy {
-                ui.spinner();
-                ui.weak("등록하는 중");
-            }
-        });
-        if !self.show_enroll {
-            return;
-        }
-        ui.group(|ui| {
-            ui.label("위에서 고른 파일에서 그 사람만 말하는 구간(10~30초)을 적고 등록합니다. 다음 추출부터 그 사람은 이 이름으로 나옵니다.");
-            ui.horizontal(|ui| {
-                ui.label("이름");
-                ui.add(egui::TextEdit::singleline(&mut self.enroll_name).hint_text("예: 아이치").desired_width(120.0));
-                ui.label("구간");
-                ui.add(egui::TextEdit::singleline(&mut self.enroll_from).hint_text("1:23").desired_width(60.0));
-                ui.label("~");
-                ui.add(egui::TextEdit::singleline(&mut self.enroll_to).hint_text("1:45").desired_width(60.0));
-                let can = !busy && self.input.is_some() && !self.enroll_name.trim().is_empty();
-                if ui.add_enabled(can, egui::Button::new("등록")).clicked() {
-                    self.start_enroll(ui.ctx());
-                }
-                if !self.voices.is_empty() {
-                    ui.separator();
-                    let mut remove = None;
-                    for v in &self.voices {
-                        if ui.small_button(format!("{v} 지우기")).clicked() {
-                            remove = Some(v.clone());
-                        }
-                    }
-                    if let Some(v) = remove {
-                        self.status = Some(voices::remove_in(&voices::dir(), &v).map(|()| format!("목소리 '{v}'를 지웠습니다")));
-                        self.voices = voices::list().into_iter().map(|v| v.name).collect();
-                    }
-                }
-            });
-        });
+        self.review = Some(r);
+        self.page = Page::New;
+        self.step = Step::Review;
+        Ok(())
     }
 
     fn start_enroll(&mut self, ctx: &egui::Context) {
-        let Some(file) = self.input.clone() else { return };
+        let Some(file) = self.enroll_file.clone() else {
+            self.status = Some(Err("목소리를 들을 파일을 고르세요".into()));
+            return;
+        };
         let parse = |s: &str| {
             if s.trim().is_empty() { Ok(None) } else { voices::parse_time(s).map(Some).ok_or(format!("시간 형식이 아닙니다: {s} (예: 1:23)")) }
         };
@@ -302,126 +314,97 @@ impl App {
         });
     }
 
-    fn results(&mut self, ui: &mut egui::Ui) {
-        if self.preview.is_empty() {
-            return;
-        }
-        ui.separator();
-        ui.columns(2, |cols| {
-            if let Some(c) = cols.get_mut(0) {
-                c.strong(format!("자막 미리보기 ({}개 중 앞부분)", self.preview.len()));
-                egui::ScrollArea::vertical().id_salt("preview").max_height(f32::INFINITY).show(c, |ui| {
-                    for l in &self.preview {
-                        ui.label(l);
+    fn download_models(&mut self, ctx: &egui::Context) {
+        let (state, ctx) = (self.models_dl.clone(), ctx.clone());
+        *state.lock().unwrap_or_else(PoisonError::into_inner) = Some((0.0, "시작".into(), None));
+        std::thread::spawn(move || {
+            let r = job::guarded(|| {
+                job::ensure_models(&job::models_dir(), &mut |f, m| {
+                    if let Some(s) = state.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+                        s.0 = f;
+                        s.1 = m.to_string();
                     }
-                });
+                    ctx.request_repaint();
+                    true
+                })
+            });
+            if let Some(s) = state.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+                s.2 = Some(r);
             }
-            if let Some(c) = cols.get_mut(1) {
-                c.strong(format!("검토할 곳 {}개", self.issues.len()));
-                egui::ScrollArea::vertical().id_salt("issues").show(c, |ui| {
-                    for (m, t) in &self.issues {
-                        ui.label(egui::RichText::new(m).color(ui.visuals().warn_fg_color));
-                        ui.weak(t);
-                    }
-                });
-            }
+            ctx.request_repaint();
         });
     }
 
-    fn mcp_help(&mut self, ui: &mut egui::Ui) {
-        let cli = std::env::current_exe()
-            .ok()
-            .and_then(|e| e.parent().map(|p| p.join(if cfg!(windows) { "overfilm-subs.exe" } else { "overfilm-subs" })))
-            .unwrap_or_default();
-        let cfg = serde_json::json!({"mcpServers": {"overfilm-subs": {"command": cli, "args": ["mcp"]}}});
-        let text = serde_json::to_string_pretty(&cfg).unwrap_or_default();
-        ui.label("Claude Desktop의 설정 → 개발자 → 설정 편집(claude_desktop_config.json)에 아래를 넣고 다시 시작하면, 대화에서 자막 추출과 검토(오인식·욕설·읽기 속도·무음 구간 찾기, 고치기)를 시킬 수 있습니다.");
-        ui.add(egui::TextEdit::multiline(&mut text.as_str()).code_editor().desired_width(f32::INFINITY));
-        if ui.button("복사").clicked() {
-            ui.ctx().copy_text(text);
+    /// Collect finished background work.
+    fn poll(&mut self) {
+        let result = self.shared.lock().unwrap_or_else(PoisonError::into_inner).result.take();
+        match result {
+            Some(Ok(done)) => self.finished(done),
+            Some(Err(e)) => {
+                self.step = if self.input.is_some() { Step::Prep } else { Step::Empty };
+                self.status = Some(Err(e));
+            }
+            None => {}
+        }
+        if let Some(r) = self.enroll.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            if r.is_ok() {
+                self.enroll_name.clear();
+                self.enroll_from.clear();
+                self.enroll_to.clear();
+            }
+            self.status = Some(r);
+            self.voices = voices::list();
+        }
+        let dl = self.models_dl.lock().unwrap_or_else(PoisonError::into_inner).as_ref().and_then(|s| s.2.clone());
+        if let Some(r) = dl {
+            *self.models_dl.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            match r {
+                Ok(()) => self.models_ready = true,
+                Err(e) => self.status = Some(Err(e)),
+            }
+        }
+    }
+}
+
+impl Review {
+    fn refresh_issues(&mut self, mask: bool) {
+        let caps = &self.opened.captions;
+        let mut issues = match pack::glossary(Some(mcp::user_glossary_dir().as_path()).filter(|d| d.is_dir()), mask) {
+            Ok(g) => review::review(caps, &self.options.layout(), &pack::corrector(&g)),
+            Err(_) => Vec::new(),
+        };
+        // talking over each other: captions labelled with two names
+        for (k, (who, _)) in edit::caption_speakers(caps).iter().enumerate() {
+            if who.as_deref().is_some_and(|w| w.contains('·')) && caps.get(k).is_some_and(|c| c.text().trim_start().starts_with('(')) {
+                issues.push(review::Issue {
+                    index: k + 1, kind: "speech_overlap", message: "두 사람이 동시에 말한 곳입니다".into(), suggestion: None
+                });
+            }
+        }
+        self.issues = issues;
+    }
+
+    fn open_issues(&self) -> usize {
+        self.issues.iter().filter(|i| !self.ignored.contains(&(i.index, i.kind))).count()
+    }
+
+    fn remember(&mut self) {
+        self.undo.push((self.opened.captions.clone(), self.opened.transcript.clone()));
+        if self.undo.len() > 30 {
+            self.undo.remove(0);
         }
     }
 }
 
 impl eframe::App for App {
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = &root.ctx().clone();
-        let (running, progress, message, result) = {
-            let mut s = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
-            (s.running, s.progress, s.message.clone(), s.result.take())
-        };
-        if let Some(r) = result {
-            match r {
-                Ok(done) => {
-                    self.load_result(&done.srt);
-                    self.status = Some(Ok(format!(
-                        "완료: 자막 {}개를 {}에 저장했습니다. ({}분 {}초 분량, {}분 {}초 걸림, {}, 단어집 교정 {}곳)",
-                        done.captions,
-                        done.srt.display(),
-                        done.audio_seconds / 60,
-                        done.audio_seconds % 60,
-                        done.seconds_taken / 60,
-                        done.seconds_taken % 60,
-                        done.device,
-                        done.corrections.len()
-                    ) + &{
-                        let who = job::speaker_summary(&done);
-                        if who.is_empty() { String::new() } else { format!("\n{who}") }
-                    }));
-                }
-                Err(e) => self.status = Some(Err(e)),
-            }
-        }
-        let status = self.status.clone();
+        let ctx = root.ctx().clone();
+        self.poll();
+        let running = self.shared.lock().unwrap_or_else(PoisonError::into_inner).running;
         if !running && let Some(p) = ctx.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf())) {
-            self.input = Some(p);
-            self.output = None;
+            self.choose_file(p);
         }
-        egui::Frame::central_panel(root.style()).show(root, |ui| {
-            ui.set_min_size(ui.available_size());
-            ui.horizontal(|ui| {
-                ui.heading("OverFilm 자막 추출");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.toggle_value(&mut self.show_mcp, "MCP 연결");
-                });
-            });
-            ui.weak("오버워치 영상의 말소리를 한국어 자막(SRT)으로 만듭니다. 모두 이 컴퓨터에서 처리합니다.");
-            if self.show_mcp {
-                ui.group(|ui| self.mcp_help(ui));
-            }
-            ui.add_space(6.0);
-            self.file_row(ui, running);
-            ui.add_enabled_ui(!running, |ui| self.settings(ui));
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                let can = self.input.is_some() && !running;
-                if ui.add_enabled(can, egui::Button::new(egui::RichText::new("자막 만들기").strong()).min_size(egui::vec2(140.0, 32.0))).clicked() {
-                    self.start(ctx);
-                }
-                if running && ui.button("취소").clicked() {
-                    self.cancel.store(true, Ordering::Relaxed);
-                }
-                if !self.models_ready && !running {
-                    ui.weak(format!(
-                        "처음 한 번 음성 인식 모델(약 {:.1}GB)을 받습니다.",
-                        overfilm_asr::catalogue::all().iter().map(|m| m.size()).sum::<u64>() as f64 / 1e9
-                    ));
-                }
-            });
-            if running {
-                ui.add(egui::ProgressBar::new(progress).show_percentage().text(format!("{:.0}%  {message}", progress * 100.0)));
-            }
-            match &status {
-                Some(Ok(m)) if !running => {
-                    ui.colored_label(egui::Color32::from_rgb(60, 160, 90), m);
-                }
-                Some(Err(e)) if !running => {
-                    ui.colored_label(ui.visuals().error_fg_color, e);
-                }
-                _ => {}
-            }
-            self.results(ui);
-        });
+        ui::shell(self, root, &ctx);
     }
 }
 
@@ -444,25 +427,58 @@ fn korean_font() -> Option<egui::FontData> {
     })
 }
 
+/// "Segoe UI Variable" (or "Segoe UI") for Latin text, as in the Windows apps, when installed.
+fn latin_font() -> Option<egui::FontData> {
+    let faces: Vec<_> = filmcraft_text::fonts::all_faces().into_iter().filter(|f| f.info.origin == "system" && !f.info.italic).collect();
+    let face = ["Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI"]
+        .iter()
+        .find_map(|n| faces.iter().filter(|f| f.info.family.eq_ignore_ascii_case(n)).min_by_key(|f| f.info.weight.abs_diff(400)))?;
+    let mut d = egui::FontData::from_owned(face.data()?);
+    d.index = face.info.index;
+    Some(d)
+}
+
 fn main() -> eframe::Result {
     let opts = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_title("OverFilm 자막 추출").with_inner_size([860.0, 620.0]).with_drag_and_drop(true),
+        viewport: egui::ViewportBuilder::default()
+            .with_title("OverFilm 자막 추출")
+            .with_inner_size([1040.0, 720.0])
+            .with_min_inner_size([760.0, 520.0])
+            .with_drag_and_drop(true),
         ..Default::default()
     };
     eframe::run_native(
         "OverFilm 자막 추출",
         opts,
         Box::new(|cc| {
-            if let Some(f) = korean_font() {
-                let mut fonts = egui::FontDefinitions::default();
+            let mut fonts = egui::FontDefinitions::default();
+            let korean = korean_font();
+            if let Some(f) = latin_font() {
+                fonts.font_data.insert("latin".into(), std::sync::Arc::new(f));
+                fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, "latin".into());
+            }
+            if let Some(f) = korean {
                 fonts.font_data.insert("korean".into(), std::sync::Arc::new(f));
                 for fam in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
                     fonts.families.entry(fam).or_default().push("korean".into());
                 }
-                cc.egui_ctx.set_fonts(fonts);
             }
-            cc.egui_ctx.set_zoom_factor(1.15);
-            Ok(Box::new(App::new()))
+            cc.egui_ctx.set_fonts(fonts);
+            ui::theme::install(&cc.egui_ctx);
+            let mut app = App::new();
+            // A file given on the command line (Windows "Open with", a file dropped on the exe):
+            // an SRT opens for review, anything else is the input of a new run.
+            if let Some(arg) = std::env::args_os().nth(1).map(PathBuf::from).filter(|p| p.is_file()) {
+                if arg.extension().is_some_and(|e| e.eq_ignore_ascii_case("srt")) {
+                    let o = app.prefs.options.clone();
+                    if let Err(e) = app.open_result(&arg, None, o) {
+                        app.status = Some(Err(e));
+                    }
+                } else {
+                    app.choose_file(arg);
+                }
+            }
+            Ok(Box::new(app))
         }),
     )
 }
