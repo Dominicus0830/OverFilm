@@ -1,0 +1,24 @@
+id	ko	en	aliases	old	misheard	flags	note
+# 욕설: 자막에는 초성(ko)만 쓴다. misheard의 말한 형태를 ko로 바꾼다 (낱말 안에서도: 씨발아 → ㅅㅂ아).
+# 긴 형태가 먼저 맞도록 교정 단계에서 긴 것부터 바꾼다 (개씨발 → ㄱㅅㅂ, 씨발 → ㅅㅂ).
+ssibal	ㅅㅂ				씨발; 시발; 씨바; 씨빨; 씨팔; 시팔; 쉬발; ㅅ발	mask noeval	갤러리에서 쓰임
+gaessibal	ㄱㅅㅂ				개씨발; 개시발	mask noeval
+jonna	ㅈㄴ				존나; 졸라; 존내; 존니	mask noeval	갤러리에서 쓰임
+byeongsin	ㅂㅅ				병신; 븅신; 빙신	mask noeval	갤러리에서 쓰임
+gaebyeongsin	ㄱㅂㅅ				개병신	mask noeval
+saekki	ㅅㄲ				새끼; 색히	mask noeval	갤러리에서 쓰임
+gaesaekki	ㄱㅅㄲ				개새끼; 개새기; 개색기	mask noeval
+jot	ㅈ				좆	mask noeval	갤러리에서 쓰임
+jotgatda	ㅈ같				좆같	mask noeval
+jotkka	ㅈㄲ				좆까	mask noeval
+ssip	ㅆ				씹	mask noeval	갤러리에서 쓰임
+jiral	ㅈㄹ				지랄	mask noeval
+michin	ㅁㅊ				미친; 미췬	mask noeval
+michinnom	ㅁㅊㄴ				미친놈; 미친년	mask noeval	갤러리에서 쓰임
+dakchyeo	ㄷㅊ				닥쳐	mask noeval
+kkeojyeo	ㄲㅈ				꺼져	mask noeval
+yeombyeong	ㅇㅂ				염병	mask noeval
+emchang	ㅇㅊ				엠창	mask noeval
+neugeumma	ㄴㄱㅁ				느금마; 니엄마	mask noeval
+niaemi	ㄴㅇㅁ				니애미	mask noeval
+ssibalnom	ㅅㅂㄴ				씨발놈; 시발놈; 씨발년; 시발년	mask noeval

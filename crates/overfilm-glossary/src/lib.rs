@@ -12,7 +12,7 @@
 //! | `aliases` | other accepted spellings and common short forms, `;`-separated |
 //! | `old` | former names still heard (`맥크리` for `캐서디`), `;`-separated |
 //! | `misheard` | known recognizer errors to correct into `ko`, `;`-separated |
-//! | `flags` | space-separated: `noeval` (too generic to score), `verify` (unconfirmed spelling) |
+//! | `flags` | space-separated: `noeval` (too generic to score), `verify` (unconfirmed spelling), `mask` (profanity: captions write `ko`, its initial consonants, for every `misheard` form) |
 //! | `note` | free text |
 //!
 //! Blank lines and lines starting with `#` are ignored; missing trailing columns are empty.
@@ -221,6 +221,7 @@ mod tests {
             ("players", include_str!("../../../packs/overwatch/ko/glossary/players.tsv")),
             ("slang", include_str!("../../../packs/overwatch/ko/glossary/slang.tsv")),
             ("matchups", include_str!("../../../packs/overwatch/ko/glossary/matchups.tsv")),
+            ("profanity", include_str!("../../../packs/overwatch/ko/glossary/profanity.tsv")),
         ];
         let mut g = Glossary::default();
         for (category, text) in tables {
@@ -231,6 +232,10 @@ mod tests {
         assert!(cassidy.old.iter().any(|o| o == "맥크리"));
         assert!(g.entries.iter().filter(|e| e.category == "heroes").count() >= 50);
         assert!(g.get("matchups", "crazy_raccoon-zeta_division").is_some_and(|m| m.ko == "라제전" && m.aliases == ["제라전"]));
+        // Profanity is masked to its initial consonants and never scored.
+        let p = g.get("profanity", "ssibal").unwrap();
+        assert!(p.ko == "ㅅㅂ" && p.has_flag("mask") && p.has_flag("noeval") && p.misheard.iter().any(|m| m == "씨발"));
+        assert!(g.get("teams", "cheeseburger").is_some_and(|t| t.aliases.iter().any(|a| a == "처벅")));
         assert!(g.get("teams", "crazy_raccoon").is_some_and(|t| t.aliases.iter().any(|a| a == "CR")));
         // Every ability id starts with a hero id.
         for a in g.entries.iter().filter(|e| e.category == "abilities") {

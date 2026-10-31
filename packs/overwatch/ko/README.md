@@ -17,14 +17,17 @@ One TSV table per category, all with the columns described in `crates/overfilm-g
 | `teams.tsv` | OWCS Korea teams (2026) and foreign teams they meet |
 | `players.tsv` | OWCS Korea players and coaches (2026 Stage 2): Korean pronunciation in `ko`, handle in `en` |
 | `slang.tsv` | community and broadcast slang: role and comp names (`멘딜`, `정파탱`), tactics (`앵커링`, `딜각`), memes (`딸깍`, `C9`), platforms |
-| `matchups.tsv` | team-vs-team short names: first syllables of both teams + `전` (`라제전` = 크레이지 라쿤 vs 제타, also `제라전`) |
+| `profanity.tsv` | swear words: captions write only the initial consonants (`씨발` → `ㅅㅂ`, `존나` → `ㅈㄴ`); spoken forms are in `misheard`, flag `mask` |
+| `matchups.tsv` | team-vs-team short names: first syllables of both teams + `전` (`라제전` = 크레이지 라쿤 vs 제타, also `제라전`; 치즈버거 as 치 and 처 from 치벅/처벅) |
 
 - `ko` is how captions should write the term. For players it is the pronunciation commentators
   use (`D0NGHAK` → `동학`).
 - `misheard` collects recognizer errors seen in the M1 test set (`로도그` for `로드호그`,
   `동아기` for `동학`). The M2 correction step rewrites them into `ko`.
 - `flags`: `noeval` keeps a term out of term-accuracy scoring because it is an ordinary word too
-  (`지원`, `부활`); `verify` marks a spelling not yet confirmed from an official Korean source.
+  (`지원`, `부활`); `verify` marks a spelling not yet confirmed from an official Korean source;
+  `mask` marks profanity, which the correction step replaces with `ko` even inside a word
+  (`씨발아` → `ㅅㅂ아`), longest form first.
 
 Score with the whole glossary:
 
@@ -43,7 +46,9 @@ cargo run -p overfilm-eval -- --terms packs/overwatch/ko/glossary reference.srt 
 - Nicknames and slang: 나무위키 and 더위키 `오버워치/용어` (2026), DCinside 오버워치 갤러리 and
   오버워치2 마이너 갤러리 post titles (2026-10-31). Hero and ability nicknames are in `aliases`
   (`원숭이` 윈스턴, `석양` 황야의 무법자, `뽕` 나노 강화제). Matchup names other than the ones
-  reported by the user follow the same rule and are marked `verify`. Profanity and slurs are not
-  collected.
+  reported by the user follow the same rule and are marked `verify`. Slurs are not collected; common swear words are, only so captions can mask them
+  (`profanity.tsv`).
+- Team short names from the DCinside OWCS gallery: 라쿤, 제타, 팔콘, 티원, 로제, O2, 치벅/처벅/CB,
+  세이지 (SEIJI ESPORTS, roster not in yet).
 - Rosters: OWTV's OWCS Korea 2026 Stage 2 preview (June 2026). Stage 3 changes are not in yet.
   Pronunciations marked `발음 확인 필요` are guesses.
