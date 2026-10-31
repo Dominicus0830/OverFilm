@@ -20,7 +20,7 @@ use std::process::ExitCode;
 use overfilm_subs::{job, mcp, pack, review};
 
 const USAGE: &str = "사용법:
-  overfilm-subs extract <영상/오디오> [-o 저장.srt] [--mode general|commentary] [--terms \"이름, 용어\"] [--no-mask] [--glossary 폴더] [--line-chars 16]
+  overfilm-subs extract <영상/오디오> [-o 저장.srt] [--mode general|commentary] [--terms \"이름, 용어\"] [--no-mask] [--glossary 폴더] [--line-chars 16] [--cpu]
   overfilm-subs review <자막.srt>
   overfilm-subs fix <자막.srt>      단어집 교정 적용 (원본은 .srt.bak)
   overfilm-subs relayout <이름.overfilm.json> [-o 저장.srt] [--line-chars 16] [--one-line]   인식 다시 안 하고 자막만 다시 나누기
@@ -54,6 +54,7 @@ fn extract(args: &[String]) -> Result<(), String> {
             "--glossary" => o.glossary_dir = Some(PathBuf::from(val()?)),
             "--line-chars" => o.line_chars = val()?.parse().map_err(|_| "--line-chars는 숫자")?,
             "--one-line" => o.max_lines = 1,
+            "--cpu" => o.gpu = false,
             s if s.starts_with('-') => return Err(format!("모르는 옵션: {s}\n{USAGE}")),
             s => input = Some(PathBuf::from(s)),
         }
@@ -68,7 +69,7 @@ fn extract(args: &[String]) -> Result<(), String> {
     eprintln!();
     println!("자막 {}개 → {}", done.captions, done.srt.display());
     println!("단어 시간 → {}", done.transcript.display());
-    println!("소리 {}초를 {}초 걸려 처리, 단어집 교정 {}곳", done.audio_seconds, done.seconds_taken, done.corrections.len());
+    println!("소리 {}초를 {}초 걸려 처리 ({}), 단어집 교정 {}곳", done.audio_seconds, done.seconds_taken, done.device, done.corrections.len());
     Ok(())
 }
 
@@ -108,6 +109,7 @@ fn relayout(args: &[String]) -> Result<(), String> {
             "-o" | "--output" => out = it.next().map(PathBuf::from),
             "--line-chars" => o.line_chars = it.next().and_then(|v| v.parse().ok()).ok_or("--line-chars는 숫자")?,
             "--one-line" => o.max_lines = 1,
+            "--cpu" => o.gpu = false,
             s => input = Some(PathBuf::from(s)),
         }
     }

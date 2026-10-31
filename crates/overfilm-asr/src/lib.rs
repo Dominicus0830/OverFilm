@@ -7,6 +7,9 @@
 //! ([`Aligner`]) gives each word of that text a start and end time. [`transcribe`] runs both over
 //! a whole file's audio. See `OVERFILM.md` → "Speech recognition".
 //!
+//! [`gpu`] runs both networks on any Vulkan, DX12 or Metal GPU through wgpu (AMD included);
+//! without one, or on any GPU error, the CPU (candle) does the work.
+//!
 //! Planned (M5): the streamer mode classifier that keeps the streamer's speech and drops in-game
 //! hero voice lines.
 
@@ -16,6 +19,8 @@ pub mod catalogue;
 pub mod chunk;
 #[cfg(feature = "qwen")]
 mod engine;
+#[cfg(feature = "qwen")]
+pub mod gpu;
 #[cfg(feature = "qwen")]
 pub mod model;
 pub mod text;
@@ -68,6 +73,9 @@ pub struct Word {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Transcript {
     pub language: String,
+    /// where recognition ran ("CPU" or "GPU <adapter>")
+    #[serde(default)]
+    pub device: String,
     pub chunks: Vec<ChunkText>,
 }
 
@@ -95,6 +103,8 @@ pub struct Settings<'a> {
     pub language: Option<&'a str>,
     /// Applied to each chunk's text before alignment (glossary correction, profanity masking).
     pub correct: &'a dyn Fn(&str) -> String,
+    /// Use the GPU when there is one (falls back to the CPU).
+    pub gpu: bool,
 }
 
 #[cfg_attr(not(feature = "qwen"), allow(dead_code))]

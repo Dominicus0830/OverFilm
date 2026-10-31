@@ -25,6 +25,7 @@ struct App {
     mode: pack::Mode,
     terms: String,
     mask: bool,
+    gpu: bool,
     line_chars: u32,
     two_lines: bool,
     shared: Arc<Mutex<Shared>>,
@@ -45,6 +46,7 @@ impl App {
             mode: pack::Mode::General,
             terms: String::new(),
             mask: true,
+            gpu: true,
             line_chars: 16,
             two_lines: true,
             shared: Arc::default(),
@@ -63,6 +65,7 @@ impl App {
         o.mode = self.mode;
         o.extra_terms = self.terms.clone();
         o.mask_profanity = self.mask;
+        o.gpu = self.gpu;
         o.line_chars = self.line_chars;
         o.max_lines = if self.two_lines { 2 } else { 1 };
         let d = mcp::user_glossary_dir();
@@ -159,6 +162,9 @@ impl App {
             ui.label("한 줄");
             ui.add(egui::DragValue::new(&mut self.line_chars).range(8..=30).suffix("자"));
             ui.checkbox(&mut self.two_lines, "최대 두 줄");
+            ui.separator();
+            ui.checkbox(&mut self.gpu, "그래픽카드(GPU) 사용")
+                .on_hover_text("AMD·NVIDIA·Intel 그래픽카드로 빠르게 처리합니다. 없거나 문제가 생기면 자동으로 CPU를 씁니다.");
         });
     }
 
@@ -215,13 +221,14 @@ impl eframe::App for App {
                 Ok(done) => {
                     self.load_result(&done.srt);
                     self.status = Some(Ok(format!(
-                        "완료: 자막 {}개를 {}에 저장했습니다. ({}분 {}초 분량, {}분 {}초 걸림, 단어집 교정 {}곳)",
+                        "완료: 자막 {}개를 {}에 저장했습니다. ({}분 {}초 분량, {}분 {}초 걸림, {}, 단어집 교정 {}곳)",
                         done.captions,
                         done.srt.display(),
                         done.audio_seconds / 60,
                         done.audio_seconds % 60,
                         done.seconds_taken / 60,
                         done.seconds_taken % 60,
+                        done.device,
                         done.corrections.len()
                     )));
                 }

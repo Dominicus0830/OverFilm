@@ -47,7 +47,8 @@ fn tools() -> Value {
             "output": {"type": "string", "description": "저장할 SRT 경로 (기본: 입력 이름.srt)"},
             "mode": {"type": "string", "enum": ["general", "commentary"], "description": "general: 일반 게임 영상, commentary: 대회 해설 (팀·선수 이름 포함)"},
             "extra_terms": {"type": "string", "description": "인식에 도움될 이름·용어, 쉼표로 구분"},
-            "mask_profanity": {"type": "boolean", "description": "욕설을 초성으로 (기본 true)"}}}},
+            "mask_profanity": {"type": "boolean", "description": "욕설을 초성으로 (기본 true)"},
+            "gpu": {"type": "boolean", "description": "그래픽카드(GPU)가 있으면 사용 (기본 true, 없거나 오류면 CPU)"}}}},
         {"name": "job_status", "description": "자막 추출 작업의 진행률, 메시지, 끝났으면 결과 파일과 단어집 교정 목록.", "inputSchema": {"type": "object", "properties": {}}},
         {"name": "cancel_job", "description": "진행 중인 자막 추출을 멈춥니다.", "inputSchema": {"type": "object", "properties": {}}},
         {"name": "read_subtitles", "description": "SRT 자막을 번호·시간·글자로 읽습니다.",
@@ -158,6 +159,7 @@ impl Server {
         }
         o.extra_terms = s(a, "extra_terms").unwrap_or_default().to_string();
         o.mask_profanity = a.get("mask_profanity").and_then(Value::as_bool).unwrap_or(true);
+        o.gpu = a.get("gpu").and_then(Value::as_bool).unwrap_or(true);
         let d = user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         if !o.input.is_file() {

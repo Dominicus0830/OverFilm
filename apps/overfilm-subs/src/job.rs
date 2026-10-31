@@ -32,6 +32,9 @@ pub struct Options {
     /// Lines per caption (1 or 2).
     #[serde(default = "two")]
     pub max_lines: u32,
+    /// Use the GPU when there is one (Vulkan/DX12; falls back to the CPU).
+    #[serde(default = "yes")]
+    pub gpu: bool,
 }
 
 fn yes() -> bool {
@@ -46,7 +49,17 @@ fn two() -> u32 {
 
 impl Options {
     pub fn new(input: PathBuf) -> Self {
-        Self { input, output: None, mode: Mode::General, extra_terms: String::new(), mask_profanity: true, glossary_dir: None, line_chars: 16, max_lines: 2 }
+        Self {
+            input,
+            output: None,
+            mode: Mode::General,
+            extra_terms: String::new(),
+            mask_profanity: true,
+            glossary_dir: None,
+            line_chars: 16,
+            max_lines: 2,
+            gpu: true,
+        }
     }
 
     pub fn srt_path(&self) -> PathBuf {
@@ -73,6 +86,8 @@ pub struct Done {
     pub seconds_taken: u64,
     /// Glossary corrections made, `(from, to)`.
     pub corrections: Vec<(String, String)>,
+    /// Where recognition ran ("CPU" or "GPU <adapter>").
+    pub device: String,
 }
 
 /// Where the models live: `models` beside the program if that folder exists (portable copy),
@@ -142,6 +157,7 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         context: &context,
         language: Some("Korean"),
         correct: &correct,
+        gpu: o.gpu,
     };
     let transcript = overfilm_asr::transcribe(&audio, &settings, &mut |f, m| progress(0.1 + 0.88 * f, m)).map_err(|e| e.to_string())?;
     let words: Vec<TimedWord> = transcript.words().map(|w| TimedWord { text: w.text.clone(), start_ms: w.start_ms, end_ms: w.end_ms }).collect();
@@ -160,6 +176,7 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         audio_seconds: (audio.len() / overfilm_asr::SAMPLE_RATE as usize) as u64,
         seconds_taken: t0.elapsed().as_secs(),
         corrections,
+        device: transcript.device.clone(),
     })
 }
 

@@ -1,4 +1,4 @@
-//! Transcribe a 16 kHz mono f32 WAV with Qwen3-ASR (+ aligner): `qwen_asr <asr dir> <aligner dir> <wav> [context file] [q8]`.
+//! Transcribe a 16 kHz mono f32 WAV with Qwen3-ASR (+ aligner): `qwen_asr <asr dir> <aligner dir> <wav> [context file] [q8] [gpu]`.
 //! Prints the transcript JSON.
 
 fn read_wav(p: &str) -> Vec<f32> {
@@ -20,6 +20,7 @@ fn main() {
         context: ctx.trim(),
         language: Some("Korean"),
         correct: &|t: &str| t.to_string(),
+        gpu: a.iter().any(|s| s == "gpu"),
     };
     let t0 = std::time::Instant::now();
     let t = overfilm_asr::transcribe(&audio, &s, &mut |f, m| {
@@ -27,5 +28,6 @@ fn main() {
         true
     })
     .unwrap();
+    eprintln!("device {}", t.device);
     println!("{}", serde_json::to_string_pretty(&t).unwrap());
 }

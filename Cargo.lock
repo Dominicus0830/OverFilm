@@ -4765,11 +4765,14 @@ dependencies = [
  "candle-nn",
  "fancy-regex",
  "filmcraft-speech",
+ "half",
+ "pollster 1.0.1",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "unicode-normalization",
+ "wgpu",
 ]
 
 [[package]]

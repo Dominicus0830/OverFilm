@@ -89,8 +89,10 @@ pub struct TextConfig {
 }
 
 /// Output length of the three stride-2 convolutions for `n` input frames.
-pub fn conv_out_len(n: usize) -> usize {
-    let one = |l: usize| if l == 0 { 0 } else { (l - 1) / 2 + 1 };
+pub const fn conv_out_len(n: usize) -> usize {
+    const fn one(l: usize) -> usize {
+        if l == 0 { 0 } else { (l - 1) / 2 + 1 }
+    }
     one(one(one(n)))
 }
 
@@ -174,20 +176,22 @@ impl EncoderLayer {
     }
 }
 
-pub struct AudioEncoder {
+/// The audio encoder's input side: three stride-2 convolutions, the projection and the
+/// per-chunk positions (on the CPU in both backends).
+pub struct AudioFront {
     conv1: Conv2d,
     conv2: Conv2d,
     conv3: Conv2d,
     conv_out: Linear,
     pos: Tensor,
-    layers: Vec<EncoderLayer>,
-    ln_post: LayerNorm,
-    proj1: Linear,
-    proj2: Linear,
     n_mels: usize,
 }
 
-impl AudioEncoder {
+/// Rows per encoder attention window (`conv_out_len(CHUNK) · WINDOW_CHUNKS`). An input of one
+/// short chunk has fewer rows than this, so a window is always at most this long.
+pub const ENCODER_WINDOW: usize = conv_out_len(CHUNK) * WINDOW_CHUNKS;
+
+impl AudioFront {
     pub fn new(c: &AudioConfig, vb: VarBuilder) -> Result<Self> {
         let cfg = Conv2dConfig { padding: 1, stride: 2, ..Default::default() };
         let h = c.downsample_hidden_size;
@@ -198,16 +202,13 @@ impl AudioEncoder {
             conv3: candle_nn::conv2d(h, h, 3, cfg, vb.pp("conv2d3"))?,
             conv_out: candle_nn::linear_no_bias(h * freq, c.d_model, vb.pp("conv_out"))?,
             pos: sinusoids(c.max_source_positions, c.d_model, vb.device())?.to_dtype(vb.dtype())?,
-            layers: (0..c.encoder_layers).map(|i| EncoderLayer::new(c, vb.pp(format!("layers.{i}")))).collect::<Result<_>>()?,
-            ln_post: candle_nn::layer_norm(c.d_model, 1e-5, vb.pp("ln_post"))?,
-            proj1: candle_nn::linear(c.d_model, c.d_model, vb.pp("proj1"))?,
-            proj2: candle_nn::linear(c.d_model, c.output_dim, vb.pp("proj2"))?,
             n_mels: c.num_mel_bins,
         })
     }
 
-    /// `mel`: `n_mels × frames` row-major. Returns (audio_tokens(frames), output_dim).
-    pub fn forward(&self, mel: &[f32], frames: usize, dtype: DType, dev: &Device) -> Result<Tensor> {
+    /// `mel`: `n_mels × frames` row-major. Returns (audio_tokens(frames), d_model) and the
+    /// attention window in rows.
+    pub fn forward(&self, mel: &[f32], frames: usize, dtype: DType, dev: &Device) -> Result<(Tensor, usize)> {
         if frames == 0 || mel.len() != self.n_mels * frames {
             return Err(candle_core::Error::Msg(format!("mel has {} values for {frames} frames", mel.len())));
         }
@@ -238,8 +239,32 @@ impl AudioEncoder {
         for (i, &len) in lens.iter().enumerate() {
             rows.push(x.get(i)?.narrow(0, 0, conv_out_len(len).min(t))?);
         }
-        let mut h = Tensor::cat(&rows, 0)?;
-        let window = t * WINDOW_CHUNKS;
+        Ok((Tensor::cat(&rows, 0)?, t * WINDOW_CHUNKS))
+    }
+}
+
+pub struct AudioEncoder {
+    front: AudioFront,
+    layers: Vec<EncoderLayer>,
+    ln_post: LayerNorm,
+    proj1: Linear,
+    proj2: Linear,
+}
+
+impl AudioEncoder {
+    pub fn new(c: &AudioConfig, vb: VarBuilder) -> Result<Self> {
+        Ok(Self {
+            front: AudioFront::new(c, vb.clone())?,
+            layers: (0..c.encoder_layers).map(|i| EncoderLayer::new(c, vb.pp(format!("layers.{i}")))).collect::<Result<_>>()?,
+            ln_post: candle_nn::layer_norm(c.d_model, 1e-5, vb.pp("ln_post"))?,
+            proj1: candle_nn::linear(c.d_model, c.d_model, vb.pp("proj1"))?,
+            proj2: candle_nn::linear(c.d_model, c.output_dim, vb.pp("proj2"))?,
+        })
+    }
+
+    /// `mel`: `n_mels × frames` row-major. Returns (audio_tokens(frames), output_dim).
+    pub fn forward(&self, mel: &[f32], frames: usize, dtype: DType, dev: &Device) -> Result<Tensor> {
+        let (mut h, window) = self.front.forward(mel, frames, dtype, dev)?;
         for l in &self.layers {
             h = l.forward(&h, window)?;
         }
