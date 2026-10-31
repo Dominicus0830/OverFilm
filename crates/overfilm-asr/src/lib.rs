@@ -29,7 +29,7 @@ pub mod tokenizer;
 pub mod weights;
 
 #[cfg(feature = "qwen")]
-pub use engine::{Aligner, Asr, transcribe};
+pub use engine::{Aligner, Asr, gpu_model_check, transcribe};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};

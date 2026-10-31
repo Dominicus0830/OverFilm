@@ -9,6 +9,7 @@
 //!                                       captions again from the saved word times
 //! overfilm-subs models            download the models (about 6.5 GB) if missing
 //! overfilm-subs mcp               MCP server on stdin/stdout (Claude Desktop and others)
+//! overfilm-subs gpu-check [--quick] GPU kernels and the real model against the CPU
 //! ```
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
@@ -25,7 +26,8 @@ const USAGE: &str = "사용법:
   overfilm-subs fix <자막.srt>      단어집 교정 적용 (원본은 .srt.bak)
   overfilm-subs relayout <이름.overfilm.json> [-o 저장.srt] [--line-chars 16] [--one-line]   인식 다시 안 하고 자막만 다시 나누기
   overfilm-subs models     모델 받기 (약 6.5GB, 처음 한 번)
-  overfilm-subs mcp        MCP 서버 (Claude Desktop 등에서 연결)";
+  overfilm-subs mcp        MCP 서버 (Claude Desktop 등에서 연결)
+  overfilm-subs gpu-check  그래픽카드 계산이 CPU와 같은지 확인 (--quick: 모델 비교 생략)";
 
 fn progress_bar() -> impl FnMut(f32, &str) -> bool {
     let mut last = String::new();
@@ -129,6 +131,34 @@ fn relayout(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Check the GPU against the CPU: every kernel, tiny networks, then (unless `--quick`) the real
+/// recogniser.
+fn gpu_check(args: &[String]) -> Result<(), String> {
+    let ctx = overfilm_asr::gpu::Ctx::with(args.iter().any(|a| a == "--software")).map_err(|e| e.to_string())?;
+    println!("GPU: {}", ctx.name);
+    let mut all_ok = true;
+    for r in overfilm_asr::gpu::check::report(&ctx) {
+        all_ok &= r.ok();
+        println!("{r}");
+    }
+    let models = job::models_dir();
+    if !args.iter().any(|a| a == "--quick") && overfilm_asr::catalogue::ASR.installed(&models) {
+        println!("실제 모델 비교 중 (CPU와 GPU에 차례로 불러옵니다, 몇 분 걸립니다)...");
+        let dir = overfilm_asr::catalogue::ASR.dir(&models);
+        let reports = job::guarded(|| overfilm_asr::gpu_model_check(&dir, true, &ctx).map_err(|e| e.to_string()))?;
+        for r in reports {
+            all_ok &= r.ok();
+            println!("{r}");
+        }
+    }
+    if all_ok {
+        println!("모두 통과: GPU를 써도 됩니다.");
+        Ok(())
+    } else {
+        Err("GPU 결과가 CPU와 다릅니다. 이 화면을 그대로 보내 주세요. (자막 추출은 자동으로 CPU를 씁니다)".into())
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let r = match args.first().map(String::as_str) {
@@ -143,6 +173,7 @@ fn main() -> ExitCode {
             r.map(|()| println!("모델 준비됨: {}", job::models_dir().display()))
         }
         Some("mcp") => mcp::serve(),
+        Some("gpu-check") => gpu_check(args.get(1..).unwrap_or_default()),
         _ => Err(USAGE.to_string()),
     };
     match r {

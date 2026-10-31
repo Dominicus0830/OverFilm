@@ -19,32 +19,25 @@ fn ctx() -> Option<Arc<Ctx>> {
     }
 }
 
-struct Rng(u64);
-
-impl Rng {
-    /// Uniform in [-a, a), rounded through f16 so both backends hold the same weights.
-    fn vec(&mut self, n: usize, a: f32) -> Vec<f32> {
-        (0..n)
-            .map(|_| {
-                self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                let u = (self.0 >> 40) as f32 / (1u64 << 24) as f32;
-                half::f16::from_f32((u * 2.0 - 1.0) * a).to_f32()
-            })
-            .collect()
-    }
-}
-
-fn max_rel(a: &[f32], b: &[f32]) -> f32 {
-    assert_eq!(a.len(), b.len());
-    let scale = b.iter().fold(0f32, |m, x| m.max(x.abs())).max(1e-6);
-    a.iter().zip(b).fold(0f32, |m, (x, y)| m.max((x - y).abs())) / scale
-}
+use super::check::{Rng, max_rel};
 
 fn read_floats(c: &Ctx, buf: &wgpu::Buffer, n: usize) -> Vec<f32> {
     let staging = c.staging(n as u64 * 4);
     let enc = c.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     let b = c.finish_read(enc, buf, &staging, n as u64 * 4).unwrap();
     b.chunks_exact(4).map(|w| f32::from_le_bytes([w[0], w[1], w[2], w[3]])).collect()
+}
+
+/// The built-in self-check (every kernel and tiny networks) passes.
+#[test]
+fn self_check_passes() {
+    let Some(c) = ctx() else { return };
+    let r = check::report(&c);
+    for x in &r {
+        eprintln!("{x}");
+    }
+    assert!(r.iter().all(check::Report::ok));
+    assert!(r.len() >= 15);
 }
 
 /// One product through both kernels, both formats, split into parts, against f32.

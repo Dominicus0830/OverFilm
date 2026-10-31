@@ -437,7 +437,7 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
     let sr = SAMPLE_RATE as usize;
     let spans = chunk::split(audio, sr, MAX_CHUNK_SECONDS, 5.0);
     let mut gpu = if s.gpu {
-        match Ctx::new() {
+        match Ctx::new().and_then(|c| gpu::check::verify(&c).map(|()| c)) {
             Ok(c) => Some(c),
             Err(e) => {
                 if !progress(0.0, &format!("GPU 없이 CPU로 진행합니다 ({e})")) {
@@ -508,4 +508,48 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
     }
     let _ = gpu;
     Ok(Transcript { language: s.language.unwrap_or_default().to_string(), device, chunks })
+}
+
+/// The real model on the GPU against the CPU: encoder output for 3 s of noise, decoder scores
+/// after a prompt with that audio, and one generated step (`overfilm-subs gpu-check`).
+pub fn gpu_model_check(dir: &Path, quantize: bool, ctx: &Arc<Ctx>) -> Result<Vec<gpu::check::Report>, AsrError> {
+    let mut rng = gpu::check::Rng(7);
+    let audio: Vec<f32> = rng.vec(SAMPLE_RATE as usize * 3, 0.1);
+    let run = |net: &mut Net, tok: &Tokenizer| -> Result<(Vec<f32>, Vec<f32>, Vec<f32>), AsrError> {
+        let feats = net.encode(&audio)?;
+        let before = tok.encode("<|im_start|>system\n오버워치 겐지 트레이서<|im_end|>\n<|im_start|>user\n<|audio_start|>");
+        let after = tok.encode("<|audio_end|><|im_end|>\n<|im_start|>assistant\nlanguage Korean<asr_text>");
+        let x = net.inputs(&before, &feats, &after)?;
+        net.clear();
+        let step = net.embed(&tok.encode("안녕"))?.narrow(0, 0, 1)?;
+        let (prefill, next) = match net {
+            Net::Cpu(th) => {
+                let a = th.text.forward(&x.unsqueeze(0)?, true, true)?.flatten_all()?.to_vec1::<f32>()?;
+                let b = th.text.forward(&step.unsqueeze(0)?, true, true)?.flatten_all()?.to_vec1::<f32>()?;
+                (a, b)
+            }
+            Net::Gpu(g) => {
+                g.text.forward(&x.flatten_all()?.to_vec1::<f32>()?, true, true)?;
+                let a = g.text.last_logits()?;
+                g.text.forward(&step.flatten_all()?.to_vec1::<f32>()?, true, true)?;
+                (a, g.text.last_logits()?)
+            }
+        };
+        net.clear();
+        Ok((feats.flatten_all()?.to_vec1::<f32>()?, prefill, next))
+    };
+    let want = {
+        let mut m = load_dir(dir, quantize, None)?;
+        run(&mut m.net, &m.tok)?
+    };
+    let mut m = load_dir(dir, quantize, Some(ctx))?;
+    let got = run(&mut m.net, &m.tok)?;
+    let argmax = |v: &[f32]| v.iter().enumerate().fold((0, f32::MIN), |b, (i, &x)| if x > b.1 { (i, x) } else { b }).0;
+    use gpu::check::{Report, max_rel};
+    Ok(vec![
+        Report { name: "model encoder".into(), err: max_rel(&got.0, &want.0), tol: 2e-2 },
+        Report { name: "model prefill scores".into(), err: max_rel(&got.1, &want.1), tol: 5e-2 },
+        Report { name: "model prefill best token".into(), err: if argmax(&got.1) == argmax(&want.1) { 0.0 } else { 1.0 }, tol: 0.0 },
+        Report { name: "model step scores".into(), err: max_rel(&got.2, &want.2), tol: 5e-2 },
+    ])
 }

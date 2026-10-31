@@ -193,7 +193,7 @@ impl Ctx {
         }
         let zero =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("zero"), contents: &[0u8; 16], usage: wgpu::BufferUsages::STORAGE });
-        let name = format!("{} ({:?})", info.name, info.backend);
+        let name = format!("{} ({:?}, {} {})", info.name, info.backend, info.driver, info.driver_info).replace(" ,", "").replace("  ", " ");
         Ok(Arc::new(Self { device, queue, err, max_bind, name, k, zero }))
     }
 
@@ -900,5 +900,6 @@ impl Encoder {
     }
 }
 
+pub mod check;
 #[cfg(test)]
 mod tests;
