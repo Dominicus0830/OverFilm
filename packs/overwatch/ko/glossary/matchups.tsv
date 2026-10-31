@@ -9,7 +9,6 @@ crazy_raccoon-cheeseburger	라치전		치라전; 라처전; 처라전			verify	�
 crazy_raccoon-o2_blast	라오전		오라전			verify	크레이지 라쿤 대 오투 블래스트
 crazy_raccoon-seiji_esports	라세전		세라전			verify	크레이지 라쿤 대 세이지
 crazy_raccoon-poker_face	라포전		포라전			verify	크레이지 라쿤 대 포커페이스
-crazy_raccoon-superbad	라슈전		슈라전			verify	크레이지 라쿤 대 슈퍼배드
 zeta_division-team_falcons	제팔전		팔제전			verify	제타 디비전 대 팔콘
 zeta_division-t1	제티전		티제전			verify	제타 디비전 대 T1
 zeta_division-rode_zanside	제로전		로제전			verify noeval	제타 디비전 대 로제
@@ -17,32 +16,24 @@ zeta_division-cheeseburger	제치전		치제전; 제처전; 처제전			verify	�
 zeta_division-o2_blast	제오전		오제전			verify	제타 디비전 대 오투 블래스트
 zeta_division-seiji_esports	제세전		세제전			verify	제타 디비전 대 세이지
 zeta_division-poker_face	제포전		포제전			verify	제타 디비전 대 포커페이스
-zeta_division-superbad	제슈전		슈제전			verify	제타 디비전 대 슈퍼배드
 team_falcons-t1	팔티전		티팔전			verify	팔콘 대 T1
 team_falcons-rode_zanside	팔로전		로팔전			verify	팔콘 대 로제
 team_falcons-cheeseburger	팔치전		치팔전; 팔처전; 처팔전			verify	팔콘 대 치즈버거
 team_falcons-o2_blast	팔오전		오팔전			verify	팔콘 대 오투 블래스트
 team_falcons-seiji_esports	팔세전		세팔전			verify	팔콘 대 세이지
 team_falcons-poker_face	팔포전		포팔전			verify	팔콘 대 포커페이스
-team_falcons-superbad	팔슈전		슈팔전			verify	팔콘 대 슈퍼배드
 t1-rode_zanside	티로전		로티전			verify	T1 대 로제
 t1-cheeseburger	티치전		치티전; 티처전; 처티전			verify	T1 대 치즈버거
 t1-o2_blast	티오전		오티전			verify	T1 대 오투 블래스트
 t1-seiji_esports	티세전		세티전			verify	T1 대 세이지
 t1-poker_face	티포전		포티전			verify	T1 대 포커페이스
-t1-superbad	티슈전		슈티전			verify	T1 대 슈퍼배드
 rode_zanside-cheeseburger	로치전		치로전; 로처전; 처로전			verify	로제 대 치즈버거
 rode_zanside-o2_blast	로오전		오로전			verify	로제 대 오투 블래스트
 rode_zanside-seiji_esports	로세전		세로전			verify	로제 대 세이지
 rode_zanside-poker_face	로포전		포로전			verify	로제 대 포커페이스
-rode_zanside-superbad	로슈전		슈로전			verify	로제 대 슈퍼배드
 cheeseburger-o2_blast	치오전		오치전; 처오전; 오처전			verify	치즈버거 대 오투 블래스트
 cheeseburger-seiji_esports	치세전		세치전; 처세전; 세처전			verify	치즈버거 대 세이지
 cheeseburger-poker_face	치포전		포치전; 처포전; 포처전			verify	치즈버거 대 포커페이스
-cheeseburger-superbad	치슈전		슈치전; 처슈전; 슈처전			verify	치즈버거 대 슈퍼배드
 o2_blast-seiji_esports	오세전		세오전			verify	오투 블래스트 대 세이지
 o2_blast-poker_face	오포전		포오전			verify	오투 블래스트 대 포커페이스
-o2_blast-superbad	오슈전		슈오전			verify	오투 블래스트 대 슈퍼배드
 seiji_esports-poker_face	세포전		포세전			verify	세이지 대 포커페이스
-seiji_esports-superbad	세슈전		슈세전			verify	세이지 대 슈퍼배드
-poker_face-superbad	포슈전		슈포전			verify	포커페이스 대 슈퍼배드

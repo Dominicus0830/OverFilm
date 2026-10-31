@@ -15,7 +15,7 @@ One TSV table per category, all with the columns described in `crates/overfilm-g
 | `modes.tsv` | game modes and queues |
 | `terms.tsv` | roles, subroles, mechanics, tactics, ranks, esports terms |
 | `teams.tsv` | OWCS Korea teams (2026) and foreign teams they meet |
-| `players.tsv` | OWCS Korea players and coaches (2026 Stage 2): Korean pronunciation in `ko`, handle in `en` |
+| `players.tsv` | OWCS Korea players and coaches (2026 Stage 3), then earlier players: Korean pronunciation in `ko`, handle in `en`, real name in `note` |
 | `slang.tsv` | community and broadcast slang: role and comp names (`멘딜`, `정파탱`), tactics (`앵커링`, `딜각`), memes (`딸깍`, `C9`), platforms |
 | `profanity.tsv` | swear words: captions write only the initial consonants (`씨발` → `ㅅㅂ`, `존나` → `ㅈㄴ`); spoken forms are in `misheard`, flag `mask` |
 | `matchups.tsv` | team-vs-team short names: first syllables of both teams + `전` (`라제전` = 크레이지 라쿤 vs 제타, also `제라전`; 치즈버거 as 치 and 처 from 치벅/처벅) |
@@ -50,5 +50,7 @@ cargo run -p overfilm-eval -- --terms packs/overwatch/ko/glossary reference.srt 
   (`profanity.tsv`).
 - Team short names from the DCinside OWCS gallery: 라쿤, 제타, 팔콘, 티원, 로제, O2, 치벅/처벅/CB,
   세이지 (SEIJI ESPORTS, roster not in yet).
-- Rosters: OWTV's OWCS Korea 2026 Stage 2 preview (June 2026). Stage 3 changes are not in yet.
-  Pronunciations marked `발음 확인 필요` are guesses.
+- Rosters: 나무위키 (namu.moe mirror) team and player pages, 2026 OWCS Korea Stage 3
+  (2026-10-02 – 11-08; nine teams, SuperBad disbanded 2026-08-31), read 2026-10-31. Korean
+  readings come from 나무위키 where it gives one (스핀트, 헤이저, 메리트, 미닛), from broadcasts and
+  the galleries otherwise; the rest are marked `발음 확인 필요`.
