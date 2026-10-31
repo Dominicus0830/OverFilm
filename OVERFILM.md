@@ -14,7 +14,7 @@ calling the caption layout) and listed in the table at the end.
 | Crate | Layer | Milestone | Purpose |
 |---|---|---|---|
 | `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`), in-game voice lines found by text (`voicelines`) |
-| `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels); next: `filmcraft_speech::Transcriber` |
+| `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels, overlapped speech with pyannote segmentation-3.0); next: `filmcraft_speech::Transcriber` |
 | `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L4 | M6, M7, M9 | MCP editing assistants, screen recognition, style learning |
@@ -102,6 +102,35 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   CPU frame maps on a 2 s test block first (relative error ≤ 1e-3) and stays on the CPU
   otherwise; a GPU error on a block falls back to the CPU for that block. `gpu-check` includes a
   small residual network against a plain-loop reference.
+- **Overlapped speech** (`speakers/seg.rs`, `speakers/overlap.rs`): pyannote segmentation-3.0
+  (MIT). The original repository needs a Hugging Face sign-in, so `catalogue::SEGMENT` pins the
+  ONNX export onnx-community publishes openly (6 MB); only its weights are read (a bounded
+  protobuf reader), the graph is written out in Rust (SincNet, 4 × BiLSTM 128, powerset
+  classifier). Matches onnxruntime to 5e-5 on real audio (same class in every frame), 0.2 s per
+  10 s chunk on one CPU core. After the words have speakers, 10 s chunks every 5 s give each
+  frame up to three local talkers; a local talker is tied to a transcript speaker by the word
+  labels under its single-voice frames (12+ frames, 60 % of them one speaker), or else by its
+  voice vector (WeSpeaker over its frames, no clean ones needed) against the voices of tied
+  talkers, never to a speaker already tied in that chunk. A word whose frames are at least 20 %
+  overlapped (two-talker probability ≥ 0.3, averaged over the chunks holding it, centre-weighted)
+  gets the other voice as `Word::also`. Voice vectors are computed only in chunks with an untied
+  talker in an overlap, which keeps the cost near the segmentation's.
+  Tuning set: 12 synthetic Zeroth conversations of 2–4 speakers in which 30 % of turns start
+  0.3–2 s before the previous one ends and 15 % are backchannels said wholly inside another turn
+  (359 overlapped words):
+
+  | setting | overlap words found | both speakers right | false overlap |
+  |---|---|---|---|
+  | most likely class per frame, 30 % of the word | 49.3 % | 43.7 % | 1.1 % |
+  | **probability ≥ 0.3 over chunks, 20 % of the word (chosen)** | **64.6 %** | **55.2 %** | **2.6 %** |
+  | + relabel words by the segmentation's clean talkers | — | — | word error 4.8 → 5.5 %, dropped |
+
+  The word's own label is right (one of the two talkers) for 97 % of overlapped words. On the
+  T1 vs 로제 clip a quarter of the words are overlapped: the streamer talks over the broadcast
+  casters. Captions show `(화자1·화자2)` only for a steady overlap (two or more words, 1 s or
+  more, same pair); a person's own file (`--per-speaker`, `--only-voices`) keeps the words said
+  over someone else; a word of a game voice with a person talking over it that is no voice line
+  goes to the person. Without the model the step is skipped.
 - **Game voice**: `overfilm_glossary::voicelines` matches runs of words against
   `voicelines.tsv` on letters only (edit distance at most a fifth of the line). An exact match of a line
   of 5+ characters (score ≥ 0.8 for lines of 8+) marks its words as game audio; a speaker with 2+ matches whose

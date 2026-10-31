@@ -6,6 +6,7 @@
 //! voice lines (at least two matches) is a game voice as a whole, and then even short lines and
 //! the rest of its words count as game audio.
 
+use overfilm_asr::speakers::overlap::OverlapParams;
 use overfilm_asr::speakers::{Diarizer, Labels, Params};
 use overfilm_asr::{Speaker, Transcript};
 use overfilm_captions::{Caption, Layout, TimedWord};
@@ -73,6 +74,7 @@ pub fn apply_labels(t: &mut Transcript, labels: &Labels) {
     for c in &mut t.chunks {
         for w in &mut c.words {
             w.speaker = labels.words.get(i).copied().flatten();
+            w.also = labels.also.get(i).copied().flatten().filter(|&a| Some(a) != w.speaker);
             i += 1;
         }
     }
@@ -127,16 +129,25 @@ pub fn mark_game_voice(t: &mut Transcript, lines: &VoiceLines) -> usize {
     }
     // speakers made mostly of voice lines are game voices
     let spk: Vec<Option<usize>> = t.words().map(|w| w.speaker).collect();
+    let also: Vec<Option<usize>> = t.words().map(|w| w.also).collect();
     for (si, s) in t.speakers.iter_mut().enumerate() {
         let mine: Vec<usize> = (0..spk.len()).filter(|&i| spk.get(i).copied().flatten() == Some(si)).collect();
         let lined = mine.iter().filter(|&&i| weak.get(i).copied().unwrap_or(false)).count();
         let matches = found.iter().filter(|m| spk.get(m.start).copied().flatten() == Some(si)).count();
         s.game = matches >= 2 && lined * 2 >= mine.len();
-        if s.game {
-            for &i in &mine {
-                if let Some(g) = game.get_mut(i) {
-                    *g = true;
+    }
+    let is_game_voice = |s: Option<usize>, t: &Transcript| s.and_then(|s| t.speakers.get(s)).is_some_and(|s| s.game);
+    // a person talking over a game voice: words that are no voice line are the person's
+    let mut swap = vec![false; spk.len()];
+    for i in 0..spk.len() {
+        let (s, a) = (spk.get(i).copied().flatten(), also.get(i).copied().flatten());
+        if is_game_voice(s, t) {
+            if a.is_some() && !is_game_voice(a, t) && !weak.get(i).copied().unwrap_or(false) {
+                if let Some(x) = swap.get_mut(i) {
+                    *x = true;
                 }
+            } else if let Some(g) = game.get_mut(i) {
+                *g = true;
             }
         }
     }
@@ -144,6 +155,9 @@ pub fn mark_game_voice(t: &mut Transcript, lines: &VoiceLines) -> usize {
     for c in &mut t.chunks {
         for w in &mut c.words {
             w.game = game.get(i).copied().unwrap_or(false);
+            if swap.get(i).copied().unwrap_or(false) {
+                std::mem::swap(&mut w.speaker, &mut w.also);
+            }
             i += 1;
         }
     }
@@ -178,23 +192,30 @@ pub fn turns(t: &Transcript, game: GameVoice, keep: Keep) -> Vec<(Option<String>
     let label_people = shown_people > 1 && !matches!(keep, Keep::One(_));
     let only = matches!(keep, Keep::One(_) | Keep::Enrolled);
     let mut out: Vec<(Option<String>, Vec<TimedWord>)> = Vec::new();
-    let mut key: Option<(Option<usize>, bool)> = None;
-    for w in t.words() {
+    let mut key: Option<(Option<usize>, Option<usize>, bool)> = None;
+    let name = |s: Option<usize>| s.and_then(|s| t.speakers.get(s)).filter(|s| !s.game).map(|s| s.label.clone());
+    let overlaps = steady_overlaps(t);
+    for (w, &w_also) in t.words().zip(&overlaps) {
         let is_game = w.game && game != GameVoice::Keep;
         if is_game && game == GameVoice::Drop {
             key = None;
             continue;
         }
-        if !shown(w.speaker) || (only && is_game) {
+        // a word said over someone else's is kept for either of the two
+        let also = w_also.filter(|&a| shown(Some(a)) && name(Some(a)).is_some());
+        if !(shown(w.speaker) || also.is_some()) || (only && is_game) {
             key = None;
             continue;
         }
-        let k = (w.speaker, is_game);
+        let k = (w.speaker, if label_people { also } else { None }, is_game);
         if key != Some(k) {
             let label = if is_game {
                 Some(GAME_LABEL.to_string())
             } else if label_people {
-                w.speaker.and_then(|s| t.speakers.get(s)).map(|s| s.label.clone())
+                match (name(w.speaker), name(also)) {
+                    (Some(a), Some(b)) => Some(format!("{a}·{b}")),
+                    (a, b) => a.or(b),
+                }
             } else {
                 None
             };
@@ -204,6 +225,37 @@ pub fn turns(t: &Transcript, game: GameVoice, keep: Keep) -> Vec<(Option<String>
         if let Some(last) = out.last_mut() {
             last.1.push(TimedWord { text: w.text.clone(), start_ms: w.start_ms, end_ms: w.end_ms });
         }
+    }
+    out
+}
+
+/// Overlaps shorter than this (or of one word) do not change captions: a blip of cross-talk
+/// would only break a turn apart.
+pub const MIN_OVERLAP_MS: i64 = 1000;
+
+/// Each word's second speaker where it is part of a steady overlap (at least two words and
+/// [`MIN_OVERLAP_MS`] with the same pair of speakers).
+pub fn steady_overlaps(t: &Transcript) -> Vec<Option<usize>> {
+    let words: Vec<&overfilm_asr::Word> = t.words().collect();
+    let mut out = vec![None; words.len()];
+    let mut i = 0;
+    while i < words.len() {
+        let key = words.get(i).map(|w| (w.speaker, w.also));
+        let mut j = i + 1;
+        while j < words.len() && words.get(j).map(|w| (w.speaker, w.also)) == key {
+            j += 1;
+        }
+        let span = match (words.get(i), words.get(j - 1)) {
+            (Some(a), Some(b)) => b.end_ms.saturating_sub(a.start_ms),
+            _ => 0,
+        };
+        if let Some((_, Some(a))) = key
+            && j - i >= 2
+            && span >= MIN_OVERLAP_MS
+        {
+            out.iter_mut().take(j).skip(i).for_each(|x| *x = Some(a));
+        }
+        i = j;
     }
     out
 }
@@ -246,7 +298,19 @@ pub fn label(
     if gpu {
         d.use_gpu();
     }
-    let labels = d.run(audio, &words, p, progress).map_err(|e| e.to_string())?;
+    let mut labels = d.run(audio, &words, p, &mut |f| progress(0.75 * f)).map_err(|e| e.to_string())?;
+    // overlapped speech when its model is there (models/<segment id> next to the speaker model);
+    // without it, or if it fails, the labels stand as they are
+    let seg = &overfilm_asr::catalogue::SEGMENT;
+    if let Some(models) = model_dir.parent().filter(|m| seg.installed(m))
+        && let Ok(net) = overfilm_asr::speakers::seg::SegNet::load(&seg.dir(models).join("model.onnx"))
+    {
+        match d.overlaps(&net, audio, &words, &labels.words, &OverlapParams::default(), &mut |f| progress(0.75 + 0.25 * f)) {
+            Ok(also) => labels.also = also,
+            Err(overfilm_asr::AsrError::Cancelled) => return Err("취소됨".into()),
+            Err(_) => {}
+        }
+    }
     apply_labels(t, &labels);
     Ok(d.device.clone())
 }
@@ -258,7 +322,7 @@ mod tests {
     use overfilm_asr::{ChunkText, Word};
 
     fn transcript(words: &[(&str, i64, Option<usize>)]) -> Transcript {
-        let words: Vec<Word> = words.iter().map(|&(t, s, sp)| Word { text: t.into(), start_ms: s, end_ms: s + 400, speaker: sp, game: false }).collect();
+        let words: Vec<Word> = words.iter().map(|&(t, s, sp)| Word { text: t.into(), start_ms: s, end_ms: s + 400, speaker: sp, ..Word::default() }).collect();
         Transcript { chunks: vec![ChunkText { start_ms: 0, end_ms: 10_000, text: String::new(), words }], ..Transcript::default() }
     }
 
@@ -269,6 +333,7 @@ mod tests {
         let labels = Labels {
             words: vec![Some(0), Some(0), Some(2), Some(2), Some(1), Some(1)],
             speakers: (0..3).map(|id| SpeakerStat { id, seconds: 0.8, words: 2, name: (id == 1).then(|| "스트리머".into()) }).collect(),
+            ..Labels::default()
         };
         apply_labels(&mut t, &labels);
         assert_eq!(t.speakers.iter().map(|s| s.label.as_str()).collect::<Vec<_>>(), ["화자1", "스트리머", "화자2"]);
@@ -313,6 +378,49 @@ mod tests {
         // a transcript without speakers (older files) still lays out
         let plain = transcript(&[("셋", 0, None)]);
         assert_eq!(captions(&plain, GameVoice::Drop, &Layout::default()).len(), 1);
+    }
+
+    #[test]
+    fn overlapped_words_carry_both_speakers() {
+        let mut t = transcript(&[("자", 0, None), ("들어가", 500, None), ("아니", 1000, None), ("잠깐", 1500, None), ("만요", 2000, None), ("네", 3000, None)]);
+        let labels = Labels {
+            words: vec![Some(0), Some(0), Some(0), Some(0), Some(0), Some(1)],
+            speakers: (0..2).map(|id| SpeakerStat { id, seconds: 1.0, words: 3, ..Default::default() }).collect(),
+            also: vec![None, None, Some(1), Some(1), Some(1), Some(1)],
+        };
+        apply_labels(&mut t, &labels);
+        // the second speaker never repeats the word's own
+        assert_eq!(t.words().map(|w| w.also).collect::<Vec<_>>(), [None, None, Some(1), Some(1), Some(1), None]);
+        let text: Vec<String> = captions(&t, GameVoice::Drop, &Layout::default()).iter().map(|c| c.lines.join(" ")).collect();
+        assert_eq!(text, ["(화자1) 자 들어가", "(화자1·화자2) 아니 잠깐 만요", "(화자2) 네"]);
+        // speaker 2's own file keeps the words said over speaker 1
+        let per = captions_per_speaker(&t, &Layout::default());
+        assert_eq!(per[1].2.iter().map(|c| c.lines.join(" ")).collect::<Vec<_>>().join(" "), "아니 잠깐 만요 네");
+        // a one-word blip of cross-talk changes nothing
+        let mut blip = transcript(&[("자", 0, Some(0)), ("들어가", 500, Some(0)), ("네", 3000, Some(1))]);
+        blip.chunks[0].words[1].also = Some(1);
+        blip.speakers = vec![Speaker::default(), Speaker::default()];
+        name_speakers(&mut blip);
+        assert_eq!(steady_overlaps(&blip), vec![None; 3]);
+        assert_eq!(captions(&blip, GameVoice::Drop, &Layout::default())[0].lines.join(" "), "(화자1) 자 들어가");
+    }
+
+    #[test]
+    fn a_person_over_a_game_voice_keeps_their_words() {
+        let mut t = transcript(&[
+            ("석양이", 0, Some(1)),
+            ("진다", 400, Some(1)),
+            ("말", 900, Some(0)),
+            ("석양이", 3000, Some(1)),
+            ("진다", 3400, Some(1)),
+            ("좋아", 3800, Some(1)),
+        ]);
+        t.chunks[0].words[5].also = Some(0);
+        t.speakers = vec![Speaker::default(), Speaker::default()];
+        mark_game_voice(&mut t, &VoiceLines::parse("hero\tkind\ttext\n캐서디\tult_enemy\t석양이 진다\n"));
+        assert!(t.speakers[1].game);
+        let w = t.words().nth(5).unwrap();
+        assert_eq!((w.speaker, w.also, w.game), (Some(0), Some(1), false));
     }
 
     #[test]
