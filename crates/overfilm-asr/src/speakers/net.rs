@@ -163,7 +163,7 @@ impl Net {
             return None;
         }
         let mut mean = vec![0f64; FEAT];
-        for r in rows.chunks_exact(FEAT) {
+        for r in rows.as_chunks::<FEAT>().0 {
             for (m, &v) in mean.iter_mut().zip(r) {
                 *m += f64::from(v);
             }
@@ -172,7 +172,7 @@ impl Net {
             *m /= n as f64;
         }
         let mut var = vec![0f64; FEAT];
-        for r in rows.chunks_exact(FEAT) {
+        for r in rows.as_chunks::<FEAT>().0 {
             for ((s, &v), m) in var.iter_mut().zip(r).zip(&mean) {
                 let d = f64::from(v) - m;
                 *s += d * d;
@@ -184,7 +184,7 @@ impl Net {
         stats.extend(mean.iter().map(|&m| m as f32));
         stats.extend(var.iter().map(|&s| ((s / denom) + 1e-7).sqrt() as f32));
         let mut out = self.seg_b.clone();
-        for (o, w) in out.iter_mut().zip(self.seg_w.chunks_exact(2 * FEAT)) {
+        for (o, w) in out.iter_mut().zip(self.seg_w.as_chunks::<{ 2 * FEAT }>().0) {
             *o += w.iter().zip(&stats).map(|(a, b)| a * b).sum::<f32>();
         }
         Some(out)

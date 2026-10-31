@@ -76,7 +76,7 @@ impl Fbank {
         let mut re = [0f32; N_FFT];
         let mut im = [0f32; N_FFT];
         let mut power = [0f32; N_BINS];
-        for (f, row) in out.chunks_exact_mut(N_MELS).enumerate() {
+        for (f, row) in out.as_chunks_mut::<N_MELS>().0.iter_mut().enumerate() {
             let Some(src) = audio.get(f * SHIFT..f * SHIFT + FRAME) else { break };
             let mean = src.iter().map(|&x| f64::from(x)).sum::<f64>() as f32 / FRAME as f32;
             let mut prev = (src.first().copied().unwrap_or(0.0) - mean) * 32768.0;
@@ -147,12 +147,12 @@ pub fn subtract_mean(feats: &mut [f32]) {
         return;
     }
     let mut mean = [0f64; N_MELS];
-    for row in feats.chunks_exact(N_MELS) {
+    for row in feats.as_chunks::<N_MELS>().0 {
         for (m, &v) in mean.iter_mut().zip(row) {
             *m += f64::from(v);
         }
     }
-    for row in feats.chunks_exact_mut(N_MELS) {
+    for row in feats.as_chunks_mut::<N_MELS>().0 {
         for (v, m) in row.iter_mut().zip(&mean) {
             *v -= (*m / n as f64) as f32;
         }
