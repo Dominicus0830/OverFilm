@@ -88,7 +88,8 @@ fn review_cmd(args: &[String]) -> Result<(), String> {
 fn fix(args: &[String]) -> Result<(), String> {
     let p = args.first().ok_or(USAGE)?;
     let server = mcp::Server::default();
-    let r = server.handle(&serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "apply_glossary", "arguments": {"path": p}}}));
+    let r =
+        server.handle(&serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "apply_glossary", "arguments": {"path": p}}}));
     let text = r.as_ref().and_then(|v| v["result"]["content"][0]["text"].as_str()).unwrap_or_default().to_string();
     if r.as_ref().is_some_and(|v| v["result"]["isError"] == true) {
         return Err(text);
@@ -116,7 +117,8 @@ fn relayout(args: &[String]) -> Result<(), String> {
     }
     let text = std::fs::read_to_string(&input).map_err(|e| format!("{}: {e}", input.display()))?;
     let t: overfilm_asr::Transcript = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", input.display()))?;
-    let words: Vec<overfilm_captions::TimedWord> = t.words().map(|w| overfilm_captions::TimedWord { text: w.text.clone(), start_ms: w.start_ms, end_ms: w.end_ms }).collect();
+    let words: Vec<overfilm_captions::TimedWord> =
+        t.words().map(|w| overfilm_captions::TimedWord { text: w.text.clone(), start_ms: w.start_ms, end_ms: w.end_ms }).collect();
     let caps = overfilm_captions::layout(&words, &o.layout());
     let name = input.file_name().map(|n| n.to_string_lossy().replace(".overfilm.json", ".srt")).unwrap_or_else(|| "out.srt".into());
     let out = out.unwrap_or_else(|| input.with_file_name(name));
