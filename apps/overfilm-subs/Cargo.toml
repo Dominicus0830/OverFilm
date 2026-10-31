@@ -1,0 +1,37 @@
+[package]
+name = "overfilm-subs"
+description = "OverFilm subtitle extractor: video or audio file in, Korean SRT out (Qwen3-ASR), with a window, a command line and an MCP server for caption review"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+# The window (no console on Windows).
+[[bin]]
+name = "OverFilmSubs"
+path = "src/gui.rs"
+
+# Command line and MCP server (console).
+[[bin]]
+name = "overfilm-subs"
+path = "src/cli.rs"
+
+[dependencies]
+overfilm-asr = { workspace = true, features = ["qwen", "download"] }
+overfilm-captions = { workspace = true }
+overfilm-glossary = { workspace = true }
+filmcraft-media = { workspace = true }
+filmcraft-codecs = { workspace = true }
+filmcraft-text = { workspace = true }
+egui = { workspace = true }
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "clipboard", "wayland", "x11"] }
+rfd = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.27"

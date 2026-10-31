@@ -1,8 +1,144 @@
-//! OverFilm speech recognition (milestones M3 and M5).
+//! OverFilm speech recognition: Qwen3-ASR-1.7B and Qwen3-ForcedAligner-0.6B in pure Rust on
+//! candle (CPU), with the model catalogue and download, low-energy chunking and a word-timed
+//! transcript pipeline.
 //!
-//! Planned: Qwen3-ASR-1.7B and Qwen3-ForcedAligner-0.6B ported to pure Rust on candle, exposed
-//! as a `filmcraft_speech::Transcriber` with word times and confidences; model download; and the
-//! streamer mode classifier that keeps the streamer's speech and drops in-game hero voice lines.
-//! See `OVERFILM.md`.
+//! Recognition ([`Asr`]) takes ≤ 30 s of 16 kHz mono audio, an optional context text (glossary
+//! terms; it measurably fixes hero and term names) and a forced language. Alignment
+//! ([`Aligner`]) gives each word of that text a start and end time. [`transcribe`] runs both over
+//! a whole file's audio. See `OVERFILM.md` → "Speech recognition".
+//!
+//! Planned (M5): the streamer mode classifier that keeps the streamer's speech and drops in-game
+//! hero voice lines.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
+
+pub mod catalogue;
+pub mod chunk;
+#[cfg(feature = "qwen")]
+mod engine;
+#[cfg(feature = "qwen")]
+pub mod model;
+pub mod text;
+pub mod tokenizer;
+#[cfg(feature = "qwen")]
+pub mod weights;
+
+#[cfg(feature = "qwen")]
+pub use engine::{Aligner, Asr, transcribe};
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+/// Input sample rate.
+pub const SAMPLE_RATE: u32 = 16_000;
+/// Longest audio handed to the models at once (the measured setup: 30 s windows).
+pub const MAX_CHUNK_SECONDS: f32 = 30.0;
+
+#[derive(Debug, thiserror::Error)]
+pub enum AsrError {
+    #[error("model: {0}")]
+    Model(String),
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("download: {0}")]
+    Download(String),
+    #[error("cancelled")]
+    Cancelled,
+}
+
+#[cfg(feature = "qwen")]
+impl From<candle_core::Error> for AsrError {
+    fn from(e: candle_core::Error) -> Self {
+        AsrError::Model(e.to_string())
+    }
+}
+
+/// Progress callback: (fraction 0–1, message); return false to cancel.
+pub type Progress<'a> = &'a mut dyn FnMut(f32, &str) -> bool;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Word {
+    pub text: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
+}
+
+/// A whole input's transcript, chunk by chunk: the text as recognised (and corrected) and its
+/// words with times.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Transcript {
+    pub language: String,
+    pub chunks: Vec<ChunkText>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChunkText {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
+    pub words: Vec<Word>,
+}
+
+impl Transcript {
+    pub fn words(&self) -> impl Iterator<Item = &Word> {
+        self.chunks.iter().flat_map(|c| c.words.iter())
+    }
+}
+
+/// Model directories and settings for [`transcribe`].
+pub struct Settings<'a> {
+    pub asr_dir: &'a Path,
+    pub aligner_dir: &'a Path,
+    /// 8-bit decoder weights (see [`Asr::load`])
+    pub quantize: bool,
+    pub context: &'a str,
+    pub language: Option<&'a str>,
+    /// Applied to each chunk's text before alignment (glossary correction, profanity masking).
+    pub correct: &'a dyn Fn(&str) -> String,
+}
+
+#[cfg_attr(not(feature = "qwen"), allow(dead_code))]
+pub(crate) fn ms_of_sample(n: usize) -> i64 {
+    // 16 samples per millisecond at 16 kHz
+    i64::try_from(n / (SAMPLE_RATE as usize / 1000)).unwrap_or(i64::MAX)
+}
+
+/// Words of `text` with the times of their aligner units.
+#[cfg_attr(not(feature = "qwen"), allow(dead_code))]
+pub(crate) fn timed_words(text: &str, times: &[(i64, i64)], offset_ms: i64) -> Vec<Word> {
+    let mut out: Vec<Word> = Vec::new();
+    let mut next = 0usize;
+    for (word, n) in text::word_units(text) {
+        if n == 0 {
+            // punctuation on its own: part of the previous word
+            if let Some(last) = out.last_mut() {
+                last.text.push(' ');
+                last.text.push_str(word);
+                continue;
+            }
+        }
+        let first = times.get(next).copied();
+        let last = times.get(next + n.max(1) - 1).copied().or(first);
+        next += n;
+        let (s, e) = match (first, last) {
+            (Some((s, _)), Some((_, e))) => (s, e),
+            _ => out.last().map(|w| (w.end_ms - offset_ms, w.end_ms - offset_ms)).unwrap_or((0, 0)),
+        };
+        out.push(Word { text: word.to_string(), start_ms: offset_ms.saturating_add(s), end_ms: offset_ms.saturating_add(e) });
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn words_keep_punctuation_and_times() {
+        let w = timed_words("자, 겐지가 용검 ! 써요.", &[(0, 80), (100, 400), (400, 640), (700, 900)], 1000);
+        let t: Vec<_> = w.iter().map(|w| (w.text.as_str(), w.start_ms, w.end_ms)).collect();
+        assert_eq!(t, vec![("자,", 1000, 1080), ("겐지가", 1100, 1400), ("용검 !", 1400, 1640), ("써요.", 1700, 1900)]);
+        // fewer times than words (hostile aligner output) still gives every word a time
+        assert_eq!(timed_words("하나 둘 셋", &[(0, 10)], 0).len(), 3);
+    }
+}

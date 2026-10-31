@@ -1,6 +1,6 @@
 [package]
 name = "overfilm-captions"
-description = "OverFilm Korean caption layout: display-width line limits, penalty-based two-line breaking, protected terms and names, reading-speed checks"
+description = "OverFilm Korean caption layout: at most two lines, display-width limits, penalty-based breaks, SRT output"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,3 +11,6 @@ publish = false
 workspace = true
 
 [dependencies]
+filmcraft-time = { workspace = true }
+filmcraft-captions = { workspace = true }
+serde = { workspace = true }

@@ -96,6 +96,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("overfilm-captions", 2),
     ("overfilm-eval", 3),
     ("overfilm-ai", 4),
+    ("overfilm-subs", 6),
 ];
 
 /// L0 crates that are not codecs/containers (no `bitstream`-only restriction).
@@ -115,6 +116,8 @@ const SAME_LAYER: &[(&str, &str)] = &[
     ("gpu", "render"),
     ("cli", "filmcraft"),
     ("tts", "tts-text"),
+    ("overfilm-asr", "speech"),
+    ("overfilm-captions", "captions"),
 ];
 
 /// Crates that must not appear below L5 (UI toolkits, windowing, OS audio/menus).

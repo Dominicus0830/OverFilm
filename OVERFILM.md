@@ -14,10 +14,11 @@ calling the caption layout) and listed in the table at the end.
 | Crate | Layer | Milestone | Purpose |
 |---|---|---|---|
 | `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction next |
-| `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner ported to candle as a `filmcraft_speech::Transcriber`; streamer/hero-voice separation |
-| `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks |
+| `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); next: `filmcraft_speech::Transcriber`, streamer/hero-voice separation |
+| `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L4 | M6, M7, M9 | MCP editing assistants, screen recognition, style learning |
+| `overfilm-subs` (`apps/`) | L6 | — | standalone subtitle extractor: window (`OverFilmSubs`), command line and MCP review server (`overfilm-subs`); see its README |
 | `packs/overwatch/ko/` | data | M2 | Overwatch Korean pack: `glossary/` (heroes, abilities, maps, modes, terms, teams, players; see its README), later hero voice lines, fillers, caption rules |
 
 Layers follow `docs/architecture.md` §1 and are enforced by `cargo xtask layers`, where the
