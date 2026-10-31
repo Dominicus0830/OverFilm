@@ -28,6 +28,7 @@ filmcraft-media = { workspace = true }
 filmcraft-codecs = { workspace = true }
 filmcraft-text = { workspace = true }
 egui = { workspace = true }
+craft-ui = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "clipboard", "wayland", "x11"] }
 rfd = { workspace = true }
 serde = { workspace = true }
