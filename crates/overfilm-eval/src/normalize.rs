@@ -3,8 +3,9 @@
 //! Reference and hypothesis go through the same steps, so formatting differences that a viewer
 //! would not call recognition errors do not count: caption markup (`<i>`, `{\an8}`) is dropped,
 //! conjoining Hangul jamo are composed into syllables (macOS often writes decomposed Hangul),
-//! full-width ASCII becomes half-width, letters are lowercased, and every character that is not a
-//! letter or digit becomes a word break.
+//! full-width ASCII becomes half-width, digits become their Korean reading ([`crate::numbers`]:
+//! `6개` and `여섯 개` match), letters are lowercased, and every character that is not a letter or
+//! digit becomes a word break.
 
 /// Normalized text: the characters that count, in words.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -27,11 +28,11 @@ impl Normalized {
 /// Normalize `text` (see the module docs).
 pub fn normalize(text: &str) -> Normalized {
     let stripped = strip_markup(text);
-    let composed = compose_hangul(&stripped);
+    let composed: String = compose_hangul(&stripped).chars().map(halfwidth).collect();
+    let spelled = crate::numbers::spell_numbers(&composed);
     let mut words = Vec::new();
     let mut word = String::new();
-    for c in composed.chars() {
-        let c = halfwidth(c);
+    for c in spelled.chars() {
         if c.is_alphanumeric() {
             word.extend(c.to_lowercase());
         } else if !word.is_empty() {
@@ -123,8 +124,8 @@ mod tests {
     #[test]
     fn punctuation_and_markup_are_word_breaks() {
         let n = normalize("<i>겐지,</i> 용검!! {\\an8}솔저: 76");
-        assert_eq!(n.words, ["겐지", "용검", "솔저", "76"]);
-        assert_eq!(n.joined(), "겐지용검솔저76");
+        assert_eq!(n.words, ["겐지", "용검", "솔저", "칠십육"]);
+        assert_eq!(n.joined(), "겐지용검솔저칠십육");
     }
 
     #[test]
@@ -132,6 +133,12 @@ mod tests {
         // "한조" as conjoining jamo: ᄒ ᅡ ᆫ ᄌ ᅩ
         let decomposed = "\u{1112}\u{1161}\u{11AB}\u{110C}\u{1169}";
         assert_eq!(normalize(decomposed), normalize("한조"));
+    }
+
+    #[test]
+    fn digits_match_their_reading() {
+        assert_eq!(normalize("6개의 전환 중에 1위").joined(), normalize("여섯 개의 전환 중에 일 위").joined());
+        assert_eq!(normalize("７０%").joined(), "칠십퍼센트");
     }
 
     #[test]

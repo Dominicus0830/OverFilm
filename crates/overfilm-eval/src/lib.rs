@@ -17,6 +17,7 @@
 
 pub mod distance;
 pub mod normalize;
+pub mod numbers;
 pub mod terms;
 
 use std::path::{Path, PathBuf};
@@ -220,14 +221,14 @@ mod tests {
         // Counted by hand: samples/README.md.
         let clip01 = &r.files[0];
         assert_eq!(clip01.name, "clip01");
-        assert_eq!((clip01.score.chars.reference, clip01.score.chars.substitutions, clip01.score.chars.errors()), (37, 3, 3));
+        assert_eq!((clip01.score.chars.reference, clip01.score.chars.substitutions, clip01.score.chars.errors()), (38, 3, 3));
         assert_eq!((clip01.score.words.reference, clip01.score.words.errors()), (16, 4));
         let t = clip01.score.terms.as_ref().unwrap();
         assert_eq!((t.reference, t.matched), (6, 4));
         let clip02 = &r.files[1];
         assert_eq!((clip02.score.chars.reference, clip02.score.chars.errors()), (23, 0));
         assert_eq!((clip02.score.words.reference, clip02.score.words.errors()), (7, 3));
-        assert!((r.cer - 3.0 / 60.0).abs() < 1e-12);
+        assert!((r.cer - 3.0 / 61.0).abs() < 1e-12);
         assert!((r.wer - 7.0 / 23.0).abs() < 1e-12);
         assert_eq!(r.term_accuracy, Some(0.75));
     }
