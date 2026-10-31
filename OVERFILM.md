@@ -13,11 +13,12 @@ calling the caption layout) and listed in the table at the end.
 
 | Crate | Layer | Milestone | Purpose |
 |---|---|---|---|
-| `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction next |
-| `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner ported to candle as a `filmcraft_speech::Transcriber`; streamer/hero-voice separation |
-| `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks |
+| `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`) |
+| `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); next: `filmcraft_speech::Transcriber`, streamer/hero-voice separation |
+| `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L4 | M6, M7, M9 | MCP editing assistants, screen recognition, style learning |
+| `overfilm-subs` (`apps/`) | L6 | — | standalone subtitle extractor: window (`OverFilmSubs`), command line and MCP review server (`overfilm-subs`); see its README |
 | `packs/overwatch/ko/` | data | M2 | Overwatch Korean pack: `glossary/` (heroes, abilities, maps, modes, terms, teams, players; see its README), later hero voice lines, fillers, caption rules |
 
 Layers follow `docs/architecture.md` §1 and are enforced by `cargo xtask layers`, where the
@@ -43,7 +44,8 @@ cargo run -p overfilm-eval -- --terms terms.txt --json refs/ hyps/
   `--terms packs/overwatch/ko/glossary` builds it from the glossary instead.
 - `--correct packs/overwatch/ko/glossary` first runs the glossary correction on each hypothesis
   (`overfilm_glossary::Corrector`: known misrecognitions, near-misses of names by jamo distance,
-  profanity to initial consonants), to measure what the correction step adds.
+  profanity to initial consonants, then Korean spelling and spacing and spoken numbers to digits),
+  to measure what the correction step adds.
   Matching ignores spacing and punctuation and takes the longest term at each position.
 - Both sides are normalized the same way: caption markup removed, decomposed Hangul composed,
   full-width ASCII folded, digits read out in Korean (`6개` = `여섯 개`, `1위` = `일 위`),

@@ -1,0 +1,59 @@
+id	ko	en	aliases	old	misheard	flags	note
+# 표기 교정: 오버워치 방송에서 자주 틀리는 말과 맞춤법. 단어 시작에서 misheard를 ko로 바꿉니다 (inword는 단어 안에서도).
+# 용어 점수에는 쓰지 않습니다 (noeval). 일반 문법 규칙(조사 붙이기, 할 수 있다, 할게요…)은 overfilm-glossary의 ko 모듈에 있습니다.
+# 밴 (영웅 금지): 벤으로 잘못 적는 경우
+ban_i	밴이				벤이	noeval
+ban_eul	밴을				벤을	noeval
+ban_eun	밴은				벤은	noeval
+ban_do	밴도				벤도	noeval
+ban_ha	밴하				벤하	noeval
+ban_hae	밴해				벤해	noeval
+ban_haet	밴했				벤했	noeval
+ban_haneu	밴 하느				벤 하느	noeval
+ban_hal	밴 할				벤 할	noeval
+ban_haet2	밴 했				벤 했	noeval
+ban_dang	밴당				벤당; 변당	noeval
+ban_rate_e	밴률				벤률; 벤율; 배률	noeval
+ban_pick	밴픽				벤픽; 벤 픽	noeval
+strong_ban	강밴				강벤	noeval
+annoy_ban	짜증 밴				짜증벤; 짜증 벤	noeval
+first_ban	첫 밴				첫벤; 첫 벤	noeval
+main_ban	메인 밴				메인벤; 메인 벤	noeval
+# 티어 붙여 쓰기
+high_tier	고티어				고 티어	noeval
+mid_tier	중티어				중 티어; 증티어; 증 티어	noeval
+low_tier	저티어				저 티어	noeval
+s_tier	S티어				S 티어; 에스 티어	noeval
+a_tier	A티어				A 티어; 에이 티어	noeval
+b_tier	B티어				B 티어; 비 티어	noeval
+c_tier	C티어				C 티어; 씨 티어; 시 티어; 씨티어; 시티어	noeval
+d_tier	D티어				D 티어; 디 티어	noeval
+f_tier	F티어				F 티어; 에프 티어	noeval
+# 통계 말
+gap_rate	괴리율				괴류율; 괴리률	noeval
+gap	괴리				괴류	noeval
+overwhelming	압도적				앞부적; 압두적	noeval
+# 자주 틀리는 맞춤법 (단어 시작)
+myeochil	며칠				몇일; 몇 일	noeval
+waenji	왠지				웬지	noeval
+wenman	웬만				왠만	noeval
+wenil	웬일				왠일	noeval
+geumse	금세				금새	noeval
+eotteokhae	어떡해				어떻해	noeval
+oraenman	오랜만				오랫만	noeval
+huihan	희한				희안	noeval
+eoieop	어이없				어의없	noeval
+yeokhal	역할				역활	noeval
+eochapi	어차피				어짜피	noeval
+munanhae	무난하				문안하	noeval
+ilili	일일이				일일히	noeval
+kkaekkeusi	깨끗이				깨끗히	noeval
+gomgomi	곰곰이				곰곰히	noeval
+teumteumi	틈틈이				틈틈히	noeval
+an_ha	안 하				않하	noeval
+an_dwae	안 돼				않돼; 않되	noeval
+# 단어 안에서도 틀리는 맞춤법
+bwaeyo	봬요				뵈요	noeval inword
+ttwimnida	띕니				띱니	noeval inword
+geolgeol	할걸				할껄	noeval inword
+cb_nick	치벅				치억; 시벅	noeval

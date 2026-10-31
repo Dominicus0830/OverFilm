@@ -78,7 +78,7 @@ fn print_table(r: &Report) {
 
 fn run(a: &Args) -> Result<(), String> {
     let terms = a.terms.as_deref().map(load_terms).transpose().map_err(|e| e.to_string())?;
-    let corrector = a.correct.as_deref().map(load_glossary).transpose().map_err(|e| e.to_string())?.map(|g| Corrector::new(&g).fuzzy(&g));
+    let corrector = a.correct.as_deref().map(load_glossary).transpose().map_err(|e| e.to_string())?.map(|g| Corrector::new(&g).fuzzy(&g).korean());
     let report = evaluate_corrected(&a.reference, &a.hyp, terms.as_ref(), corrector.as_ref()).map_err(|e| e.to_string())?;
     if a.json {
         println!("{}", serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?);
