@@ -49,7 +49,7 @@ cargo run -p overfilm-eval -- --terms packs/overwatch/ko/glossary reference.srt 
   reported by the user follow the same rule and are marked `verify`. Slurs are not collected; common swear words are, only so captions can mask them
   (`profanity.tsv`).
 - Team short names from the DCinside OWCS gallery: 라쿤, 제타, 팔콘, 티원, 로제, O2, 치벅/처벅/CB,
-  세이지 (SEIJI ESPORTS, roster not in yet).
+  세이지 (SEIJI ESPORTS).
 - Rosters: 나무위키 (namu.moe mirror) team and player pages, 2026 OWCS Korea Stage 3
   (2026-10-02 – 11-08; nine teams, SuperBad disbanded 2026-08-31), read 2026-10-31. Korean
   readings come from 나무위키 where it gives one (스핀트, 헤이저, 메리트, 미닛), from broadcasts and
