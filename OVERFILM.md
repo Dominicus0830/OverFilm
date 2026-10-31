@@ -117,12 +117,16 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   talker in an overlap, which keeps the cost near the segmentation's.
   Tuning set: 12 synthetic Zeroth conversations of 2–4 speakers in which 30 % of turns start
   0.3–2 s before the previous one ends and 15 % are backchannels said wholly inside another turn
-  (359 overlapped words):
+  (301 overlapped words: a word counts as overlapped when another speaker is audible, by that
+  speaker's own energy, in 30 % of its span; counting every word inside another turn's time
+  span, pauses included, gave 359 and the lower 65 % / 55 % first reported):
 
   | setting | overlap words found | both speakers right | false overlap |
   |---|---|---|---|
-  | most likely class per frame, 30 % of the word | 49.3 % | 43.7 % | 1.1 % |
-  | **probability ≥ 0.3 over chunks, 20 % of the word (chosen)** | **64.6 %** | **55.2 %** | **2.6 %** |
+  | most likely class per frame, 30 % of the word (old truth) | 49.3 % | 43.7 % | 1.1 % |
+  | **probability ≥ 0.3 over chunks, 20 % of the word (chosen)** | **75.1 %** | **64.5 %** | **2.8 %** |
+  | probability ≥ 0.2, 15 % of the word | 78.1 % | 67.1 % | 4.2 % |
+  | voice ties need similarity 0.4 (not 0.2) | 75.1 % | 63.5 % | 2.8 % |
   | + relabel words by the segmentation's clean talkers | — | — | word error 4.8 → 5.5 %, dropped |
 
   The word's own label is right (one of the two talkers) for 97 % of overlapped words. On the

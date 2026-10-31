@@ -92,6 +92,10 @@ fn main() {
                         op.word_share = a[i + 1].parse().unwrap();
                         i += 1;
                     }
+                    "--ov-prob" => {
+                        op.overlap_prob = a[i + 1].parse().unwrap();
+                        i += 1;
+                    }
                     "--ov-sim" => {
                         op.min_similarity = a[i + 1].parse().unwrap();
                         i += 1;
