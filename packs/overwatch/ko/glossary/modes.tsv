@@ -1,0 +1,23 @@
+id	ko	en	aliases	old	misheard	flags	note
+control	쟁탈	Control	쟁탈전				거점 하나를 두고 라운드제
+escort	호위	Escort	화물 운송				화물을 목표 지점까지
+hybrid	혼합	Hybrid					거점 점령 후 화물 호위
+push	밀기	Push					로봇이 미는 장벽
+flashpoint	플래시포인트	Flashpoint	플포				거점 다섯 곳이 차례로 열림
+clash	격돌	Clash					줄지어 선 거점을 밀고 당기기
+assault	점령	Assault	2점령				2023년 일반 모드에서 제외
+stadium	스타디움	Stadium					라운드제, 파워·아이템 구매. 화물 경주 모드 포함
+payload_race	화물 경주	Payload Race					스타디움 모드
+quick_play	빠른 대전	Quick Play	빠대
+competitive	경쟁전	Competitive	경쟁
+arcade	아케이드	Arcade
+deathmatch	데스매치	Deathmatch	데매
+team_deathmatch	팀 데스매치	Team Deathmatch	팀데매
+capture_the_flag	깃발 뺏기	Capture the Flag
+custom_game	사용자 지정 게임	Custom Game	커스텀 게임; 워크샵
+role_queue	역할 고정	Role Queue
+open_queue	자유 경쟁전	Open Queue	오픈 큐
+six_v_six	6대6	6v6	육대육
+five_v_five	5대5	5v5	오대오
+conquest	정복	Conquest					2026 1시즌 메타 이벤트 (오버워치 대 탈론 진영)
+lucioball	루시우볼	Lucioball					여름 이벤트 아케이드

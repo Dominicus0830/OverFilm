@@ -41,6 +41,8 @@ pub enum Error {
     Captions { path: PathBuf, source: filmcraft_captions::Error },
     #[error("{path}: {source}")]
     Terms { path: PathBuf, source: terms::TermError },
+    #[error("{path}: {source}")]
+    Glossary { path: PathBuf, source: overfilm_glossary::GlossaryError },
     #[error("{0}")]
     TooLong(#[from] distance::TooLong),
     #[error("{0}: no reference files (.srt, .vtt, .ttml, .dfxp, .txt)")]
@@ -77,9 +79,28 @@ pub fn load_transcript(path: &Path) -> Result<String> {
 }
 
 /// Read a term list file.
+///
+/// `path` is a term list file, or a glossary directory of `.tsv` tables (`overfilm_glossary`)
+/// whose [`overfilm_glossary::Glossary::term_list`] is used.
 pub fn load_terms(path: &Path) -> Result<TermList> {
-    let bytes = read_capped(path)?;
-    TermList::parse(&String::from_utf8_lossy(&bytes)).map_err(|source| Error::Terms { path: path.to_path_buf(), source })
+    let text = if path.is_dir() { load_glossary(path)?.term_list() } else { String::from_utf8_lossy(&read_capped(path)?).into_owned() };
+    TermList::parse(&text).map_err(|source| Error::Terms { path: path.to_path_buf(), source })
+}
+
+/// The glossary in directory `dir`: every `*.tsv` file, in name order, as the category named by
+/// its file stem.
+pub fn load_glossary(dir: &Path) -> Result<overfilm_glossary::Glossary> {
+    let io = |source| Error::Io { path: dir.to_path_buf(), source };
+    let mut files: Vec<PathBuf> =
+        std::fs::read_dir(dir).map_err(io)?.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|x| x == "tsv")).collect();
+    files.sort();
+    let mut glossary = overfilm_glossary::Glossary::default();
+    for f in files {
+        let category = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let text = String::from_utf8_lossy(&read_capped(&f)?).into_owned();
+        glossary.add_table(&category, &text).map_err(|source| Error::Glossary { path: f.clone(), source })?;
+    }
+    Ok(glossary)
 }
 
 /// Scores of one hypothesis against its reference.
@@ -203,6 +224,15 @@ mod tests {
 
     fn sample(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("samples").join(name)
+    }
+
+    #[test]
+    fn glossary_directory_is_a_term_list() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packs/overwatch/ko/glossary");
+        let terms = load_terms(&dir).unwrap();
+        // Old names count as the hero; one-character short forms do not count at all.
+        assert_eq!(terms.score("맥크리 궁", "캐서디 궁").accuracy(), 1.0);
+        assert_eq!(terms.score("궁", "").reference, 0);
     }
 
     #[test]

@@ -13,12 +13,12 @@ calling the caption layout) and listed in the table at the end.
 
 | Crate | Layer | Milestone | Purpose |
 |---|---|---|---|
-| `overfilm-glossary` | L1 | M2 | glossary and language packs (shared term ids, spellings, misrecognitions, pronunciations), transcript correction |
+| `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction next |
 | `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner ported to candle as a `filmcraft_speech::Transcriber`; streamer/hero-voice separation |
 | `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L4 | M6, M7, M9 | MCP editing assistants, screen recognition, style learning |
-| `packs/overwatch/ko/` | data | M2 | Overwatch Korean pack: glossary, hero voice lines, fillers, caption rules |
+| `packs/overwatch/ko/` | data | M2 | Overwatch Korean pack: `glossary/` (heroes, abilities, maps, modes, terms, teams, players; see its README), later hero voice lines, fillers, caption rules |
 
 Layers follow `docs/architecture.md` §1 and are enforced by `cargo xtask layers`, where the
 `overfilm-*` crates are listed by full name.
@@ -39,10 +39,12 @@ cargo run -p overfilm-eval -- --terms terms.txt --json refs/ hyps/
   spacing removed, so `대지분쇄로` and `대지 분쇄로` are the same.
 - **WER**: the same on eojeol (space-separated words); kept for comparison with published numbers.
 - **Term accuracy**: share of the reference's game-term occurrences the hypothesis spells right.
-  A term list has one term per line, `canonical | other accepted spelling`, `#` for comments.
+  A term list has one term per line, `canonical | other accepted spelling`, `#` for comments;
+  `--terms packs/overwatch/ko/glossary` builds it from the glossary instead.
   Matching ignores spacing and punctuation and takes the longest term at each position.
 - Both sides are normalized the same way: caption markup removed, decomposed Hangul composed,
-  full-width ASCII folded, lowercase, punctuation as spaces. Corpus totals sum edits over files.
+  full-width ASCII folded, digits read out in Korean (`6개` = `여섯 개`, `1위` = `일 위`),
+  lowercase, punctuation as spaces. Corpus totals sum edits over files.
 
 `crates/overfilm-eval/samples/` has a hand-counted example; its README lists the expected numbers.
 

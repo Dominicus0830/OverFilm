@@ -12,7 +12,8 @@ const USAGE: &str = "usage: overfilm-eval [--terms FILE] [--json] <reference> <h
 
   <reference> <hypothesis>  two transcript files (.srt .vtt .ttml .dfxp or plain .txt), or two
                             directories whose files pair up by name without extension
-  --terms FILE              game-term list, one term per line (`canonical | other spelling`)
+  --terms PATH              game-term list, one term per line (`canonical | other spelling`),
+                            or a glossary directory of .tsv tables (packs/overwatch/ko/glossary)
   --json                    print the full report as JSON";
 
 struct Args {
