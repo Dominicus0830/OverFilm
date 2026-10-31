@@ -38,6 +38,21 @@ fn self_check_passes() {
     }
     assert!(r.iter().all(check::Report::ok));
     assert!(r.len() >= 15);
+    assert!(c.tiled());
+}
+
+/// With the tiled kernel switched off (as on drivers that miscompile it), the row-by-row kernel
+/// does whole prefills and everything still matches the CPU.
+#[test]
+fn self_check_passes_without_tiles() {
+    let Some(c) = ctx() else { return };
+    c.tile.store(false, std::sync::atomic::Ordering::Relaxed);
+    let r = check::report(&c);
+    for x in &r {
+        eprintln!("{x}");
+    }
+    assert!(r.iter().all(check::Report::ok));
+    assert!(r.iter().any(|x| x.name.contains("vec(prefill)")));
 }
 
 /// One product through both kernels, both formats, split into parts, against f32.

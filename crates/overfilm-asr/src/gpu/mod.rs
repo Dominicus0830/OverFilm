@@ -12,6 +12,7 @@
 //! and returned as [`AsrError::Model`]; the caller then falls back to the CPU.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -129,6 +130,8 @@ pub struct Ctx {
     pub name: String,
     k: Kernels,
     zero: wgpu::Buffer,
+    /// the tiled product kernel matched the CPU (otherwise every product uses `mv`)
+    tile: AtomicBool,
 }
 
 impl Ctx {
@@ -194,7 +197,17 @@ impl Ctx {
         let zero =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("zero"), contents: &[0u8; 16], usage: wgpu::BufferUsages::STORAGE });
         let name = format!("{} ({:?}, {} {})", info.name, info.backend, info.driver, info.driver_info).replace(" ,", "").replace("  ", " ");
-        Ok(Arc::new(Self { device, queue, err, max_bind, name, k, zero }))
+        let ctx = Self { device, queue, err, max_bind, name, k, zero, tile: AtomicBool::new(true) };
+        // Some drivers get the tiled kernel wrong; the row-by-row one then does whole prefills.
+        if !ctx.scoped(|| check::tile_ok(&ctx)).unwrap_or(false) {
+            ctx.tile.store(false, Ordering::Relaxed);
+        }
+        Ok(Arc::new(ctx))
+    }
+
+    /// Whether prefills use the tiled product kernel (it failed the start-up comparison otherwise).
+    pub fn tiled(&self) -> bool {
+        self.tile.load(Ordering::Relaxed)
     }
 
     fn check(&self) -> Result<(), AsrError> {
@@ -415,7 +428,7 @@ impl Lin {
 
     fn record(&self, ctx: &Ctx, pass: &mut wgpu::ComputePass, rows: usize) {
         let rows = if self.rows1 { 1 } else { rows };
-        let small = rows <= MV_ROWS;
+        let small = rows <= MV_ROWS || !ctx.tiled();
         let k = match (self.fmt, small) {
             (Fmt::Q8, true) => &ctx.k.mv_q8,
             (Fmt::Q8, false) => &ctx.k.tile_q8,
@@ -427,7 +440,7 @@ impl Lin {
             pass.set_bind_group(0, bg, &[]);
             if small {
                 let (x, y) = groups2(n.div_ceil(4));
-                pass.dispatch_workgroups(x, y, 1);
+                pass.dispatch_workgroups(x, y, rows.div_ceil(MV_ROWS).max(1) as u32);
             } else {
                 pass.dispatch_workgroups(n.div_ceil(64) as u32, rows.div_ceil(64) as u32, 1);
             }

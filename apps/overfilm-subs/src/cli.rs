@@ -136,6 +136,9 @@ fn relayout(args: &[String]) -> Result<(), String> {
 fn gpu_check(args: &[String]) -> Result<(), String> {
     let ctx = overfilm_asr::gpu::Ctx::with(args.iter().any(|a| a == "--software")).map_err(|e| e.to_string())?;
     println!("GPU: {}", ctx.name);
+    if !ctx.tiled() {
+        println!("참고: 이 그래픽카드에서는 타일 곱셈이 틀려서 줄 단위 곱셈으로 대신합니다.");
+    }
     let mut all_ok = true;
     for r in overfilm_asr::gpu::check::report(&ctx) {
         all_ok &= r.ok();

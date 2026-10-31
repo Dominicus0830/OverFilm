@@ -89,39 +89,58 @@ fn unpack_f16(b: &[u8]) -> Vec<f32> {
     b.chunks_exact(2).map(|w| half::f16::from_bits(u16::from_le_bytes([w[0], w[1]])).to_f32()).collect()
 }
 
-fn products(c: &Ctx, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), AsrError> {
-    let (n, k) = (1000, 2048);
+/// Largest relative error of `y += x·wᵀ + bias` on random data, against the CPU.
+fn product_err(c: &Ctx, rng: &mut Rng, fmt: Fmt, n: usize, k: usize, rows: usize) -> Result<f32, AsrError> {
     let w = rng.vec(n * k, 0.05);
     let bias = rng.vec(n, 0.5);
+    let weight = Weight::new(c, &w, n, k, fmt, Some(&bias))?;
+    let wd: Vec<f32> = match fmt {
+        Fmt::F16 => f16_round(&w),
+        Fmt::Q8 => {
+            let (q, s) = quantize_rows(&w);
+            q.iter().enumerate().map(|(i, b)| f32::from(*b as i8) * s.get(i / 32).copied().unwrap_or(0.0)).collect()
+        }
+    };
+    let x = rng.vec(rows * k, 1.0);
+    let y0 = rng.vec(rows * n, 1.0);
+    let want: Vec<f32> = (0..rows)
+        .flat_map(|r| {
+            let (x, wd, bias, y0) = (&x, &wd, &bias, &y0);
+            (0..n).map(move |j| (0..k).map(|i| x[r * k + i] * wd[j * k + i]).sum::<f32>() + bias[j] + y0[r * n + j])
+        })
+        .collect();
+    let step = c.uniform(&[rows as u32, 0, 0, 0]);
+    let xb = c.upload_f32(&x);
+    let y = c.upload_f32(&y0);
+    let lin = Lin::new(c, &weight, LinSpec { x: &xb, y: &y, step: &step, ldy: n, acc: true, rows1: false });
+    run(c, |p| lin.record(c, p, rows))?;
+    let got = floats(&read(c, &y, rows * n)?);
+    Ok(max_rel(&got, &want))
+}
+
+/// Whether the tiled product kernel matches the CPU on this device (checked once at start-up).
+pub(super) fn tile_ok(c: &Ctx) -> Result<bool, AsrError> {
+    let mut rng = Rng(0x7_11E5);
     for fmt in [Fmt::F16, Fmt::Q8] {
-        let weight = Weight::new(c, &w, n, k, fmt, Some(&bias))?;
-        let wd: Vec<f32> = match fmt {
-            Fmt::F16 => f16_round(&w),
-            Fmt::Q8 => {
-                let (q, s) = quantize_rows(&w);
-                q.iter().enumerate().map(|(i, b)| f32::from(*b as i8) * s.get(i / 32).copied().unwrap_or(0.0)).collect()
-            }
-        };
+        if product_err(c, &mut rng, fmt, 200, 512, 70)? > 1e-3 {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn products(c: &Ctx, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), AsrError> {
+    let (n, k) = (1000, 2048);
+    for fmt in [Fmt::F16, Fmt::Q8] {
         for rows in [1usize, 3, 150] {
-            let x = rng.vec(rows * k, 1.0);
-            let y0 = rng.vec(rows * n, 1.0);
-            let want: Vec<f32> = (0..rows)
-                .flat_map(|r| {
-                    let (x, wd, bias, y0) = (&x, &wd, &bias, &y0);
-                    (0..n).map(move |j| (0..k).map(|i| x[r * k + i] * wd[j * k + i]).sum::<f32>() + bias[j] + y0[r * n + j])
-                })
-                .collect();
-            let step = c.uniform(&[rows as u32, 0, 0, 0]);
-            let xb = c.upload_f32(&x);
-            let y = c.upload_f32(&y0);
-            let lin = Lin::new(c, &weight, LinSpec { x: &xb, y: &y, step: &step, ldy: n, acc: true, rows1: false });
-            run(c, |p| lin.record(c, p, rows))?;
-            let got = floats(&read(c, &y, rows * n)?);
-            out.push(Report {
-                name: format!("matmul {fmt:?} {} rows {rows}", if rows <= super::MV_ROWS { "vec" } else { "tile" }),
-                err: max_rel(&got, &want),
-                tol: 1e-3,
-            });
+            let kind = if rows <= super::MV_ROWS {
+                "vec"
+            } else if c.tiled() {
+                "tile"
+            } else {
+                "vec(prefill)"
+            };
+            out.push(Report { name: format!("matmul {fmt:?} {kind} rows {rows}"), err: product_err(c, rng, fmt, n, k, rows)?, tol: 1e-3 });
         }
     }
     Ok(())
