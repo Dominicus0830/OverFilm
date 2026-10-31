@@ -46,6 +46,7 @@ fn main() {
             let mut p = Params::default();
             let mut thresholds = Vec::new();
             let mut dump = None;
+            let mut load: Option<String> = None;
             let mut i = 4;
             while i < a.len() {
                 match a[i].as_str() {
@@ -59,6 +60,14 @@ fn main() {
                     }
                     "--step" => {
                         p.step_ms = a[i + 1].parse().unwrap();
+                        i += 1;
+                    }
+                    "--load" => {
+                        load = Some(a[i + 1].clone());
+                        i += 1;
+                    }
+                    "--switch" => {
+                        p.switch_cost = a[i + 1].parse().unwrap();
                         i += 1;
                     }
                     "--dump" => {
@@ -81,16 +90,22 @@ fn main() {
                 thresholds.push(p.threshold);
             }
             let t0 = std::time::Instant::now();
-            let wins = speakers::windows(&speakers::speech_regions(&words, p.pause_ms), p.window_ms, p.step_ms);
-            let vecs = speakers::window_vectors(&audio, &wins, &mut |b| d.frame_map(b), &|m, x, y| d.pool(m, x, y), &mut |_, _| true).unwrap();
+            let (wins, vecs): (Vec<(i64, i64)>, Vec<Option<Vec<f32>>>) = if let Some(l) = &load {
+                let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(l).unwrap()).unwrap();
+                (serde_json::from_value(v["windows"].clone()).unwrap(), serde_json::from_value(v["vectors"].clone()).unwrap())
+            } else {
+                let wins = speakers::windows(&speakers::speech_regions(&words, p.pause_ms), p.window_ms, p.step_ms);
+                let vecs = speakers::window_vectors(&audio, &wins, &mut |b| d.frame_map(b), &|m, x, y| d.pool(m, x, y), &mut |_, _| true).unwrap();
+                (wins, vecs)
+            };
             eprintln!("{} windows, {:.1} s", wins.len(), t0.elapsed().as_secs_f32());
             if let Some(d) = dump {
                 std::fs::write(d, serde_json::json!({"windows": wins, "vectors": vecs}).to_string()).unwrap();
             }
             for th in thresholds {
                 let p = Params { threshold: th, ..p.clone() };
-                let wl = speakers::cluster_windows(&vecs, &wins, &p);
-                let l = speakers::label_words(&words, &wins, &wl, &p);
+                let c = speakers::cluster_windows(&vecs, &wins, &p);
+                let l = speakers::label_words(&words, &wins, &vecs, &c, &p);
                 println!("{}", serde_json::json!({"threshold": th, "speakers": l.speakers.len(), "labels": l.words, "stats": l.speakers}));
             }
         }

@@ -8,8 +8,9 @@
 //!    [`Params::threshold`] (or at the speaker count the user gave); windows are then reassigned
 //!    to the nearest speaker centroid, and speakers with too little speech are folded into their
 //!    nearest neighbour.
-//! 4. **Words**: each word takes the speaker whose windows overlap it most; very short islands
-//!    between two stretches of the same speaker are absorbed.
+//! 4. **Words**: each word scores every speaker by its windows' similarity to the speaker's
+//!    centroid; a Viterbi pass makes speaker changes cheap at pauses and sentence ends and costly
+//!    inside fluent speech ([`label_words`]).
 //!
 //! Speakers are numbered by first appearance. Game voice (hero lines) is detected separately by
 //! text (`overfilm_glossary::voicelines`) and can mark a whole speaker as game audio.
@@ -40,14 +41,14 @@ pub struct Params {
     /// A speaker needs at least this much speech (seconds) to be kept, or 8 % of all speech when
     /// that is less (short clips).
     pub min_speaker_seconds: f32,
-    /// Words of another speaker shorter than this between two stretches of one speaker are
-    /// absorbed.
-    pub min_island_ms: i64,
+    /// Cost (similarity × seconds) of changing speaker between two words of fluent speech; at a
+    /// pause or sentence end it is nearly free.
+    pub switch_cost: f32,
 }
 
 impl Default for Params {
     fn default() -> Self {
-        Self { window_ms: 1500, step_ms: 500, pause_ms: 250, threshold: 0.7, speakers: None, max_speakers: 8, min_speaker_seconds: 10.0, min_island_ms: 500 }
+        Self { window_ms: 1500, step_ms: 500, pause_ms: 250, threshold: 0.7, speakers: None, max_speakers: 8, min_speaker_seconds: 10.0, switch_cost: 0.4 }
     }
 }
 
@@ -178,11 +179,19 @@ pub fn window_vectors(
     Ok(out)
 }
 
+/// Clustering result: the speaker of each window (`None` where it had no vector) and each
+/// speaker's centroid (unit length).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Clusters {
+    pub labels: Vec<Option<usize>>,
+    pub centroids: Vec<Vec<f32>>,
+}
+
 /// Speaker of each window from its voice vector (`None` stays `None`).
-pub fn cluster_windows(vecs: &[Option<Vec<f32>>], wins: &[(i64, i64)], p: &Params) -> Vec<Option<usize>> {
+pub fn cluster_windows(vecs: &[Option<Vec<f32>>], wins: &[(i64, i64)], p: &Params) -> Clusters {
     let have: Vec<usize> = (0..vecs.len()).filter(|&i| vecs.get(i).is_some_and(Option::is_some)).collect();
     if have.is_empty() {
-        return vec![None; vecs.len()];
+        return Clusters { labels: vec![None; vecs.len()], centroids: Vec::new() };
     }
     let dim = vecs.iter().flatten().next().map_or(0, Vec::len);
     // subsample evenly for the tree when there are too many windows
@@ -219,74 +228,104 @@ pub fn cluster_windows(vecs: &[Option<Vec<f32>>], wins: &[(i64, i64)], p: &Param
             _ => break,
         }
     }
-    lab
+    Clusters { labels: lab, centroids: cents }
 }
 
-/// Label each word with the speaker whose windows overlap it most, absorb short islands and
-/// number speakers by first appearance.
-pub fn label_words(words: &[Word], wins: &[(i64, i64)], win_labels: &[Option<usize>], p: &Params) -> Labels {
-    let k = win_labels.iter().flatten().max().map_or(0, |m| m + 1);
-    let mut raw: Vec<Option<usize>> = Vec::with_capacity(words.len());
-    // windows are sorted by start within each region; scan with a moving lower bound
+/// How strongly the boundary after word `a` (before `b`) separates turns: 1 at a sentence end or
+/// a long pause, 0 inside fluent speech.
+fn boundary(a: &Word, b: &Word) -> f64 {
+    let t = a.text.trim_end();
+    if t.ends_with(['.', '?', '!', '…']) {
+        return 1.0;
+    }
+    let gap = (b.start_ms - a.end_ms).max(0) as f64;
+    let g = (gap / 400.0).min(1.0);
+    if t.ends_with(',') { g.max(0.6) } else { g }
+}
+
+/// Label the words: each word scores every speaker by the similarity of the windows over it to
+/// the speaker's centroid (weighted by overlap and nearness), and a Viterbi pass picks the best
+/// labelling where changing speaker costs [`Params::switch_cost`] inside fluent speech and little
+/// at a pause or sentence end. So turns change where people actually stop, and a stray word in
+/// the middle of a sentence does not become a speaker change. Speakers are numbered by first
+/// appearance; speakers no word ends up with are dropped.
+pub fn label_words(words: &[Word], wins: &[(i64, i64)], vecs: &[Option<Vec<f32>>], c: &Clusters, p: &Params) -> Labels {
+    let k = c.centroids.len();
+    if k == 0 || words.is_empty() {
+        return Labels { words: vec![None; words.len()], speakers: Vec::new() };
+    }
+    // per-word similarity to each centroid (None: no window reached it)
+    let mut emit: Vec<Option<Vec<f64>>> = Vec::with_capacity(words.len());
     let mut lo = 0usize;
     for w in words {
         while wins.get(lo).is_some_and(|x| x.1 <= w.start_ms) && lo + 1 < wins.len() && wins.get(lo + 1).is_some_and(|n| n.0 <= w.start_ms) {
             lo += 1;
         }
         let mut score = vec![0f64; k];
+        let mut total = 0f64;
         let mut j = lo.saturating_sub(8);
         while let Some(&(s, e)) = wins.get(j) {
             if s > w.end_ms + 2000 {
                 break;
             }
             let ov = (e.min(w.end_ms.max(w.start_ms + 1)) - s.max(w.start_ms)).max(0) as f64;
-            // a window counts more the nearer its centre is to the word's centre
             let dc = (((s + e) / 2) - (w.start_ms + w.end_ms) / 2).abs() as f64;
             if ov > 0.0
-                && let Some(Some(l)) = win_labels.get(j)
-                && let Some(sc) = score.get_mut(*l)
+                && let Some(Some(v)) = vecs.get(j)
             {
-                *sc += ov / (1.0 + dc / 500.0);
+                let wt = ov / (1.0 + dc / 500.0);
+                total += wt;
+                for (sc, cent) in score.iter_mut().zip(&c.centroids) {
+                    *sc += wt * f64::from(1.0 - cluster::cosine_distance(v, cent));
+                }
             }
             j += 1;
         }
-        let best = score.iter().enumerate().filter(|x| *x.1 > 0.0).max_by(|a, b| a.1.total_cmp(b.1)).map(|x| x.0);
-        raw.push(best);
+        emit.push((total > 0.0).then(|| score.iter().map(|x| x / total).collect()));
     }
-    // words no window reached take the previous label
-    let mut last = None;
-    for l in raw.iter_mut() {
-        if l.is_none() {
-            *l = last;
-        } else {
-            last = *l;
-        }
-    }
-    // absorb short islands between two runs of the same speaker
-    let mut i = 0;
-    while i < raw.len() {
-        let mut j = i;
-        while j < raw.len() && raw.get(j) == raw.get(i) {
-            j += 1;
-        }
-        let dur = match (words.get(i), words.get(j.saturating_sub(1))) {
-            (Some(a), Some(b)) => b.end_ms - a.start_ms,
-            _ => 0,
+    // Viterbi: maximise Σ duration·similarity − switch costs
+    let n = words.len();
+    let mut best: Vec<f64> = vec![0.0; k];
+    let mut back: Vec<Vec<usize>> = Vec::with_capacity(n);
+    for (i, w) in words.iter().enumerate() {
+        let gain = |s: usize| -> f64 {
+            let d = ((w.end_ms - w.start_ms).max(0) as f64 / 1000.0).clamp(0.1, 3.0);
+            emit.get(i).and_then(|e| e.as_ref()).and_then(|e| e.get(s)).map_or(0.0, |x| d * x)
         };
-        if i > 0 && j < raw.len() && raw.get(i - 1) == raw.get(j) && dur < p.min_island_ms {
-            let v = raw.get(i - 1).copied().flatten();
-            raw.iter_mut().take(j).skip(i).for_each(|x| *x = v);
+        let cost = match (i.checked_sub(1).and_then(|j| words.get(j)), Some(w)) {
+            (Some(a), Some(b)) => f64::from(p.switch_cost) * (1.0 - boundary(a, b)) + 0.02,
+            _ => 0.0,
+        };
+        let mut next = vec![0f64; k];
+        let mut from = vec![0usize; k];
+        let (top, top_val) = best.iter().enumerate().fold((0, f64::NEG_INFINITY), |m, (s, &v)| if v > m.1 { (s, v) } else { m });
+        for s in 0..k {
+            let stay = best.get(s).copied().unwrap_or(f64::NEG_INFINITY);
+            let (src, v) = if i > 0 && top != s && top_val - cost > stay { (top, top_val - cost) } else { (s, stay) };
+            if let (Some(nx), Some(fr)) = (next.get_mut(s), from.get_mut(s)) {
+                *nx = v + gain(s);
+                *fr = src;
+            }
         }
-        i = j;
+        best = next;
+        back.push(from);
+    }
+    let mut raw = vec![0usize; n];
+    let mut cur = best.iter().enumerate().fold((0, f64::NEG_INFINITY), |m, (s, &v)| if v > m.1 { (s, v) } else { m }).0;
+    for i in (0..n).rev() {
+        if let Some(r) = raw.get_mut(i) {
+            *r = cur;
+        }
+        cur = back.get(i).and_then(|b| b.get(cur)).copied().unwrap_or(cur);
     }
     // number by first appearance
     let mut order: Vec<usize> = Vec::new();
-    for l in raw.iter().flatten() {
-        if !order.contains(l) {
-            order.push(*l);
+    for &l in &raw {
+        if !order.contains(&l) {
+            order.push(l);
         }
     }
-    let words_out: Vec<Option<usize>> = raw.iter().map(|l| l.and_then(|l| order.iter().position(|&o| o == l))).collect();
+    let words_out: Vec<Option<usize>> = raw.iter().map(|l| order.iter().position(|o| o == l)).collect();
     let mut speakers: Vec<SpeakerStat> = (0..order.len()).map(|id| SpeakerStat { id, ..Default::default() }).collect();
     for (w, l) in words.iter().zip(&words_out) {
         if let Some(s) = l.and_then(|l| speakers.get_mut(l)) {
@@ -339,8 +378,8 @@ impl Diarizer {
         let wins = windows(&speech_regions(words, p.pause_ms), p.window_ms, p.step_ms);
         let vecs =
             window_vectors(audio, &wins, &mut |b| self.frame_map(b), &|m, a, b| self.net.embed(m, a, b), &mut |d, t| progress(d as f32 / t.max(1) as f32))?;
-        let wl = cluster_windows(&vecs, &wins, p);
-        Ok(label_words(words, &wins, &wl, p))
+        let c = cluster_windows(&vecs, &wins, p);
+        Ok(label_words(words, &wins, &vecs, &c, p))
     }
 }
 
@@ -397,27 +436,39 @@ mod tests {
             })
             .collect();
         let p = Params { min_speaker_seconds: 0.5, ..Params::default() };
-        let wl = cluster_windows(&vecs, &wins, &p);
-        let l = label_words(&words, &wins, &wl, &p);
+        let c = cluster_windows(&vecs, &wins, &p);
+        assert_eq!(c.centroids.len(), 2);
+        let l = label_words(&words, &wins, &vecs, &c, &p);
         assert_eq!(l.speakers.len(), 2);
         assert_eq!(l.words[0], Some(0));
         assert_eq!(l.words[12], Some(1));
         assert_eq!(l.words[25], Some(0));
         // the user's count wins
         let one = cluster_windows(&vecs, &wins, &Params { speakers: Some(1), ..p.clone() });
-        assert_eq!(label_words(&words, &wins, &one, &p).speakers.len(), 1);
+        assert_eq!(label_words(&words, &wins, &vecs, &one, &p).speakers.len(), 1);
     }
 
     #[test]
-    fn islands_absorbed_and_empty_inputs() {
-        let words = vec![w(0, 1000), w(1000, 1200), w(1200, 2500)];
-        let wins = vec![(0, 1000), (1000, 1200), (1200, 2500)];
-        let l = label_words(&words, &wins, &[Some(0), Some(1), Some(0)], &Params::default());
-        assert_eq!(l.words, vec![Some(0); 3]);
-        assert_eq!(l.speakers.len(), 1);
-        let e = label_words(&[], &[], &[], &Params::default());
+    fn turns_change_at_pauses_not_mid_sentence() {
+        let a = vec![1.0f32, 0.0];
+        let b = vec![0.0f32, 1.0];
+        let c = Clusters { labels: Vec::new(), centroids: vec![a.clone(), b.clone()] };
+        let word = |t: &str, s: i64, e: i64| Word { text: t.into(), start_ms: s, end_ms: e, ..Default::default() };
+        // A speaks two fluent words, one window in the middle of a sentence sounds like B
+        let words = vec![word("이거", 0, 400), word("진짜", 400, 800), word("좋네요.", 800, 1200), word("네", 1800, 2200), word("맞아요", 2200, 2600)];
+        let wins = vec![(0, 400), (400, 800), (800, 1200), (1800, 2200), (2200, 2600)];
+        let vecs = vec![Some(a.clone()), Some(b.clone()), Some(a.clone()), Some(b.clone()), Some(b.clone())];
+        let l = label_words(&words, &wins, &vecs, &c, &Params::default());
+        assert_eq!(l.words, vec![Some(0), Some(0), Some(0), Some(1), Some(1)], "the stray window does not split the sentence");
+        assert_eq!(l.speakers.len(), 2);
+        // without a pause the same evidence over two words is still a change only if it is strong
+        assert!(boundary(&words[2], &words[3]) > 0.99);
+        assert!(boundary(&words[0], &words[1]) < 0.01);
+        let e = label_words(&[], &[], &[], &c, &Params::default());
         assert!(e.words.is_empty() && e.speakers.is_empty());
-        assert!(cluster_windows(&[None, None], &[(0, 1), (1, 2)], &Params::default()).iter().all(Option::is_none));
+        let none = cluster_windows(&[None, None], &[(0, 1), (1, 2)], &Params::default());
+        assert!(none.labels.iter().all(Option::is_none) && none.centroids.is_empty());
+        assert_eq!(label_words(&words, &wins, &vecs, &none, &Params::default()).words, vec![None; 5]);
         // hostile times
         let odd = vec![Word { start_ms: i64::MIN / 4, end_ms: i64::MAX / 4, ..w(0, 0) }];
         let _ = windows(&speech_regions(&odd, 250), 1500, 500);
