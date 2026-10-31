@@ -13,13 +13,13 @@ calling the caption layout) and listed in the table at the end.
 
 | Crate | Layer | Milestone | Purpose |
 |---|---|---|---|
-| `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`) |
-| `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); next: `filmcraft_speech::Transcriber`, streamer/hero-voice separation |
+| `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`), in-game voice lines found by text (`voicelines`) |
+| `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels); next: `filmcraft_speech::Transcriber` |
 | `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L4 | M6, M7, M9 | MCP editing assistants, screen recognition, style learning |
 | `overfilm-subs` (`apps/`) | L6 | — | standalone subtitle extractor: window (`OverFilmSubs`), command line and MCP review server (`overfilm-subs`); see its README |
-| `packs/overwatch/ko/` | data | M2 | Overwatch Korean pack: `glossary/` (heroes, abilities, maps, modes, terms, teams, players; see its README), later hero voice lines, fillers, caption rules |
+| `packs/overwatch/ko/` | data | M2 | Overwatch Korean pack: `glossary/` (heroes, abilities, maps, modes, terms, teams, players; see its README), `voicelines.tsv` (hero ultimates and announcer as heard in the Korean client), later fillers, caption rules |
 
 Layers follow `docs/architecture.md` §1 and are enforced by `cargo xtask layers`, where the
 `overfilm-*` crates are listed by full name.
@@ -52,6 +52,43 @@ cargo run -p overfilm-eval -- --terms terms.txt --json refs/ hyps/
   lowercase, punctuation as spaces. Corpus totals sum edits over files.
 
 `crates/overfilm-eval/samples/` has a hand-counted example; its README lists the expected numbers.
+
+## Speakers and game voice
+
+`overfilm_asr::speakers` labels who spoke each recognised word; `apps/overfilm-subs/src/speakers.rs`
+adds game-voice detection and builds captions turn by turn (`overfilm_captions::layout_turns`:
+no caption mixes two speakers, a labelled turn starts with `(화자1)`).
+
+- **Voice vectors**: WeSpeaker ResNet34 trained on VoxCeleb (the pyannote release,
+  `pyannote/wespeaker-voxceleb-resnet34-LM`, CC-BY-4.0, downloaded at first use and pinned by
+  SHA-256 in `catalogue::SPEAKER`). Input is an 80-band Kaldi filterbank written from the Kaldi
+  documentation (`speakers/fbank.rs`; matches `kaldi-native-fbank` to 2e-4). The network runs
+  once per 10 s block (blocks every 8 s) and any window of the block is pooled from that frame
+  map, as pyannote does. Checked against the published ONNX export: cosine 1.0000.
+- **Clustering**: 1.5 s windows every 0.5 s inside speech (words joined across pauses under
+  250 ms, so windows rarely span a turn change), average linkage on cosine distance (NN-chain,
+  at most 2500 points, more are subsampled), cut at 0.7, windows reassigned to the nearest
+  centroid, speakers under 10 s of speech (or 8 % of it) folded into the nearest one. A speaker
+  count from the user replaces the threshold.
+- **Tuning set**: synthetic conversations from the Zeroth-Korean test set (CC-BY-4.0, 10
+  speakers): 24 conversations of 2–5 speakers, 150 s each, a quarter of the turns cut to
+  0.5–1.2 s interjections, 80–600 ms gaps, light noise. Word-level speaker error after the best
+  label mapping, and speaker count:
+
+  | setting | word error | count right |
+  |---|---|---|
+  | threshold 0.6, min 3 s, windows may cross 400 ms pauses | 30.9 % | 0/24 |
+  | threshold 0.7, min 6 s, windows stop at 250 ms pauses | 4.0 % | 16/24 |
+  | **threshold 0.7, min 10 s (chosen)** | **3.4 %** | **24/24** |
+  | threshold 0.75, min 10 s | 10.3 % | 16/24 |
+
+  The generator and scorer are kept with the M1 evaluation files (outside the repository).
+- **Game voice**: `overfilm_glossary::voicelines` matches runs of words against
+  `voicelines.tsv` on letters only (edit distance at most a fifth of the line). A match of a line
+  of 5+ syllables with score ≥ 0.8 marks its words as game audio; a speaker with 2+ matches whose
+  words are at least half voice lines becomes a game voice as a whole. Captions drop game audio
+  by default (`--game-voice label|keep` to show it). Recognising game audio by sound rather than
+  text (hero voices, effects, music) is not done yet.
 
 ## Upstream updates
 

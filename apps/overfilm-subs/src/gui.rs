@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eframe::egui;
+use overfilm_subs::speakers::GameVoice;
 use overfilm_subs::{MEDIA_EXTENSIONS, job, mcp, pack, review};
 
 #[derive(Default)]
@@ -29,6 +30,11 @@ struct App {
     gpu: bool,
     line_chars: u32,
     two_lines: bool,
+    speakers: bool,
+    /// 0 = count automatically
+    num_speakers: usize,
+    game_voice: GameVoice,
+    per_speaker: bool,
     shared: Arc<Mutex<Shared>>,
     cancel: Arc<AtomicBool>,
     issues: Vec<(String, String)>,
@@ -51,6 +57,10 @@ impl App {
             gpu: true,
             line_chars: 16,
             two_lines: true,
+            speakers: true,
+            num_speakers: 0,
+            game_voice: GameVoice::Drop,
+            per_speaker: false,
             shared: Arc::default(),
             cancel: Arc::default(),
             issues: Vec::new(),
@@ -71,6 +81,10 @@ impl App {
         o.gpu = self.gpu;
         o.line_chars = self.line_chars;
         o.max_lines = if self.two_lines { 2 } else { 1 };
+        o.speakers = self.speakers;
+        o.num_speakers = (self.num_speakers > 0).then_some(self.num_speakers);
+        o.game_voice = self.game_voice;
+        o.per_speaker = self.per_speaker;
         let d = mcp::user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         Some(o)
@@ -170,6 +184,26 @@ impl App {
             ui.checkbox(&mut self.gpu, "그래픽카드(GPU) 사용")
                 .on_hover_text("AMD·NVIDIA·Intel 그래픽카드로 빠르게 처리합니다. 없거나 문제가 생기면 자동으로 CPU를 씁니다.");
         });
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.speakers, "목소리 구별 (화자1, 화자2…)").on_hover_text(
+                "말하는 사람이 둘 이상이면 몇 명인지 세고, 자막마다 누가 말했는지 (화자1)처럼 붙입니다. 자막 하나에 두 사람 말이 섞이지 않습니다.",
+            );
+            ui.add_enabled_ui(self.speakers, |ui| {
+                ui.label("사람 수");
+                ui.add(
+                    egui::DragValue::new(&mut self.num_speakers)
+                        .range(0..=20)
+                        .custom_formatter(|v, _| if v < 0.5 { "자동".into() } else { format!("{v:.0}명") }),
+                )
+                .on_hover_text("알면 정해 주세요. 자동이면 목소리로 셉니다.");
+                ui.checkbox(&mut self.per_speaker, "사람마다 SRT 따로 저장");
+            });
+            ui.separator();
+            ui.label("게임 음성(영웅 대사)");
+            for g in [GameVoice::Drop, GameVoice::Label, GameVoice::Keep] {
+                ui.radio_value(&mut self.game_voice, g, g.label());
+            }
+        });
     }
 
     fn results(&mut self, ui: &mut egui::Ui) {
@@ -234,7 +268,10 @@ impl eframe::App for App {
                         done.seconds_taken % 60,
                         done.device,
                         done.corrections.len()
-                    )));
+                    ) + &{
+                        let who = job::speaker_summary(&done);
+                        if who.is_empty() { String::new() } else { format!("\n{who}") }
+                    }));
                 }
                 Err(e) => self.status = Some(Err(e)),
             }

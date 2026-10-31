@@ -1,0 +1,122 @@
+# 오버워치 한국어 클라이언트의 게임 음성(영웅 궁극기 대사, 아나운서). 자막에서 게임 음성을 찾아 빼는 데 쓴다.
+# 열: hero kind text lang note. kind: ult_ally(아군이 듣는 궁 대사) ult_enemy(적이 듣는 궁 대사, 공격·돌격은 본인도 이것을 들음) other(스킨·기타) announcer.
+# note의 sourced는 출처 페이지에서 확인한 것, recalled는 기억에 의존한 것(확인 필요). 외국어 대사는 한국 사람들이 받아 적는 한글 표기.
+# 2016~2019년 글이 많아 이후 바뀐 대사가 있을 수 있음(오리사·시메트라 궁 개편, 2025년 본인 궁 대사 재녹음). 빠진 영웅: 라마트라, 마우가(기본), 벤처, 주노, 해저드, 우양, 제트팩 캣, 시온, 독트린.
+hero	kind	text	lang	note
+겐지	ult_ally	용이 내가 된다	ko	sourced www.inven.co.kr
+겐지	ult_enemy	류진노 켄오 쿠라에	ja	sourced www.inven.co.kr
+겐지	other	음양의 검을 받아라	ko	sourced www.inven.co.kr
+한조	ult_ally	용이여 적들을 삼켜라	ko	sourced www.inven.co.kr
+한조	ult_enemy	류우요 와가테키오 쿠라에	ja	sourced www.inven.co.kr
+한조	ult_enemy	류요 와가 테키오 쿠라에	ja	sourced www.inven.co.kr
+한조	other	늑대가 먹잇감을 덮친다	ko	sourced www.inven.co.kr
+한조	other	오오카미요 와가 테키오 쿠라에	ja	recalled www.inven.co.kr
+캐서디	ult_ally	앞으로 나오시지	ko	sourced www.inven.co.kr
+캐서디	ult_ally	앞으로 나와보시지	ko	sourced www.inven.co.kr
+캐서디	ult_enemy	석양이 진다	ko	sourced www.inven.co.kr
+캐서디	other	달이 차오른다	ko	sourced www.inven.co.kr
+리퍼	ult_ally	여길 죽음으로 쓸어주마	ko	sourced www.inven.co.kr
+리퍼	ult_enemy	죽어! 죽어! 죽어!	ko	sourced www.inven.co.kr
+솔저: 76	ult_ally	전술조준경 활성화	ko	sourced www.inven.co.kr
+솔저: 76	ult_enemy	목표를 포착했다	ko	sourced www.inven.co.kr
+트레이서	ult_ally	폭탄 받아	ko	sourced www.inven.co.kr
+트레이서	ult_ally	내 마음이야	ko	sourced www.inven.co.kr
+트레이서	ult_enemy	폭탄 고정	ko	sourced www.inven.co.kr
+트레이서	ult_enemy	시간 다됐어	ko	sourced www.inven.co.kr
+트레이서	other	기다려봐	ko	sourced m.cafe.daum.net
+트레이서	other	잡았다	ko	sourced m.cafe.daum.net
+트레이서	other	딱붙였어	ko	sourced m.cafe.daum.net
+트레이서	other	정확히 명중	ko	sourced m.cafe.daum.net
+트레이서	other	잠깐 나가있어	ko	sourced m.cafe.daum.net
+파라	ult_ally	포화 개시	ko	sourced www.inven.co.kr
+파라	ult_enemy	하늘에서 정의가 빗발친다	ko	sourced www.inven.co.kr
+솜브라	ult_ally	EMP 발동	ko	sourced www.inven.co.kr
+솜브라	ult_enemy	아빠 관둘라스	other	sourced www.inven.co.kr
+메이	ult_ally	꼼짝마! 움직이지 마세요	ko	sourced www.inven.co.kr
+메이	ult_ally	꼼짝마세요, 눈보라가 옵니다	ko	sourced www.inven.co.kr
+메이	ult_enemy	똥쥬 뿌쉬숴	other	sourced www.inven.co.kr
+메이	ult_enemy	동쭈 뿌시쩌우	other	sourced www.inven.co.kr
+메이	ult_enemy	똥쥬 뿌쉬 쭤우	other	sourced www.inven.co.kr
+위도우메이커	ult_ally	아무도 내게서 숨지 못해	ko	sourced www.inven.co.kr
+위도우메이커	ult_enemy	뻬흐쏭 네샤 빠몽 흐갸흐	other	sourced www.inven.co.kr
+위도우메이커	ult_enemy	펩숀뭐셒파뭐드기야아	other	sourced www.inven.co.kr
+위도우메이커	ult_enemy	백숙 니 삶아 묵으라	other	sourced www.inven.co.kr
+정크랫	ult_ally	신사 숙녀 여러분! 한번 달려보자고!	ko	sourced www.inven.co.kr
+정크랫	ult_enemy	폭탄 받아라	ko	sourced www.inven.co.kr
+토르비욘	ult_ally	초고열 용광로	ko	sourced www.inven.co.kr
+둠피스트	ult_enemy	퍠먤의 일걕	ko	sourced m.cafe.daum.net
+둠피스트	ult_enemy	파멸의 일격	ko	recalled m.cafe.daum.net
+둠피스트	ult_ally	간다	ko	sourced m.cafe.daum.net
+애쉬	ult_ally	밥 뭐든해봐	ko	sourced m.cafe.daum.net
+애쉬	ult_enemy	밥 공격해	ko	sourced m.cafe.daum.net
+에코	ult_enemy	적응성 회로 가동	ko	sourced www.inven.co.kr
+에코	ult_ally	복제 개시	ko	sourced www.inven.co.kr
+소전	ult_enemy	여기까지다	ko	sourced www.inven.co.kr
+벤데타	ult_enemy	응징의 시간이다	ko	sourced www.inven.co.kr
+시에라	ult_enemy	하늘을 잘 보라고	ko	sourced www.inven.co.kr
+엠레	ult_ally	수색해 섬멸한다	ko	sourced www.inven.co.kr
+엠레	ult_enemy	엣시 야 투호아	other	sourced www.inven.co.kr
+프레야	ult_enemy	노 방바닥	other	sourced www.inven.co.kr
+프레야	ult_enemy	루 방고라	other	sourced www.inven.co.kr
+프레야	ult_enemy	노! 반가다!	other	sourced www.inven.co.kr
+D.Va	ult_ally	자폭 시퀀스 가동	ko	sourced www.inven.co.kr
+D.Va	ult_ally	내가 캐리한다	ko	sourced www.inven.co.kr
+D.Va	ult_ally	자폭 펄스 가동	ko	sourced www.inven.co.kr
+D.Va	ult_enemy	이것도 너프해 보시지	ko	sourced www.inven.co.kr
+라인하르트	ult_enemy	망치 나가신다	ko	sourced www.inven.co.kr
+레킹볼	ult_ally	지뢰밭 전개	ko	sourced m.cafe.daum.net
+레킹볼	ult_enemy	접근 금지 접근 금지	ko	sourced m.cafe.daum.net
+오리사	ult_enemy	저항을 멈추십시오	ko	sourced www.inven.co.kr
+오리사	ult_ally	힘을 합쳐 특수 공격을 전개합시다	ko	sourced www.inven.co.kr
+자리야	ult_ally	모두 발사	ko	sourced www.inven.co.kr
+자리야	ult_enemy	아곤빠가 또브나스띠	other	sourced www.inven.co.kr
+자리야	ult_enemy	아 곤 빠가돈네스띠	other	sourced www.inven.co.kr
+시그마	ult_ally	우주가 내게 노래하고 있어	ko	sourced www.inven.co.kr
+시그마	other	이 선율은 대체 뭐야	ko	sourced www.inven.co.kr
+정커퀸	ult_enemy	타임 투 맥크리	en	sourced www.inven.co.kr
+디몬	ult_enemy	박살나라	ko	sourced www.inven.co.kr
+윈스턴	other	우리 뭐하던 중이었죠	ko	sourced m.cafe.daum.net
+윈스턴	other	제가 잠시 이성을 잃었나 봅니다	ko	sourced m.cafe.daum.net
+메르시	ult_ally	영웅은 죽지 않아요	ko	sourced www.inven.co.kr
+메르시	ult_enemy	영웅이여 일어나세요	ko	sourced www.inven.co.kr
+메르시	other	발할라를 향하여	ko	sourced www.inven.co.kr
+메르시	other	내 시종은 죽지 않아요	ko	sourced www.inven.co.kr
+메르시	other	대가를 치를 뿐	ko	sourced www.inven.co.kr
+루시우	ult_ally	오우, 제대로 놀아보자	ko	sourced www.inven.co.kr
+루시우	ult_enemy	비트에 몸을 맡겨라	ko	sourced www.inven.co.kr
+젠야타	ult_ally	고요를 체험하시오	ko	sourced www.inven.co.kr
+젠야타	ult_enemy	눈동자로 들어가시오	ko	sourced www.inven.co.kr
+아나	ult_ally	넌 강해졌다, 돌격해	ko	sourced www.inven.co.kr
+아나	ult_enemy	왈리웻더위버	other	sourced www.inven.co.kr
+아나	other	나노강화제를 투여했다	ko	sourced m.cafe.daum.net
+아나	other	넌 강해졌다 파괴해라	ko	sourced www.inven.co.kr
+아나	other	넌 강해졌다 적을 멸해라	ko	sourced www.inven.co.kr
+시메트라	ult_ally	이것이 궁극의 현실이에요	ko	sourced m.cafe.daum.net
+시메트라	ult_ally	현실은 내뜻대로 움직여요	ko	sourced m.cafe.daum.net
+모이라	ult_ally	내 의지에 굴복하라	ko	sourced m.cafe.daum.net
+브리기테	ult_ally	저에게 집결하세요	ko	sourced m.cafe.daum.net
+브리기테	ult_enemy	아이 러브 팀 미	other	sourced www.inven.co.kr
+바티스트	ult_enemy	씨네발쑤요	other	sourced www.inven.co.kr
+바티스트	ult_enemy	시메바스요	other	sourced www.inven.co.kr
+바티스트	ult_enemy	비냉와쓰요	other	sourced www.inven.co.kr
+키리코	ult_ally	여우님, 모두의 길을 밝혀줘!	ko	sourced overwatch.blizzard.com
+라이프위버	ult_ally	생명은 생명을 보호해요	ko	sourced www.inven.co.kr
+라이프위버	ult_enemy	치유의 벗방 순위	other	sourced www.inven.co.kr
+라이프위버	ult_enemy	시위 꽃다운 시위	other	sourced www.inven.co.kr
+라이프위버	ult_enemy	키위 꽃다운 키위	other	sourced www.inven.co.kr
+일리아리	ult_ally	떠오르는 태양을 마주해라	ko	sourced www.inven.co.kr
+일리아리	ult_enemy	인티 류크시문	other	sourced www.inven.co.kr
+안란	ult_ally	하늘을 그을려라	ko	sourced www.inven.co.kr
+안란	ult_enemy	훠위펀티엔	other	sourced www.inven.co.kr
+안란	ult_enemy	쭈취에짠츠	other	sourced www.inven.co.kr
+미즈키	ult_enemy	노로이오 타츠키레	ja	sourced www.inven.co.kr
+도미나	ult_enemy	메르모 따우릿 짤로	other	sourced www.inven.co.kr
+도미나	ult_enemy	매너도 서비스도 별로	other	sourced www.inven.co.kr
+마우가	other	사우 로아 팡아이 이 로우 투푸가	other	sourced www.inven.co.kr
+마우가	other	네 창조주를 만나봐라	ko	sourced www.inven.co.kr
+아나운서	announcer	전투 준비	ko	sourced www.inven.co.kr
+아나운서	announcer	승리	ko	recalled 
+아나운서	announcer	패배	ko	recalled 
+아나운서	announcer	추가 시간	ko	recalled 
+아나운서	announcer	목표를 점령하고 있습니다	ko	recalled 
+아나운서	announcer	적이 목표를 점령하고 있습니다	ko	recalled 

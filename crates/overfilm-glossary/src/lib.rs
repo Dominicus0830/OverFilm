@@ -27,6 +27,7 @@
 pub mod correct;
 pub mod digits;
 pub mod ko;
+pub mod voicelines;
 
 pub use correct::{Correction, Corrector};
 

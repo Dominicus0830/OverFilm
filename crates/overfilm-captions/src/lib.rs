@@ -205,6 +205,30 @@ fn lines_of(words: &[TimedWord], o: &Layout) -> Vec<String> {
 
 /// Lay out timed words as captions.
 pub fn layout(words: &[TimedWord], o: &Layout) -> Vec<Caption> {
+    let mut caps = segment(words, o);
+    fix_timing(&mut caps, o);
+    caps
+}
+
+/// Captions for speaker turns: each turn is laid out on its own, so no caption mixes two
+/// speakers, and a turn with a label (`"화자1"`) starts with it in parentheses.
+pub fn layout_turns(turns: &[(Option<String>, Vec<TimedWord>)], o: &Layout) -> Vec<Caption> {
+    let mut caps = Vec::new();
+    for (label, words) in turns {
+        let Some(first) = words.first() else { continue };
+        let mut ws = Vec::with_capacity(words.len() + 1);
+        if let Some(l) = label {
+            ws.push(TimedWord { text: format!("({l})"), start_ms: first.start_ms, end_ms: first.start_ms });
+        }
+        ws.extend(words.iter().cloned());
+        caps.extend(segment(&ws, o));
+    }
+    caps.sort_by_key(|c| c.start_ms);
+    fix_timing(&mut caps, o);
+    caps
+}
+
+fn segment(words: &[TimedWord], o: &Layout) -> Vec<Caption> {
     let mut caps = Vec::new();
     let mut seg_start = 0;
     for i in 0..words.len() {
@@ -220,7 +244,11 @@ pub fn layout(words: &[TimedWord], o: &Layout) -> Vec<Caption> {
             seg_start = i + 1;
         }
     }
-    // timing: hold, minimum duration, no overlap
+    caps
+}
+
+/// Timing: hold, minimum duration, no overlap.
+fn fix_timing(caps: &mut [Caption], o: &Layout) {
     for i in 0..caps.len() {
         let next_start = caps.get(i + 1).map(|c| c.start_ms);
         if let Some(c) = caps.get_mut(i) {
@@ -231,7 +259,6 @@ pub fn layout(words: &[TimedWord], o: &Layout) -> Vec<Caption> {
             c.end_ms = end.max(c.start_ms + 1);
         }
     }
-    caps
 }
 
 fn tick(ms: i64) -> Tick {
@@ -257,6 +284,19 @@ pub fn from_srt(text: &str) -> Result<Vec<Caption>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn turns_never_share_a_caption_and_carry_labels() {
+        let a = words(&[("이거", 0, 300), ("보세요", 300, 700)]);
+        let b = words(&[("네", 750, 900), ("맞아요", 900, 1300)]);
+        let caps = layout_turns(&[(Some("화자1".into()), a), (Some("화자2".into()), b), (None, Vec::new())], &Layout::default());
+        assert_eq!(caps.len(), 2, "{caps:?}");
+        assert_eq!(caps[0].lines.join(" "), "(화자1) 이거 보세요");
+        assert_eq!(caps[1].lines.join(" "), "(화자2) 네 맞아요");
+        assert!(caps[0].end_ms <= caps[1].start_ms);
+        let plain = layout_turns(&[(None, words(&[("하나", 0, 100)]))], &Layout::default());
+        assert_eq!(plain[0].lines, vec!["하나".to_string()]);
+    }
 
     fn words(spec: &[(&str, i64, i64)]) -> Vec<TimedWord> {
         spec.iter().map(|(t, s, e)| TimedWord { text: t.to_string(), start_ms: *s, end_ms: *e }).collect()

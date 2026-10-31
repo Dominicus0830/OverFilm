@@ -11,6 +11,7 @@ pub mod mcp;
 pub mod media;
 pub mod pack;
 pub mod review;
+pub mod speakers;
 
 /// File extensions offered in the open dialog.
 pub const MEDIA_EXTENSIONS: &[&str] =

@@ -10,8 +10,8 @@
 //! [`gpu`] runs both networks on any Vulkan, DX12 or Metal GPU through wgpu (AMD included);
 //! without one, or on any GPU error, the CPU (candle) does the work.
 //!
-//! Planned (M5): the streamer mode classifier that keeps the streamer's speech and drops in-game
-//! hero voice lines.
+//! [`speakers`] labels who spoke each word (WeSpeaker ResNet34 voice vectors and clustering; the
+//! network needs feature `qwen`). In-game voice lines are found by text in `overfilm-glossary`.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
@@ -23,6 +23,7 @@ mod engine;
 pub mod gpu;
 #[cfg(feature = "qwen")]
 pub mod model;
+pub mod speakers;
 pub mod text;
 pub mod tokenizer;
 #[cfg(feature = "qwen")]
@@ -61,11 +62,17 @@ impl From<candle_core::Error> for AsrError {
 /// Progress callback: (fraction 0–1, message); return false to cancel.
 pub type Progress<'a> = &'a mut dyn FnMut(f32, &str) -> bool;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Word {
     pub text: String,
     pub start_ms: i64,
     pub end_ms: i64,
+    /// Speaker (0-based, see [`Transcript::speakers`]) when speakers were labelled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<usize>,
+    /// In-game voice (a hero line or the announcer), not a person in the room.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub game: bool,
 }
 
 /// A whole input's transcript, chunk by chunk: the text as recognised (and corrected) and its
@@ -77,6 +84,22 @@ pub struct Transcript {
     #[serde(default)]
     pub device: String,
     pub chunks: Vec<ChunkText>,
+    /// Speakers found (empty when speakers were not labelled).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub speakers: Vec<Speaker>,
+}
+
+/// One voice in the transcript.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Speaker {
+    /// Shown in captions, e.g. "화자1" (the user can rename it).
+    pub label: String,
+    /// Seconds of words.
+    pub seconds: f32,
+    pub words: usize,
+    /// Mostly in-game voice lines: a hero or the announcer, not a person.
+    #[serde(default)]
+    pub game: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -134,7 +157,7 @@ pub(crate) fn timed_words(text: &str, times: &[(i64, i64)], offset_ms: i64) -> V
             (Some((s, _)), Some((_, e))) => (s, e),
             _ => out.last().map(|w| (w.end_ms - offset_ms, w.end_ms - offset_ms)).unwrap_or((0, 0)),
         };
-        out.push(Word { text: word.to_string(), start_ms: offset_ms.saturating_add(s), end_ms: offset_ms.saturating_add(e) });
+        out.push(Word { text: word.to_string(), start_ms: offset_ms.saturating_add(s), end_ms: offset_ms.saturating_add(e), ..Word::default() });
     }
     out
 }

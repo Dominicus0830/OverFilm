@@ -36,3 +36,7 @@ tempfile = "3.27"
 [[example]]
 name = "qwen_asr"
 required-features = ["qwen"]
+
+[[example]]
+name = "speakers"
+required-features = ["qwen"]
