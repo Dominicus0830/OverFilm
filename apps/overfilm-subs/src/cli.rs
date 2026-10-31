@@ -4,6 +4,9 @@
 //! overfilm-subs extract <video or audio> [-o out.srt] [--mode general|commentary]
 //!               [--terms "이름, 용어"] [--no-mask] [--glossary <folder>] [--line-chars 16]
 //! overfilm-subs review <file.srt>
+//! overfilm-subs fix <file.srt>          apply the glossary (misrecognitions, profanity initials)
+//! overfilm-subs relayout <file.overfilm.json> [-o out.srt] [--line-chars 16] [--one-line]
+//!                                       captions again from the saved word times
 //! overfilm-subs models            download the models (about 6.5 GB) if missing
 //! overfilm-subs mcp               MCP server on stdin/stdout (Claude Desktop and others)
 //! ```
@@ -19,6 +22,8 @@ use overfilm_subs::{job, mcp, pack, review};
 const USAGE: &str = "사용법:
   overfilm-subs extract <영상/오디오> [-o 저장.srt] [--mode general|commentary] [--terms \"이름, 용어\"] [--no-mask] [--glossary 폴더] [--line-chars 16]
   overfilm-subs review <자막.srt>
+  overfilm-subs fix <자막.srt>      단어집 교정 적용 (원본은 .srt.bak)
+  overfilm-subs relayout <이름.overfilm.json> [-o 저장.srt] [--line-chars 16] [--one-line]   인식 다시 안 하고 자막만 다시 나누기
   overfilm-subs models     모델 받기 (약 6.5GB, 처음 한 번)
   overfilm-subs mcp        MCP 서버 (Claude Desktop 등에서 연결)";
 
@@ -80,11 +85,53 @@ fn review_cmd(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn fix(args: &[String]) -> Result<(), String> {
+    let p = args.first().ok_or(USAGE)?;
+    let server = mcp::Server::default();
+    let r = server.handle(&serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "apply_glossary", "arguments": {"path": p}}}));
+    let text = r.as_ref().and_then(|v| v["result"]["content"][0]["text"].as_str()).unwrap_or_default().to_string();
+    if r.as_ref().is_some_and(|v| v["result"]["isError"] == true) {
+        return Err(text);
+    }
+    println!("{text}");
+    Ok(())
+}
+
+fn relayout(args: &[String]) -> Result<(), String> {
+    let mut it = args.iter();
+    let mut input = None;
+    let mut out = None;
+    let mut o = job::Options::new(PathBuf::new());
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "-o" | "--output" => out = it.next().map(PathBuf::from),
+            "--line-chars" => o.line_chars = it.next().and_then(|v| v.parse().ok()).ok_or("--line-chars는 숫자")?,
+            "--one-line" => o.max_lines = 1,
+            s => input = Some(PathBuf::from(s)),
+        }
+    }
+    let input = input.ok_or(USAGE)?;
+    if std::fs::metadata(&input).map(|m| m.len()).unwrap_or(0) > 256 << 20 {
+        return Err("파일이 너무 큽니다".into());
+    }
+    let text = std::fs::read_to_string(&input).map_err(|e| format!("{}: {e}", input.display()))?;
+    let t: overfilm_asr::Transcript = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", input.display()))?;
+    let words: Vec<overfilm_captions::TimedWord> = t.words().map(|w| overfilm_captions::TimedWord { text: w.text.clone(), start_ms: w.start_ms, end_ms: w.end_ms }).collect();
+    let caps = overfilm_captions::layout(&words, &o.layout());
+    let name = input.file_name().map(|n| n.to_string_lossy().replace(".overfilm.json", ".srt")).unwrap_or_else(|| "out.srt".into());
+    let out = out.unwrap_or_else(|| input.with_file_name(name));
+    job::write_srt(&out, &caps)?;
+    println!("자막 {}개 → {}", caps.len(), out.display());
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let r = match args.first().map(String::as_str) {
         Some("extract") => extract(args.get(1..).unwrap_or_default()),
         Some("review") => review_cmd(args.get(1..).unwrap_or_default()),
+        Some("fix") => fix(args.get(1..).unwrap_or_default()),
+        Some("relayout") => relayout(args.get(1..).unwrap_or_default()),
         Some("models") => {
             let mut p = progress_bar();
             let r = job::ensure_models(&job::models_dir(), &mut p);

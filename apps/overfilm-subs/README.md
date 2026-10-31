@@ -36,7 +36,9 @@ OverFilm에서 자막 추출만 떼어 낸 독립 프로그램입니다. 영상�
 overfilm-subs models
 overfilm-subs extract "경기.mp4" --mode commentary --terms "새 선수, 새 팀"
 overfilm-subs extract "방송.m4a" -o 자막.srt --no-mask --line-chars 18
-overfilm-subs review 자막.srt
+overfilm-subs review 자막.srt          검토할 곳 목록
+overfilm-subs fix 자막.srt             단어집 교정 적용 (원본은 자막.srt.bak)
+overfilm-subs relayout 경기.overfilm.json --line-chars 18   인식을 다시 하지 않고 자막만 다시 나누기
 ```
 
 ## MCP로 검토하기 (Claude Desktop)
