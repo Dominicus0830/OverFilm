@@ -70,7 +70,7 @@ fn learn(s: &mut Session, p: &Value) -> Result<Value> {
     let dead = bar.dead(&frame);
     let mut set = load_set(&path)?;
     set.insert_bar(bar);
-    std::fs::write(&path, set.to_json()).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+    crate::overfilm_autocut::write_file(&path, &set.to_json())?;
     Ok(json!({"templates": path, "team": team, "players": players, "bars": set.bars.len(), "readDead": dead}))
 }
 

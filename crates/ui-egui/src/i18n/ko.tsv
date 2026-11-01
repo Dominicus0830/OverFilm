@@ -3668,7 +3668,7 @@
 	e.g. PREPARE TO ATTACK	예: PREPARE TO ATTACK
 	save the project first, or type a .json path	먼저 프로젝트를 저장하거나 .json 경로를 적으세요
 	{n} area(s) to match, {m} to ignore	맞출 영역 {n}개, 무시할 영역 {m}개
-	{n} screen template(s) in the file. Learn them first: Sequence ▸ OverFilm ▸ Learn Screen Template.	파일에 화면 견본 {n}개. 먼저 등록하세요: 시퀀스 ▸ OverFilm ▸ 화면 견본 등록.
+	{n} screen template(s) in the file. Learn them first: Sequence ▸ OverFilm ▸ Learn Screen Template.	파일에 화면 견본 {n}개. 없으면 아래 "견본 파일 불러오기"로 불러오거나, 시퀀스 > OverFilm > 화면 견본 등록에서 만드세요.
 	{n} styled caption(s)	자막 {n}개에 스타일을 입혔습니다
 	Suggest Silences and Highlights (OverFilm)	무음·하이라이트 제안(OverFilm)
 	Make Highlight Reel (OverFilm)	하이라이트 모음 만들기(OverFilm)
@@ -3678,7 +3678,7 @@
 	Learnt team {team}'s name plates	{team}팀 선수 이름판을 등록했어요
 	Find Kills and Team Fights (OverFilm)	처치·교전 찾기(OverFilm)
 	Learn Player Bar (OverFilm)	선수 이름판 등록(OverFilm)
-	Learn Editing Style (OverFilm)	편집 스타일 배우기(OverFilm)
+	Learn Editing Style (OverFilm, Beta)	편집 스타일 배우기(OverFilm, 베타)
 	Show Editing Style (OverFilm)	편집 스타일 보기(OverFilm)
 # OverFilm: Claude Code review (OVERFILM.md, panels/overfilm_review.rs).
 	Claude Code Review Settings (OverFilm)…	Claude Code 검토 설정(OverFilm)…
@@ -3701,3 +3701,8 @@
 	Review never cuts by itself: it changes the OverFilm cut markers (cut, keep, keep part) and the captions, in one undo step.	검토는 직접 자르지 않습니다. OverFilm 컷 마커(자르기, 유지, 일부 유지)와 자막만 바꾸며, 실행 취소 한 번으로 되돌릴 수 있습니다.
 	Claude Code review is on	Claude Code 검토를 켰습니다
 	Claude Code review is off	Claude Code 검토를 껐습니다
+	your OverFilm template file, or type a .json path	내 OverFilm 견본 파일 (다른 .json 경로도 가능)
+	Import Templates…	견본 파일 불러오기…
+	No break-screen, setup or pause template yet: import a template file, or learn one from a frame of that screen.	대기 화면·라운드 준비·퍼즈 견본이 아직 없어요. 견본 파일을 불러오거나, 그 화면이 나오는 프레임에서 견본을 등록하세요.
+	Imported {n} template(s) and {b} player bar(s)	견본 {n}개, 선수 이름판 {b}개를 불러왔어요
+	Import Screen Templates (OverFilm)…	화면 견본 불러오기(OverFilm)…

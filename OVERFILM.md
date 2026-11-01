@@ -216,9 +216,13 @@ Screens are recognised by **templates** learnt from a frame of the same broadcas
 each rectangle (frame-relative, 0..1) is kept as a gray grid of at most 128 cells and found again
 by normalised cross-correlation (half-cell steps, ±1 % of the frame width); `ignore` leaves out
 what changes (the running clock, a camera feed). A template matches when its worst rectangle
-correlates at 0.7 or more. The set is a JSON file beside the project
-(`<project>.overfilm-screens.json`) or given as `templates`; the repository ships none, since the
-league's graphics and the game HUD are not ours to redistribute.
+correlates at 0.7 or more. The set is a JSON file: `templates` when given, else one beside the
+project (`<project>.overfilm-screens.json`) when it exists, else the user's own
+`overfilm-screens.json` beside the OverFilmSubs models (`%LOCALAPPDATA%\OverFilm`), shared by every
+project and usable before the project is saved. `overfilm.screenTemplate.import {path}` (the
+**Import Templates…** button in the Auto Cut and Learn dialogs) merges someone else's file into it,
+e.g. a broadcast's templates learnt once. The repository ships none, since the league's graphics and
+the game HUD are not ours to redistribute.
 
 The analysis samples 2 frames a second at up to 1280 pixels wide in a background job (the HUD's
 objective text is about 8 pixels tall at 720p). By default
@@ -383,9 +387,9 @@ reviewed ones are not asked again unless `again`. Measured with Claude Code 2.1 
 about 6–8 s for one question. `cargo test -p overfilm-review -- --ignored` asks the real
 Claude Code one cut and one caption.
 
-## Editing style
+## Editing style (beta)
 
-`Sequence ▸ OverFilm ▸ Learn Editing Style` (`overfilm.style.learn {sequences?, style?}`) learns
+`Sequence ▸ OverFilm ▸ Learn Editing Style (Beta)` (`overfilm.style.learn {sequences?, style?}`) learns
 from finished edits: select them in the Project panel (a Premiere Pro edit comes in through
 File ▸ Export ▸ Final Cut Pro XML in Premiere, then File ▸ Import here; `.prproj` is not read), or
 it takes the open sequence. Per sequence it reads (`overfilm_style::facts`): the time between video
@@ -394,14 +398,14 @@ clips continuing the same source count as one stretch) on the busiest video trac
 their length; added effects (not the built-in Motion / Opacity / Volume) and zooms (keyframed
 Motion scale or position); how much of the sources is kept, when their length is known; caption
 length, duration and lines. `overfilm_ai::style::learn` sums it up as quartiles and rates, saved as
-`<project>.overfilm-style.json` with a Korean summary (`overfilm.style.show` gives it back).
+`overfilm-style.json` (beside the project when that file exists, else the user's own) with a Korean summary (`overfilm.style.show` gives it back).
 
 With a saved style the suggestions follow it: highlights run as long as the upper quartile of
 the kept stretches (5–60 s) unless `seconds` is given, and the highlight reel joins moments with
 plain cuts when fewer than a fifth of the editor's cuts carry a transition, else with a dissolve
 of their usual length (unless `dissolve` / `dissolveFrames` is given). Checked by a round trip
 (the demo edit exported as FCP7 XML, imported, learnt: same cuts, shots and transitions); not yet
-on a real Premiere edit.
+on a real Premiere edit: a beta until it is.
 
 ## Dialogs
 
