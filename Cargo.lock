@@ -2123,6 +2123,7 @@ dependencies = [
  "filmcraft-tts",
  "image",
  "log",
+ "overfilm-ai",
  "overfilm-asr",
  "overfilm-captions",
  "overfilm-pipeline",
@@ -4760,6 +4761,9 @@ dependencies = [
 [[package]]
 name = "overfilm-ai"
 version = "0.14.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "overfilm-asr"

@@ -19,7 +19,7 @@ calling the caption layout) and listed in the table at the end.
 | `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures) and the auto-cut plan; see "Auto cut" below |
 | `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the shared models folder |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
-| `overfilm-ai` | L4 | M6, M7, M9 | MCP editing assistants, screen recognition, style learning |
+| `overfilm-ai` | L1 | M6 | analysis behind the editing suggestions: loudness, silences, highlights (`overfilm.assist.suggest` in the engine); later style learning |
 | `overfilm-subs` (`apps/`) | L6 | — | standalone subtitle extractor: window (`OverFilmSubs`), command line and MCP review server (`overfilm-subs`); see its README |
 | `packs/overwatch/ko/` | data | M2 | Overwatch Korean pack: `glossary/` (heroes, abilities, maps, modes, terms, teams, players; see its README), `voicelines.tsv` (hero ultimates and announcer as heard in the Korean client), later fillers, caption rules |
 
@@ -279,6 +279,28 @@ track. Then:
   to the last caption, to lay on the top track at 00:00) and a short how-to in Korean. Adobe's
   `.mogrt` is not written (closed format).
 
+## Editing suggestions
+
+`Sequence ▸ OverFilm ▸ Suggest Silences and Highlights` (`overfilm.assist.suggest {silence,
+highlights, count=10, seconds=20, thresholdDb=-45, minSilence=1}`) mixes the sequence's sound in a
+background job (10 loudness blocks a second, `overfilm_ai`) and marks, for review:
+
+- **Silences**: below -45 dBFS for 1 s or more after 0.2 s is left on each side, never over a
+  transcript word, not inside waiting time Auto Cut already marked. They are "OverFilm 컷: 무음"
+  markers, so `Apply OverFilm Cut Markers` removes them together with the waiting time.
+- **Highlights** (green "OverFilm 하이라이트 N", 20 s, the peak at two thirds): each second scores
+  how far it is above the median loudness of the minute around it (3 dB free), plus 4 points per
+  hype word in the transcript ("미쳤다", "전멸", "나이스", "역전"…, `HYPE_WORDS`) and 1.5 per
+  in-game voice word (ultimates); smoothed over 5 s, the highest non-overlapping peaks win. The
+  marker comment says why ("점수 23 · 소리 +9 dB · 미쳤다, 전멸 · 게임 음성 3단어").
+
+Measured on the 84-minute OWCS broadcast by sound alone (`cargo run -p overfilm-ai --example
+assist_raw`, no transcript): of 12 highlights, 4 were team fights in play, the rest the pre-show
+(caster laughter, the intro video) and the loud bumpers between rounds. Hence two filters in the
+editor: no highlight inside Auto Cut's waiting markers, and, when the screen-template file has a
+game-HUD (`live`) template, a highlight must show the game at its peak (or 3 s either side).
+Silences: an esports broadcast has hardly any (3, 3 s in all); they matter for talking videos.
+
 ## Dialogs
 
 The Sequence ▸ OverFilm menu items open a dialog when chosen from the menu (`crates/ui-egui/src/panels/overfilm.rs`;
@@ -335,11 +357,12 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `xtask/src/main.rs` | `overfilm-*` crates in `LAYERS`; layering also checks `overfilm-*` dependencies |
 | `.github/workflows/overfilm.yml` | new file (OverFilm CI) |
 | `OVERFILM.md` | new file (this document) |
-| `crates/engine/Cargo.toml` | depends on `overfilm-vision`, `overfilm-captions`, `overfilm-pipeline`, `overfilm-asr`; feature `overfilm-qwen` |
-| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `Session::overfilm_jobs` and `overfilm_caption_jobs`, their `poll` in `poll_persistence` |
-| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()` and `overfilm_transcribe::commands()` |
+| `crates/engine/Cargo.toml` | depends on `overfilm-vision`, `overfilm-captions`, `overfilm-pipeline`, `overfilm-asr`, `overfilm-ai`; feature `overfilm-qwen` |
+| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `Session::overfilm_jobs`, `overfilm_caption_jobs` and `overfilm_assist_jobs`, their `poll` in `poll_persistence` |
+| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()` and `overfilm_assist::commands()` |
 | `crates/engine/src/transcript.rs` | `targets` is `pub(crate)` (which clips to recognise) |
 | `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |
+| `crates/engine/src/overfilm_assist.rs` (+ `_tests.rs`) | new file: silence and highlight suggestions |
 | `apps/filmcraft/Cargo.toml` | feature `overfilm-qwen`, on by default |
 | `crates/ui-egui/src/panels/overfilm.rs` | new file: the OverFilm dialogs |
 | `crates/ui-egui/src/panels.rs`, `menus.rs`, `panels/dialogs.rs` | `mod overfilm`, its `route` before the menu dialogs, its `show` |

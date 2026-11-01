@@ -92,7 +92,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// The template file: `templates`, or one beside the saved project.
-fn templates_path(s: &Session, p: &Value, cmd: &str) -> Result<String> {
+pub(crate) fn templates_path(s: &Session, p: &Value, cmd: &str) -> Result<String> {
     if let Some(t) = str_p(p, "templates").filter(|t| !t.trim().is_empty()) {
         return Ok(t.to_string());
     }
@@ -101,7 +101,7 @@ fn templates_path(s: &Session, p: &Value, cmd: &str) -> Result<String> {
     Ok(format!("{stem}.overfilm-screens.json"))
 }
 
-fn load_set(path: &str) -> Result<TemplateSet> {
+pub(crate) fn load_set(path: &str) -> Result<TemplateSet> {
     match std::fs::read_to_string(path) {
         Ok(text) => TemplateSet::from_json(&text).map_err(|e| EngineError::Other(format!("{path}: {e}"))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(TemplateSet::default()),
@@ -125,7 +125,7 @@ fn rects_p(p: &Value, k: &str, cmd: &str) -> Result<Vec<NRect>> {
 }
 
 /// The frame at sequence time `t` of `clip` (or of the topmost video clip there), as analysis luma.
-fn frame_at(s: &Session, clip: Option<ClipId>, t: Tick) -> Result<Luma> {
+pub(crate) fn frame_at(s: &Session, clip: Option<ClipId>, t: Tick) -> Result<Luma> {
     let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
     let it = match clip {
         Some(c) => q.find_item(c).map(|(_, it)| it).ok_or_else(|| EngineError::Other(format!("no clip {}", c.0)))?,

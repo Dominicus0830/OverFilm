@@ -33,6 +33,7 @@ pub mod media_watch;
 pub mod mixer;
 pub mod multicam;
 pub mod narration;
+pub mod overfilm_assist;
 pub mod overfilm_autocut;
 pub mod overfilm_captions;
 pub mod overfilm_transcribe;
@@ -486,6 +487,7 @@ pub struct Session {
     /// OverFilm Auto Cut analyses whose plans are applied when they finish.
     pub overfilm_jobs: Vec<overfilm_autocut::PendingAutoCut>,
     pub overfilm_caption_jobs: Vec<overfilm_transcribe::PendingCaptions>,
+    pub overfilm_assist_jobs: Vec<overfilm_assist::PendingAssist>,
     /// Effect presets (built-in + the user's, persisted in the data directory).
     pub presets: presets::PresetLibrary,
     /// Export presets (built-in + the user's, persisted in the data directory) and favourites.
@@ -593,6 +595,7 @@ impl Session {
             scene_jobs: Vec::new(),
             overfilm_jobs: Vec::new(),
             overfilm_caption_jobs: Vec::new(),
+            overfilm_assist_jobs: Vec::new(),
             presets: Default::default(),
             export_presets: Default::default(),
             export_queue: Default::default(),
@@ -690,6 +693,7 @@ impl Session {
         scene_detect::poll(self);
         overfilm_autocut::poll(self);
         overfilm_transcribe::poll(self);
+        overfilm_assist::poll(self);
         export_tools::pump_queue(self, false);
         panels::log_jobs(self);
         let Some(p) = self.persistence.as_mut() else { return };

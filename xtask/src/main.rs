@@ -97,7 +97,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("overfilm-vision", 1),
     ("overfilm-eval", 3),
     ("overfilm-pipeline", 3),
-    ("overfilm-ai", 4),
+    ("overfilm-ai", 1),
     ("overfilm-subs", 6),
 ];
 
