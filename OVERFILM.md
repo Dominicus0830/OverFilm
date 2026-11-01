@@ -127,6 +127,34 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   | **probability ≥ 0.3 over chunks, 20 % of the word (chosen)** | **75.1 %** | **64.5 %** | **2.8 %** |
   | probability ≥ 0.2, 15 % of the word | 78.1 % | 67.1 % | 4.2 % |
   | voice ties need similarity 0.4 (not 0.2) | 75.1 % | 63.5 % | 2.8 % |
+
+  Hero set: the same generator with one speaker of every conversation replaced by a held-out
+  hero's Korean voice lines (Soldier: 76; 405 overlapped words). Ties carried between
+  neighbouring chunks (`stitch`: a talker untied in one chunk takes the tie of the talker it
+  matches, by shared talk ≥ 0.5 over the 5 s both chunks see) raised it from 72.6 % found /
+  53.3 % both right / 4.4 % false to **80.0 % / 61.5 % / 4.9 %**, the people-only set unchanged.
+  Fine-tuning the segmentation on Zeroth train (105 speakers) mixed with five other heroes'
+  lines (3000 steps, CPU) did not help: found 73.6 %, both right 50.6 % on the hero set, so the
+  published weights stay.
+  Clean pooling (`OverlapParams::clean_pool`, `Diarizer::run_with_overlaps`): the chunks are
+  segmented before the speaker vectors, and 80 ms frames whose two-talker probability reaches
+  0.7 are left out of each window's vector (a window keeping under half its frames, or under
+  0.4 s, gets none), so one voice is not pooled with another. Word error / overlap found / both
+  right / clean-word error, before → after:
+
+  | set | before | clean pool 0.7 | clean pool 0.5 |
+  |---|---|---|---|
+  | people (12, overlaps) | 8.9 / 75.1 / 64.5 / 5.2 % | **8.4 / 78.7 / 68.1 / 4.8 %** | 8.3 / 78.7 / 68.1 / 4.7 % |
+  | Soldier (12) | 10.6 / 80.0 / 61.5 / 5.7 % | **9.3 / 79.3 / 63.0 / 4.8 %** | 9.9 / 73.8 / 56.8 / 5.5 % |
+  | 12 other heroes, one per case | 9.6 / 56.0 / 49.0 / 5.1 % | **9.1 / 54.5 / 48.0 / 4.9 %** | 12.4 / 53.0 / 43.0 / 8.2 % |
+
+  On the 24 people-only conversations (no planned overlaps) word error goes 2.5 → 2.2 % and
+  the right speaker count 22 → 23 of 24.
+
+  Tried and dropped: keeping a small speaker whose centroid is far (cosine ≥ 0.75–0.9) from
+  every other (no gain on Soldier, 10 → 7 right counts on the other heroes), and leaving the
+  hero's words out of the vectors even with the true spans (people word error 5.2 → 5.0 %: the
+  hero lines barely disturb the people's voices; they are found by `voicelines.tsv` instead).
   | + relabel words by the segmentation's clean talkers | — | — | word error 4.8 → 5.5 %, dropped |
 
   The word's own label is right (one of the two talkers) for 97 % of overlapped words. On the
@@ -138,7 +166,16 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
 - **Game voice**: `overfilm_glossary::voicelines` matches runs of words against
   `voicelines.tsv` on letters only (edit distance at most a fifth of the line). An exact match of a line
   of 5+ characters (score ≥ 0.8 for lines of 8+) marks its words as game audio; a speaker with 2+ matches whose
-  words are at least half voice lines becomes a game voice as a whole. Captions drop game audio
+  words are at least half voice lines becomes a game voice as a whole; near misses of short lines
+  are ignored, and only ultimate/announcer/skin lines or lines of 8+ characters count on their own;
+  communication-wheel lines (kind `comm`, "방어구가 필요해") and short everyday lines ("아니거든요")
+  only count towards a speaker. The table holds ~20,000 lines: ultimates and announcer for most
+  heroes, plus the Korean lines of 40 heroes taken from the client's sound file names (lines of
+  under 5 characters, glossary words such as Echo's copied hero names, foreign-language and
+  event-mode lines left out; Anran, D.Mon, Domina, Shion and Sierra still missing).
+  `find` compares only lines sharing enough character pairs with the text (an edit removes at most
+  two distinct pairs): ~60 ms for 1,000 words. On 40 recognised hero lines 19 are marked on their
+  own; on two real streams no streamer words are. Captions drop game audio
   by default (`--game-voice label|keep` to show it). Recognising game audio by sound rather than
   text (hero voices, effects, music) is not done yet.
 

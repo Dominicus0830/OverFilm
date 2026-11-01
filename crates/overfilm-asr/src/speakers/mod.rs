@@ -150,6 +150,9 @@ pub fn windows(regions: &[(i64, i64)], win: i64, step: i64) -> Vec<(i64, i64)> {
     out
 }
 
+/// Fewest frames a window keeps in [`window_vectors_skipping`] (0.4 s).
+pub const MIN_KEPT_FRAMES: usize = 5;
+
 /// Block layout for the network: `BLOCK_MS` blocks every `BLOCK_STEP_MS`, so every window up to
 /// `BLOCK_MS - BLOCK_STEP_MS` long lies wholly inside one block.
 pub const BLOCK_MS: i64 = 10_000;
@@ -189,6 +192,20 @@ pub fn window_vectors(
     pool: &dyn Fn(&[f32], usize, usize) -> Option<Vec<f32>>,
     progress: &mut dyn FnMut(usize, usize) -> bool,
 ) -> Result<Vec<Option<Vec<f32>>>, crate::AsrError> {
+    window_vectors_skipping(audio, wins, frame_map, pool, None, progress)
+}
+
+/// [`window_vectors`] leaving out the 80 ms frames whose centre (ms) `skip` rejects (overlapped
+/// speech); a window left with fewer than [`MIN_KEPT_FRAMES`] frames (or under half of its own)
+/// gets no vector.
+pub fn window_vectors_skipping(
+    audio: &[f32],
+    wins: &[(i64, i64)],
+    frame_map: &mut dyn FnMut(&[f32]) -> Result<(usize, Vec<f32>), crate::AsrError>,
+    pool: &dyn Fn(&[f32], usize, usize) -> Option<Vec<f32>>,
+    skip: Option<&dyn Fn(i64) -> bool>,
+    progress: &mut dyn FnMut(usize, usize) -> bool,
+) -> Result<Vec<Option<Vec<f32>>>, crate::AsrError> {
     let mut out: Vec<Option<Vec<f32>>> = vec![None; wins.len()];
     let mut by_block: std::collections::BTreeMap<usize, Vec<usize>> = Default::default();
     for (i, &(s, e)) in wins.iter().enumerate() {
@@ -210,9 +227,25 @@ pub fn window_vectors(
             let Some(&(s, e)) = wins.get(i) else { continue };
             let fa = usize::try_from(((s - bs) / frame_ms).max(0)).unwrap_or(0).min(frames);
             let fb = usize::try_from(((e - bs) + frame_ms - 1) / frame_ms).unwrap_or(0).min(frames);
-            if fb > fa
-                && let Some(mut v) = pool(&map, fa, fb)
-            {
+            let pooled = match skip {
+                None => (fb > fa).then(|| pool(&map, fa, fb)).flatten(),
+                Some(skip) => {
+                    let feat = map.len() / frames.max(1);
+                    let keep: Vec<usize> = (fa..fb).filter(|&j| !skip(bs + j as i64 * frame_ms + frame_ms / 2)).collect();
+                    if keep.len() < MIN_KEPT_FRAMES || keep.len() * 2 < fb.saturating_sub(fa) {
+                        None
+                    } else if keep.len() == fb - fa {
+                        pool(&map, fa, fb)
+                    } else {
+                        let mut rows = Vec::with_capacity(keep.len() * feat);
+                        for j in &keep {
+                            rows.extend_from_slice(map.get(j * feat..(j + 1) * feat).unwrap_or(&[]));
+                        }
+                        pool(&rows, 0, rows.len() / feat.max(1))
+                    }
+                }
+            };
+            if let Some(mut v) = pooled {
                 cluster::normalize(&mut v);
                 if let Some(slot) = out.get_mut(i) {
                     *slot = Some(v);
@@ -626,6 +659,28 @@ mod tests {
         // the user's count wins
         let one = cluster_windows(&vecs, &wins, &Params { speakers: Some(1), ..p.clone() });
         assert_eq!(label_words(&words, &wins, &vecs, &one, &p).speakers.len(), 1);
+    }
+
+    #[test]
+    fn skipped_frames_stay_out_of_the_vectors() {
+        // 125 frames of 80 ms per 10 s block, each frame's one feature is 1 (clean) or 9 (overlap)
+        let audio = vec![0f32; 16 * 10_000];
+        let overlapped = |ms: i64| (2000..2400).contains(&ms) || (5000..6500).contains(&ms);
+        let mut map = |b: &[f32]| {
+            let n = b.len() / 16 / 80;
+            Ok((n, (0..n).map(|j| if overlapped(j as i64 * 80 + 40) { 9.0 } else { 1.0 }).collect()))
+        };
+        let mean = |m: &[f32], a: usize, b: usize| Some(vec![m.get(a..b)?.iter().sum::<f32>() / (b - a) as f32, 1.0]);
+        let wins = [(1500, 3000), (5000, 6500), (7000, 8500)];
+        let mixed = window_vectors(&audio, &wins, &mut map, &mean, &mut |_, _| true).unwrap();
+        let first = mixed[0].as_ref().unwrap();
+        assert!(first[0] > first[1], "the overlap pulls the plain vector");
+        let skip = |ms: i64| overlapped(ms);
+        let clean = window_vectors_skipping(&audio, &wins, &mut map, &mean, Some(&skip), &mut |_, _| true).unwrap();
+        let first = clean[0].as_ref().unwrap();
+        assert!((first[0] - first[1]).abs() < 1e-6, "only clean frames: {first:?}");
+        assert_eq!(clean[1], None, "a wholly overlapped window has no vector");
+        assert_eq!(clean[2], mixed[2], "an untouched window is the same");
     }
 
     #[test]
