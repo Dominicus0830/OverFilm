@@ -62,8 +62,13 @@ fn is_close(m: &overfilm_glossary::voicelines::Match, lines: &VoiceLines) -> boo
     m.score >= 1.0 || (len >= EXACT_BELOW && m.score >= SURE)
 }
 
+/// Whether a line alone marks its words as game audio: not a communication-wheel line, and
+/// either an ultimate / announcer / skin line or long. Short everyday lines ("아니거든요",
+/// "감사합니다") are said by people too and only count towards a speaker.
 fn is_sure(m: &overfilm_glossary::voicelines::Match, lines: &VoiceLines) -> bool {
-    lines.lines.get(m.line).is_some_and(|l| l.kind != COMM) && !m.short && is_close(m, lines)
+    let Some(l) = lines.lines.get(m.line) else { return false };
+    let signature = l.kind.starts_with("ult") || l.kind == "announcer" || l.kind == "other";
+    l.kind != COMM && (signature || l.len() >= EXACT_BELOW) && !m.short && is_close(m, lines)
 }
 
 /// Write per-word speakers and the speaker list into `t` (people numbered 화자1, 화자2… by first
@@ -284,6 +289,10 @@ mod tests {
         comm.speakers = vec![Speaker::default()];
         assert_eq!(mark_game_voice(&mut comm, &VoiceLines::parse("hero\tkind\ttext\n키리코\tcomm\t방어구가 필요해요\n")), 0);
         assert!(!comm.words().any(|w| w.game));
+        // so is a short everyday line, but not a short ultimate line
+        let mut short = transcript(&[("아니거든요", 0, Some(0))]);
+        short.speakers = vec![Speaker::default()];
+        assert_eq!(mark_game_voice(&mut short, &VoiceLines::parse("hero\tkind\ttext\n시메트라\tmatchtalk\t아니거든요\n")), 0);
         // one match is not enough to call speaker 3 a game voice, but the words are game audio
         assert!(!t.speakers[2].game);
         assert!(t.words().filter(|w| w.game).count() == 2);
