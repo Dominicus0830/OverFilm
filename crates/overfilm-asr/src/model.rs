@@ -16,24 +16,25 @@ use std::collections::HashMap;
 
 use std::sync::Arc;
 
-use candle_core::quantized::{QMatMul, QTensor};
 use candle_core::{D, DType, Device, Module, Result, Tensor};
 use candle_nn::{Conv2d, Conv2dConfig, Embedding, LayerNorm, Linear, RmsNorm, VarBuilder};
 
+use crate::qmm::Q8;
+
 /// Quantized weights by tensor name (`…q_proj.weight`).
-pub type QMap = HashMap<String, Arc<QTensor>>;
+pub type QMap = HashMap<String, Arc<Q8>>;
 
 /// A bias-free linear layer, f32 or 8-bit (Q8_0: per-32 block scale, error well below the
 /// model's own bf16 rounding; four times less memory traffic per generated token).
 pub enum Lin {
     F(Linear),
-    Q(QMatMul),
+    Q(Arc<Q8>),
 }
 
 impl Lin {
     fn new(i: usize, o: usize, vb: VarBuilder, q: &QMap) -> Result<Self> {
         match q.get(&format!("{}.weight", vb.prefix())) {
-            Some(t) => Ok(Lin::Q(QMatMul::from_arc(t.clone())?)),
+            Some(t) => Ok(Lin::Q(t.clone())),
             None => Ok(Lin::F(candle_nn::linear_no_bias(i, o, vb)?)),
         }
     }
@@ -48,8 +49,8 @@ impl Module for Lin {
         let rows = x.elem_count() / x.dims().last().copied().unwrap_or(1).max(1);
         match self {
             Lin::F(l) => l.forward(x),
-            Lin::Q(QMatMul::QTensor(q)) if rows >= DEQUANT_ROWS => Linear::new(q.dequantize(x.device())?, None).forward(x),
-            Lin::Q(m) => m.forward(&x.contiguous()?),
+            Lin::Q(q) if rows >= DEQUANT_ROWS => Linear::new(q.dequantize(x.device())?, None).forward(x),
+            Lin::Q(q) => q.forward(x),
         }
     }
 }
@@ -348,6 +349,126 @@ impl DecoderLayer {
     }
 }
 
+impl DecoderLayer {
+    /// One new token for each of several independent sequences: `x` (n, 1, hidden), row `i` at
+    /// position `pos[i]` of its own cache `caches[i]`. The products run on all rows at once (one
+    /// pass over the weights); attention runs per row against that row's cache.
+    fn forward_rows(&self, x: &Tensor, rope: &[(Tensor, Tensor)], lens: &[usize], caches: &mut [Option<(Tensor, Tensor)>]) -> Result<Tensor> {
+        let (n, t, _) = x.dims3()?;
+        if t != 1 || rope.len() != n || caches.len() != n || lens.len() != n {
+            candle_core::bail!("batched step: {n} rows, {} positions, {} caches", rope.len(), caches.len());
+        }
+        let h = self.ln1.forward(x)?;
+        let shape = |y: Tensor, k: usize| y.reshape((n, 1, k, self.head_dim));
+        let q = self.q_norm.forward(&shape(self.q.forward(&h)?, self.heads)?)?.transpose(1, 2)?.contiguous()?;
+        let k = self.k_norm.forward(&shape(self.k.forward(&h)?, self.kv_heads)?)?.transpose(1, 2)?.contiguous()?;
+        let v = shape(self.v.forward(&h)?, self.kv_heads)?.transpose(1, 2)?.contiguous()?;
+        let rep = self.heads / self.kv_heads.max(1);
+        let scale = (self.head_dim as f64).powf(-0.5);
+        let mut outs = Vec::with_capacity(n);
+        for (i, (((cos, sin), cache), &len)) in rope.iter().zip(caches.iter_mut()).zip(lens).enumerate() {
+            let qi = candle_nn::rotary_emb::rope(&q.narrow(0, i, 1)?.contiguous()?, cos, sin)?;
+            let ki = candle_nn::rotary_emb::rope(&k.narrow(0, i, 1)?.contiguous()?, cos, sin)?;
+            let vi = v.narrow(0, i, 1)?.contiguous()?;
+            // the cache is a buffer with room to spare: the new position is written in place
+            // instead of copying the whole cache every step
+            let (kb, vb) = match cache.take() {
+                Some((pk, pv)) if pk.dim(2)? > len => (pk, pv),
+                Some((pk, pv)) => {
+                    let (_, kvh, have, dh) = pk.dims4()?;
+                    let room = have.max(len) + CACHE_GROW;
+                    let kb = Tensor::zeros((1, kvh, room, dh), pk.dtype(), pk.device())?;
+                    let vb = Tensor::zeros((1, kvh, room, dh), pv.dtype(), pv.device())?;
+                    kb.slice_set(&pk.narrow(2, 0, len.min(have))?.contiguous()?, 2, 0)?;
+                    vb.slice_set(&pv.narrow(2, 0, len.min(have))?.contiguous()?, 2, 0)?;
+                    (kb, vb)
+                }
+                None => {
+                    let shape = (1, self.kv_heads, len + CACHE_GROW, self.head_dim);
+                    (Tensor::zeros(shape, ki.dtype(), ki.device())?, Tensor::zeros(shape, vi.dtype(), vi.device())?)
+                }
+            };
+            kb.slice_set(&ki, 2, len)?;
+            vb.slice_set(&vi, 2, len)?;
+            let (kc, vc) = (kb.narrow(2, 0, len + 1)?, vb.narrow(2, 0, len + 1)?);
+            // grouped-query attention without copying the cache per query head: the `rep` query
+            // heads of one key/value head become `rep` query rows of it
+            let qg = qi.reshape((1, self.kv_heads, rep, self.head_dim))?;
+            let o = attend(&qg, &kc, &vc, scale, None)?;
+            outs.push(o.reshape((1, 1, self.heads * self.head_dim))?);
+            *cache = Some((kb, vb));
+        }
+        let o = Tensor::cat(&outs, 0)?;
+        let x = (x + self.o.forward(&o)?)?;
+        let h = self.ln2.forward(&x)?;
+        let m = self.down.forward(&(self.gate.forward(&h)?.silu()? * self.up.forward(&h)?)?)?;
+        x + m
+    }
+}
+
+impl DecoderLayer {
+    /// The prefills of several sequences at once: `x` (1, T, hidden) holds their rows one after
+    /// another, `segs[i] = (start, len)`. The products run on all T rows together (an 8-bit
+    /// weight is expanded once, not once per sequence); attention runs per sequence, causal,
+    /// over its cache (the shared prefix) and its own rows.
+    fn forward_segments(&self, x: &Tensor, segs: &[(usize, usize)], rope: &[(Tensor, Tensor)], caches: &mut [Option<(Tensor, Tensor)>]) -> Result<Tensor> {
+        let (b, t, _) = x.dims3()?;
+        if segs.len() != rope.len() || segs.len() != caches.len() {
+            candle_core::bail!("{} segments, {} positions, {} caches", segs.len(), rope.len(), caches.len());
+        }
+        let h = self.ln1.forward(x)?;
+        let shape = |y: Tensor, n: usize| y.reshape((b, t, n, self.head_dim));
+        let q = self.q_norm.forward(&shape(self.q.forward(&h)?, self.heads)?)?.transpose(1, 2)?.contiguous()?;
+        let k = self.k_norm.forward(&shape(self.k.forward(&h)?, self.kv_heads)?)?.transpose(1, 2)?.contiguous()?;
+        let v = shape(self.v.forward(&h)?, self.kv_heads)?.transpose(1, 2)?.contiguous()?;
+        let rep = self.heads / self.kv_heads.max(1);
+        let expand = |y: &Tensor| -> Result<Tensor> {
+            if rep <= 1 {
+                return Ok(y.clone());
+            }
+            let (b, n, s, d) = y.dims4()?;
+            y.unsqueeze(2)?.expand((b, n, rep, s, d))?.reshape((b, n * rep, s, d))
+        };
+        let scale = (self.head_dim as f64).powf(-0.5);
+        let mut outs = Vec::with_capacity(segs.len());
+        for ((&(start, len), (cos, sin)), cache) in segs.iter().zip(rope).zip(caches.iter_mut()) {
+            let qs = candle_nn::rotary_emb::rope(&q.narrow(2, start, len)?.contiguous()?, cos, sin)?;
+            let ks = candle_nn::rotary_emb::rope(&k.narrow(2, start, len)?.contiguous()?, cos, sin)?;
+            let vs = v.narrow(2, start, len)?.contiguous()?;
+            let (kc, vc) = match cache.as_ref() {
+                Some((pk, pv)) => (Tensor::cat(&[pk, &ks], 2)?, Tensor::cat(&[pv, &vs], 2)?),
+                None => (ks, vs),
+            };
+            let total = kc.dim(2)?;
+            let past = total - len;
+            let mask = if len > 1 {
+                let m: Vec<f32> = (0..len).flat_map(|i| (0..total).map(move |j| if j > past + i { f32::NEG_INFINITY } else { 0.0 })).collect();
+                Some(Tensor::from_vec(m, (len, total), x.device())?.to_dtype(x.dtype())?)
+            } else {
+                None
+            };
+            outs.push(attend(&qs, &expand(&kc)?.contiguous()?, &expand(&vc)?.contiguous()?, scale, mask.as_ref())?);
+            *cache = Some((kc, vc));
+        }
+        let o = Tensor::cat(&outs, 2)?.transpose(1, 2)?.reshape((b, t, self.heads * self.head_dim))?;
+        let x = (x + self.o.forward(&o)?)?;
+        let h = self.ln2.forward(&x)?;
+        let m = self.down.forward(&(self.gate.forward(&h)?.silu()? * self.up.forward(&h)?)?)?;
+        x + m
+    }
+}
+
+/// Positions added to a sequence's key/value buffer when it is full.
+const CACHE_GROW: usize = 256;
+
+/// One sequence's key/value cache for [`TextModel::forward_rows`]: per layer the keys and values
+/// of positions `0 .. pos` (the buffers may be longer; the rest is room for the next tokens).
+#[derive(Clone, Default)]
+pub struct SeqCache {
+    pub layers: Vec<Option<(Tensor, Tensor)>>,
+    pub pos: usize,
+}
+
 pub struct TextModel {
     embed: Embedding,
     layers: Vec<DecoderLayer>,
@@ -414,6 +535,72 @@ impl TextModel {
         }
         let f = Tensor::from_vec(f, (t, half), dev)?;
         Ok((f.cos()?.to_dtype(dtype)?, f.sin()?.to_dtype(dtype)?))
+    }
+
+    /// Prefill several sequences after the cached prompt prefix at once (see
+    /// [`DecoderLayer::forward_segments`]): `xs[i]` (len_i, hidden). Returns each sequence's
+    /// last-row logits (n, head_rows) and its cache; the model's own cache (the prefix) is left
+    /// as it is.
+    pub fn prefill_seqs(&mut self, xs: &[Tensor]) -> Result<(Tensor, Vec<SeqCache>)> {
+        let prefix = self.pos;
+        let mut segs = Vec::with_capacity(xs.len());
+        let mut start = 0;
+        for x in xs {
+            let n = x.dim(0)?;
+            if n == 0 {
+                candle_core::bail!("empty sequence");
+            }
+            segs.push((start, n));
+            start += n;
+        }
+        let dtype = xs.first().map_or(DType::F32, Tensor::dtype);
+        let dev = xs.first().map_or(Device::Cpu, |x| x.device().clone());
+        let rope = segs.iter().map(|&(_, n)| self.rope(prefix, n, dtype, &dev)).collect::<Result<Vec<_>>>()?;
+        let mut seqs: Vec<SeqCache> = segs.iter().map(|_| SeqCache { layers: self.layers.iter().map(|l| l.cache.clone()).collect(), pos: prefix }).collect();
+        let mut h = Tensor::cat(xs, 0)?.unsqueeze(0)?;
+        for (li, l) in self.layers.iter().enumerate() {
+            let mut caches: Vec<Option<(Tensor, Tensor)>> = seqs.iter_mut().map(|s| s.layers.get_mut(li).and_then(Option::take)).collect();
+            let r = l.forward_segments(&h, &segs, &rope, &mut caches);
+            for (s, c) in seqs.iter_mut().zip(caches) {
+                if let Some(slot) = s.layers.get_mut(li) {
+                    *slot = c;
+                }
+            }
+            h = r?;
+        }
+        let mut lasts = Vec::with_capacity(segs.len());
+        for (s, &(start, n)) in seqs.iter_mut().zip(&segs) {
+            s.pos = prefix + n;
+            lasts.push(h.narrow(1, start + n - 1, 1)?);
+        }
+        let last = Tensor::cat(&lasts, 1)?;
+        Ok((self.head.forward(&self.norm.forward(&last)?)?.squeeze(0)?, seqs))
+    }
+
+    /// One new token for each of several sequences: `x` (n, hidden), `seqs[i]` the cache of
+    /// row `i`. Returns the logits (n, head_rows); every cache grows by one.
+    pub fn forward_rows(&mut self, x: &Tensor, seqs: &mut [&mut SeqCache]) -> Result<Tensor> {
+        let (n, _) = x.dims2()?;
+        if seqs.len() != n {
+            candle_core::bail!("{n} rows for {} sequences", seqs.len());
+        }
+        let rope = seqs.iter().map(|s| self.rope(s.pos, 1, x.dtype(), x.device())).collect::<Result<Vec<_>>>()?;
+        let lens: Vec<usize> = seqs.iter().map(|s| s.pos).collect();
+        let mut h = x.unsqueeze(1)?;
+        for (li, l) in self.layers.iter().enumerate() {
+            let mut caches: Vec<Option<(Tensor, Tensor)>> = seqs.iter_mut().map(|s| s.layers.get_mut(li).and_then(Option::take)).collect();
+            let r = l.forward_rows(&h, &rope, &lens, &mut caches);
+            for (s, c) in seqs.iter_mut().zip(caches) {
+                if let Some(slot) = s.layers.get_mut(li) {
+                    *slot = c;
+                }
+            }
+            h = r?;
+        }
+        for s in seqs.iter_mut() {
+            s.pos += 1;
+        }
+        self.head.forward(&self.norm.forward(&h)?)?.squeeze(1)
     }
 
     /// Run `x` (1, t, hidden) after the cached tokens; returns logits (1, t, head_rows) or, when

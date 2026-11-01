@@ -36,8 +36,12 @@ const CONV: &str = include_str!("conv.wgsl");
 const MV_ROWS: usize = 4;
 /// Rows per decoder or encoder pass (longer inputs run in several passes through the cache).
 pub const MAX_ROWS: usize = 1024;
-/// Positions in the decoder's key/value cache (prompt + audio + generated text).
-pub const KV_CAP: usize = 4096;
+/// Positions in the decoder's key/value cache (prompt + audio + generated text): a 60 s piece
+/// takes about 1,800 with room for its text, so three or four fit side by side after the prompt
+/// (16-bit keys and values: about 0.9 GB for Qwen3-ASR's 28 layers).
+pub const KV_CAP: usize = 8192;
+/// Sequences decoded side by side at most ([`Text::forward_seqs`]).
+pub const MAX_SEQS: usize = 8;
 /// Largest single buffer binding asked for (weights larger than this are split by rows).
 const MAX_BIND: u64 = 1 << 30;
 /// Longest wait for one submission (a long prefill on a slow or software GPU).
@@ -190,8 +194,8 @@ impl Ctx {
             mv_f16: kernel(&device, &f16, "mv", &mm),
             tile_f16: kernel(&device, &f16, "tile", &mm),
             norm: kernel(&device, NORM, "main", &layout(&device, &[B::U, B::U, B::R, B::R, B::R, B::W])),
-            rope: kernel(&device, ROPE, "main", &layout(&device, &[B::U, B::U, B::R, B::R, B::R, B::W, B::W, B::W])),
-            attn: kernel(&device, ATTN, "main", &layout(&device, &[B::U, B::U, B::R, B::R, B::R, B::W])),
+            rope: kernel(&device, ROPE, "main", &layout(&device, &[B::U, B::U, B::R, B::R, B::R, B::W, B::W, B::W, B::R])),
+            attn: kernel(&device, ATTN, "main", &layout(&device, &[B::U, B::U, B::R, B::R, B::R, B::W, B::R])),
             ew: kernel(&device, EW, "main", &layout(&device, &[B::U, B::U, B::R, B::W])),
             argmax: kernel(&device, ARGMAX, "main", &layout(&device, &[B::U, B::U, B::R, B::W])),
             conv: kernel(&device, CONV, "main", &layout(&device, &[B::U, B::R, B::R, B::R, B::R, B::W])),
@@ -600,6 +604,8 @@ pub struct Text {
     layers: Vec<DecLayer>,
     last: Head,
     all: Option<Head>,
+    seqs: Head,
+    ri: wgpu::Buffer,
     read: wgpu::Buffer,
     _keep: Vec<wgpu::Buffer>,
     /// tokens in the key/value cache
@@ -636,6 +642,8 @@ impl Text {
             }
         }
         let cs = c.upload_f32(&table);
+        // per-row position, cache region and prefix length when rows are different sequences
+        let ri = c.storage((r * 16) as u64);
         let kv_words = (d.hkv * KV_CAP * half) as u64 * 4;
         let mut keep = vec![hn.clone(), qkv.clone(), q.clone(), o.clone(), gu.clone(), mid.clone(), cs.clone()];
         let mut layers = Vec::with_capacity(d.layers);
@@ -661,8 +669,8 @@ impl Text {
             layers.push(DecLayer {
                 ln1: norm_bg(c, &step, d.hidden, false, false, d.eps, [&h, &ln1w, &c.zero, &hn]),
                 qkv: lin(&w_qkv, &hn, &qkv, qkv_n, false),
-                rope: c.bind(&c.k.rope, &[&ru, &step, &qkv, &norms, &cs, &q, &kc, &vc]),
-                attn: c.bind(&c.k.attn, &[&au, &step, &q, &kc, &vc, &o]),
+                rope: c.bind(&c.k.rope, &[&ru, &step, &qkv, &norms, &cs, &q, &kc, &vc, &ri]),
+                attn: c.bind(&c.k.attn, &[&au, &step, &q, &kc, &vc, &o, &ri]),
                 o: lin(&w_o, &o, &h, d.hidden, true),
                 ln2: norm_bg(c, &step, d.hidden, false, false, d.eps, [&h, &ln2w, &c.zero, &hn]),
                 gu: lin(&w_gu, &hn, &gu, 2 * d.inter, false),
@@ -676,11 +684,11 @@ impl Text {
         if w_head.n != d.head_rows || w_head.k != d.hidden {
             return Err(gpu_err("output head size"));
         }
-        let head = |rows: usize, last: bool| -> Head {
+        let head = |rows: usize, last: bool, probs: bool| -> Head {
             let x = c.floats(rows * d.hidden);
             let logits = c.floats(rows * d.head_rows);
-            let ids = c.storage(rows as u64 * 4);
-            let au = c.uniform(&[d.head_rows as u32, u32::from(last), 0, 0]);
+            let ids = c.storage(rows as u64 * 8);
+            let au = c.uniform(&[d.head_rows as u32, u32::from(last), u32::from(probs), 0]);
             Head {
                 norm: norm_bg(c, &step, d.hidden, false, last, d.eps, [&h, &normw, &c.zero, &x]),
                 lin: Lin::new(c, &w_head, LinSpec { x: &x, y: &logits, step: &step, ldy: d.head_rows, acc: false, rows1: last }),
@@ -689,12 +697,14 @@ impl Text {
                 logits,
             }
         };
-        let last = head(1, true);
+        let last = head(1, true, false);
         // every row's classes (the aligner): only for small heads
-        let all = ((MAX_ROWS * d.head_rows * 4) as u64 <= c.max_bind).then(|| head(MAX_ROWS, false));
+        let all = ((MAX_ROWS * d.head_rows * 4) as u64 <= c.max_bind).then(|| head(MAX_ROWS, false, false));
+        // one next token for each of several sequences, with probabilities
+        let seqs = head(MAX_SEQS, false, true);
         keep.push(normw);
-        let read = c.staging(MAX_ROWS as u64 * 4);
-        Ok(Self { ctx: ctx.clone(), d, step, h, layers, last, all, read, _keep: keep, pos: 0, last_p: 1.0 })
+        let read = c.staging(MAX_ROWS as u64 * 8);
+        Ok(Self { ctx: ctx.clone(), d, step, h, layers, last, all, seqs, ri, read, _keep: keep, pos: 0, last_p: 1.0 })
     }
 
     /// Run `x` (`t × hidden`, row-major) after the cached tokens (`cached`) or from position 0;
@@ -767,6 +777,88 @@ impl Text {
             self.pos = start + t;
         }
         Ok(ids)
+    }
+}
+
+impl Text {
+    /// Rows that belong to different sequences sharing the cached prompt prefix (positions
+    /// `0 .. plen`, see `rope.wgsl`): row `r` of `x` (`t × hidden`) is at position `rows[r].0`
+    /// and keeps its keys and values in its own cache region from `rows[r].1`; `rows[r].2` is
+    /// the prefix length. `each`: one row per sequence, each row's next token and probability
+    /// (at most [`MAX_SEQS`] rows); else the rows are one sequence's prefill and only the last
+    /// row's token comes back. `pos` (the prefix) is left as it is.
+    pub fn forward_seqs(&mut self, x: &[f32], rows: &[(usize, usize, usize)], each: bool) -> Result<Vec<(u32, f32)>, AsrError> {
+        let c = self.ctx.clone();
+        let d = self.d;
+        let t = x.len() / d.hidden.max(1);
+        if t == 0 || x.len() != t * d.hidden || rows.len() != t {
+            return Err(gpu_err("input size"));
+        }
+        if each && t > MAX_SEQS {
+            return Err(gpu_err(format!("{t} sequences at once (at most {MAX_SEQS})")));
+        }
+        for &(pos, base, plen) in rows {
+            let place = if pos < plen { pos } else { base.saturating_add(pos - plen) };
+            if pos >= KV_CAP || place >= KV_CAP || plen > KV_CAP {
+                return Err(gpu_err(format!("position {pos} (cache place {place}) outside the cache ({KV_CAP})")));
+            }
+        }
+        let mut out = Vec::new();
+        let mut off = 0;
+        while off < t {
+            let n = MAX_ROWS.min(t - off);
+            let final_piece = off + n == t;
+            let info: Vec<u32> = rows.iter().skip(off).take(n).flat_map(|&(p, b, l)| [p as u32, b as u32, l as u32, 0]).collect();
+            c.queue.write_buffer(&self.ri, 0, &words(&info));
+            c.queue.write_buffer(&self.step, 0, &words(&[n as u32, 0, n as u32 - 1, 1]));
+            let piece = x.get(off * d.hidden..(off + n) * d.hidden).ok_or_else(|| gpu_err("input slice"))?;
+            c.queue.write_buffer(&self.h, 0, &piece.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>());
+            let mut enc = c.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("decoder rows") });
+            let head = match (each, final_piece) {
+                (true, _) => Some((&self.seqs, n)),
+                (false, true) => Some((&self.last, 1usize)),
+                (false, false) => None,
+            };
+            {
+                let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("decoder rows"), timestamp_writes: None });
+                let r = n as u32;
+                for l in &self.layers {
+                    dispatch_rows(&mut pass, &c.k.norm, &l.ln1, r, 1);
+                    l.qkv.record(&c, &mut pass, n);
+                    dispatch_rows(&mut pass, &c.k.rope, &l.rope, (d.hq + 2 * d.hkv) as u32, r);
+                    dispatch_rows(&mut pass, &c.k.attn, &l.attn, d.hq as u32, r);
+                    l.o.record(&c, &mut pass, n);
+                    dispatch_rows(&mut pass, &c.k.norm, &l.ln2, r, 1);
+                    l.gu.record(&c, &mut pass, n);
+                    dispatch_ew(&mut pass, &c, &l.act, n * d.inter);
+                    l.down.record(&c, &mut pass, n);
+                }
+                if let Some((hd, k)) = head {
+                    dispatch_rows(&mut pass, &c.k.norm, &hd.norm, k as u32, 1);
+                    hd.lin.record(&c, &mut pass, k);
+                    dispatch_rows(&mut pass, &c.k.argmax, &hd.arg, k as u32, 1);
+                }
+            }
+            let word = |b: &[u8], i: usize| b.get(4 * i..4 * i + 4).map(|w| [w[0], w[1], w[2], w[3]]);
+            match head {
+                Some((hd, k)) if each => {
+                    // classes, then their probabilities (see argmax.wgsl)
+                    let b = c.finish_read(enc, &hd.ids, &self.read, (2 * k) as u64 * 4)?;
+                    for i in 0..k {
+                        let id = word(&b, i).map_or(0, u32::from_le_bytes);
+                        let p = word(&b, k + i).map_or(1.0, f32::from_le_bytes);
+                        out.push((id, p));
+                    }
+                }
+                Some((hd, _)) => {
+                    let b = c.finish_read(enc, &hd.ids, &self.read, 8)?;
+                    out.push((word(&b, 0).map_or(0, u32::from_le_bytes), word(&b, 1).map_or(1.0, f32::from_le_bytes)));
+                }
+                None => c.submit(enc)?,
+            }
+            off += n;
+        }
+        Ok(out)
     }
 }
 
@@ -862,8 +954,8 @@ impl Encoder {
             layers.push(EncLayer {
                 ln1: norm_bg(c, &step, e.d, true, false, 1e-5, [&h, &l1w, &l1b, &hn]),
                 qkv: lin(&w_qkv, &hn, &qkv, 3 * e.d, false),
-                split: c.bind(&c.k.rope, &[&su, &step, &qkv, &c.zero, &c.zero, &q, &kc, &vc]),
-                attn: c.bind(&c.k.attn, &[&au, &step, &q, &kc, &vc, &o]),
+                split: c.bind(&c.k.rope, &[&su, &step, &qkv, &c.zero, &c.zero, &q, &kc, &vc, &c.zero]),
+                attn: c.bind(&c.k.attn, &[&au, &step, &q, &kc, &vc, &o, &c.zero]),
                 o: lin(&w_o, &o, &h, e.d, true),
                 ln2: norm_bg(c, &step, e.d, true, false, 1e-5, [&h, &l2w, &l2b, &hn]),
                 fc1: lin(&w_1, &hn, &f, e.ffn, false),
@@ -891,8 +983,24 @@ impl Encoder {
         Ok(Self { ctx: ctx.clone(), e, step, h, out, layers, post, read, _keep: keep })
     }
 
-    /// `x`: `n × d` (after the convolutions and positions) → `n × out`.
+    /// `x`: `n × d` (after the convolutions and positions) → `n × out`. Longer inputs than one
+    /// pass holds run in passes of whole attention windows (windows never see each other, so the
+    /// result is the same).
     pub fn forward(&self, x: &[f32]) -> Result<Vec<f32>, AsrError> {
+        let e = self.e;
+        let n = x.len() / e.d.max(1);
+        let per = (MAX_ROWS / e.window.max(1)).max(1) * e.window.max(1);
+        if n <= MAX_ROWS || per > MAX_ROWS {
+            return self.forward_pass(x);
+        }
+        let mut out = Vec::with_capacity(n * e.out);
+        for piece in x.chunks(per * e.d) {
+            out.extend(self.forward_pass(piece)?);
+        }
+        Ok(out)
+    }
+
+    fn forward_pass(&self, x: &[f32]) -> Result<Vec<f32>, AsrError> {
         let c = &self.ctx;
         let e = self.e;
         let n = x.len() / e.d.max(1);
