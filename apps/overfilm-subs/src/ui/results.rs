@@ -123,7 +123,14 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
             ui.add_space(6.0);
         },
     );
-    if ui.ctx().input(|i| i.modifiers.command && (i.key_pressed(Key::F) || i.key_pressed(Key::H))) {
+    // Ctrl+F / Ctrl+H, by the key's place too (a Korean layout may not report the letter)
+    let find_key = ui.ctx().input(|i| {
+        i.events.iter().any(|e| {
+            matches!(e, egui::Event::Key { key, physical_key, pressed: true, modifiers, .. }
+                if modifiers.command && (matches!(key, Key::F | Key::H) || matches!(physical_key, Some(Key::F | Key::H))))
+        })
+    });
+    if find_key {
         r.find.open = true;
     }
     if r.find.open {

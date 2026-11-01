@@ -21,7 +21,12 @@ OverFilm에서 자막 추출만 떼어 낸 독립 프로그램입니다. 영상�
   사람 제외). `overfilm-subs voice add 이름 영상.mp4 --from 1:23 --to 1:45`, 창의 **목소리** 화면(검토 화면에서 화자를 오른쪽 클릭 › 이 목소리 등록…), MCP `add_voice`.
 - 게임 음성: 영웅 궁극기 대사·아나운서 같은 게임 소리를 찾아 자막에서 뺍니다(기본). `(게임)`으로 표시하거나 그대로 둘 수도
   있습니다(`--game-voice label|keep`). 자세한 방식과 한계는 아래 "목소리 구별과 게임 음성".
-- 결과: 입력 파일 옆에 `이름.srt`(UTF-8 BOM, Premiere에서 바로 가져오기)와 `이름.overfilm.json`(단어별 시간과 화자).
+- 추임새 빼기(끌 수 있음, 기본 꺼짐): "어, 음, 으음" 같은 군말과 "그 그 그게", "아니 아니 아니" 같은 말 더듬기를 자막에서 뺍니다.
+  단어 시간 파일에는 남아 있어서 끄면 다시 나옵니다(`--clean`, 검토 화면의 **추임새 빼기**).
+- 자신 없는 단어: 인식기가 확신하지 못한 단어(확률 50% 미만)를 검토 화면의 **검토할 곳 › 자신 없는 단어**에 모읍니다.
+  단어집에 없는 오인식도 여기서 찾을 수 있습니다.
+- 결과: 입력 파일 옆에 `이름.srt`(UTF-8 BOM, Premiere에서 바로 가져오기)와 `이름.overfilm.json`(단어별 시간, 화자, 인식 확신도).
+  **내보내기**로 WebVTT(유튜브), ASS(화자마다 색), 대본 TXT, 프레임에 맞춘 SRT도 만듭니다.
 
 ## 파일
 
@@ -49,6 +54,19 @@ OverFilm에서 자막 추출만 떼어 낸 독립 프로그램입니다. 영상�
    Ctrl+Enter: 저장). 화자를 오른쪽 클릭하면 이름 바꾸기, 다른 화자와 합치기(같은 이름을 주어도 합쳐짐), 게임 음성으로
    돌리기, **이 목소리 등록…**(그 사람이 혼자 말한 구간을 골라 둠)을 할 수 있습니다. 고치면 바로 저장되고 처음 고칠 때
    `.srt.bak`을 남깁니다. **실행 취소**로 되돌립니다.
+6. 검토 화면에서 더 할 수 있는 것:
+   - **찾아 바꾸기**(Ctrl+H): 전체에서 바꾸고, **단어집에도 넣기**를 켜면 다음 자막부터 자동으로 고칩니다.
+   - **이 부분 다시 인식**: 줄을 고르고(Shift+클릭으로 여러 줄) 그 구간의 소리만 다시 인식합니다. 그 구간에 나오는 이름을
+     적어 주면 더 정확합니다. 다른 곳에서 손으로 고친 글자는 그대로 둡니다.
+   - **기록**: 저장할 때마다 남긴 상태(최근 100개)를 시간·고친 내용과 함께 보여 주고, 어느 시점으로든 되돌립니다. 기록은
+     자막 폴더가 아니라 `%LOCALAPPDATA%\OverFilm\history`에 있습니다.
+   - **내보내기**: SRT, WebVTT, ASS, 대본 TXT. 영상의 프레임 수(23.976~60)를 고르면 자막이 프레임 경계에서 바뀌고, 자막
+     사이에 빈 프레임을 둘 수 있습니다.
+   - 같은 고침을 세 번 하면(예: 전국퀸 → 정커퀸) 위쪽에 "단어집에 넣을까요?"가 뜹니다.
+7. 왼쪽 **단어집**: 내가 더한 표기(맞는 표기, 틀린 표기, 메모)를 더하고 고치고 지웁니다. 찾기는 내장 단어집(영웅·선수·팀·용어)도
+   함께 찾아서 이미 있는지 알려 줍니다. 직접 고친 내용에서 찾은 후보도 여기서 넣거나 무시합니다.
+8. 준비 화면의 **끝나면**: 다 만들면 알림을 띄우고(작업 표시줄도 깜빡임), **절전 모드로**를 고르면 1분 동안 취소할 수 있게
+   기다린 뒤 컴퓨터를 재웁니다. 긴 방송을 밤에 걸어 둘 때 씁니다.
 
 GPU 사용 여부, 모델 폴더, Claude Desktop 연결 설정은 **설정**에 있습니다. 창은 최근 목록과 설정을 모델 폴더 옆
 (`%LOCALAPPDATA%\OverFilm\recent.json`, `gui.json`)에 저장합니다.
@@ -71,6 +89,13 @@ overfilm-subs relayout 합방.overfilm.json --rename 화자1=아이치 --rename 
 overfilm-subs voice add 아이치 "방송.mp4" --from 1:23 --to 1:45   목소리 등록 (그 사람만 말하는 구간)
 overfilm-subs extract "방송.mp4" --only-voices                    등록한 목소리(스트리머)의 말만 자막
 overfilm-subs voice list
+overfilm-subs extract "방송.mp4" --clean                          추임새·말 더듬기 빼기
+overfilm-subs extract "방송.mp4" --from 1:00:00 --to 1:20:00      이 구간만 (자막 시간은 원본 기준)
+overfilm-subs redo 방송.srt --from 00:12:03,000 --to 00:12:20,000 --terms "새 선수"   이 부분만 다시 인식
+overfilm-subs export 방송.srt --format vtt                        유튜브용 WebVTT
+overfilm-subs export 방송.srt --format ass                        화자마다 색이 다른 ASS
+overfilm-subs export 방송.srt --format srt --fps 29.97 --gap 2 -o 방송.2997.srt   프레임에 맞추고 자막 사이 2프레임
+overfilm-subs export 방송.srt --format txt                        대본 ([00:01:02] 화자1: 말)
 ```
 
 ## MCP로 검토하기 (Claude Desktop)
@@ -92,14 +117,17 @@ overfilm-subs voice list
 |---|---|
 | `extract_subtitles`, `job_status`, `cancel_job` | 자막 추출 (백그라운드, 진행률 확인) |
 | `read_subtitles` | 자막 읽기 |
-| `review_subtitles` | 검토: 단어집·맞춤법과 다른 표기(고칠 글자 제안), 읽기 속도, 줄 길이·줄 수, 너무 짧음, 겹침, 반복, 빈 자막 |
+| `review_subtitles` | 검토: 단어집·맞춤법과 다른 표기(고칠 글자 제안), 인식이 자신 없던 단어(`unsure`), 읽기 속도, 줄 길이·줄 수, 너무 짧음, 겹침, 반복, 빈 자막 |
 | `find_silences` | 말 없는 구간 표시 (지우지 않음) |
 | `edit_subtitle`, `split_subtitle`, `merge_subtitles`, `delete_subtitle` | 고치기 (처음 고칠 때 `.srt.bak` 백업) |
 | `apply_glossary` | 단어집·맞춤법·숫자 교정 적용 |
 | `relayout_subtitles` | 줄바꿈 다시 하기 |
 | `add_voice`, `list_voices`, `remove_voice` | 목소리 등록·목록·삭제 (`extract_subtitles`의 `only_voices`로 그 사람 말만 자막) |
 | `list_speakers`, `rename_speaker` | 구별된 화자 목록(말한 시간, 게임 음성 여부), 이름 바꾸기·게임 음성으로 돌리기 (자막 다시 만듦) |
-| `add_glossary_term` | 자주 틀리는 표기를 사용자 단어집(`%LOCALAPPDATA%\OverFilm\glossary\user.tsv`)에 추가 |
+| `add_glossary_term`, `list_glossary_terms`, `remove_glossary_term` | 사용자 단어집(`%LOCALAPPDATA%\OverFilm\glossary\user.tsv`) 더하기·목록·지우기. `edit_subtitle`은 같은 고침이 세 번째면 `glossary_suggestion`으로 알려 줌 |
+| `rerecognize_range` | 한 구간만 다시 인식 (백그라운드, `job_status`). `extract_subtitles`도 `from`/`to`로 구간만 |
+| `export_subtitles` | SRT·VTT·ASS·TXT로 내보내기, 프레임 맞춤(`fps`)과 자막 사이 빈 프레임(`gap_frames`) |
+| `list_history`, `restore_version` | 저장할 때마다 남긴 기록 보기, 한 시점으로 되돌리기 |
 
 예: "경기.mp4 자막 뽑고, 끝나면 검토해서 선수 이름 틀린 것 고쳐 줘."
 
