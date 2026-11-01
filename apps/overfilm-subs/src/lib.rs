@@ -6,6 +6,7 @@
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
+pub mod claude;
 pub mod edit;
 pub mod export;
 pub mod history;
@@ -14,9 +15,11 @@ pub mod learn;
 pub mod mcp;
 pub mod media;
 pub mod notify;
+pub mod play;
 pub mod review;
 pub mod usergloss;
 pub mod voices;
+pub mod wave;
 
 pub use overfilm_pipeline::{clean, pack, speakers};
 

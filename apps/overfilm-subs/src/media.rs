@@ -53,6 +53,17 @@ fn track_label(i: usize, a: &filmcraft_media::AudioStreamInfo) -> String {
 /// Audio stream `stream` (0 = the first; see [`audio_tracks`]) of `[from_ms, to_ms)` only
 /// (clamped to the file), or of everything with `None`, as 16 kHz mono.
 pub fn decode_span(path: &Path, stream: usize, span: Option<(i64, i64)>, progress: &mut dyn FnMut(f32) -> bool) -> Result<Vec<f32>, String> {
+    let mut out = Vec::new();
+    for_each_block(path, stream, span, &mut |block, f| {
+        out.extend_from_slice(block);
+        progress(f)
+    })?;
+    Ok(out)
+}
+
+/// [`decode_span`] handed over a block (up to a minute) at a time, so long files need no buffer
+/// of their own; `each(block, fraction)` returns false to cancel.
+pub fn for_each_block(path: &Path, stream: usize, span: Option<(i64, i64)>, each: &mut dyn FnMut(&[f32], f32) -> bool) -> Result<(), String> {
     let (name, src) = open(path)?;
     if !src.info().has_audio() {
         return Err(format!("{name}: 오디오 트랙이 없습니다"));
@@ -72,7 +83,6 @@ pub fn decode_span(path: &Path, stream: usize, span: Option<(i64, i64)>, progres
     }
     let first = pos;
     let block = BLOCK_SECONDS * rate;
-    let mut out = Vec::with_capacity(usize::try_from(total - pos).unwrap_or(0));
     while pos < total {
         let n = block.min(total - pos);
         let buf = src.audio_stream(stream, pos, usize::try_from(n).unwrap_or(0), sr).map_err(|e| format!("{name}: 소리를 읽지 못했습니다 ({e})"))?;
@@ -80,13 +90,12 @@ pub fn decode_span(path: &Path, stream: usize, span: Option<(i64, i64)>, progres
         if mono.is_empty() {
             break;
         }
-        out.extend(mono);
         pos += n;
-        if !progress((pos - first) as f32 / (total - first).max(1) as f32) {
+        if !each(&mono, (pos - first) as f32 / (total - first).max(1) as f32) {
             return Err("취소했습니다".into());
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 fn mono(channels: &[Vec<f32>]) -> Vec<f32> {

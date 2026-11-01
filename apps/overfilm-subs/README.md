@@ -68,13 +68,17 @@ OverFilm에서 자막 추출만 떼어 낸 독립 프로그램입니다. 영상�
      자막 폴더가 아니라 `%LOCALAPPDATA%\OverFilm\history`에 있습니다.
    - **내보내기**: SRT, WebVTT, ASS, 대본 TXT. 영상의 프레임 수(23.976~60)를 고르면 자막이 프레임 경계에서 바뀌고, 자막
      사이에 빈 프레임을 둘 수 있습니다.
+   - **파형과 들어 보기**: 표 아래에 고른 자막 주변 20초의 소리 파형이 나오고, 자막은 화자 색 블록으로 칠해집니다.
+     **들어 보기**(Space)로 고른 자막을 앞뒤 0.25초씩 붙여 듣습니다. 블록을 누르면 그 자막을 고르고, 두 번 누르면 거기서부터
+     듣습니다. 끌어서 옆으로 옮기고, 마우스 휠이나 －/＋로 넓게·좁게 봅니다. 원본은 인식에 쓴 파일이나 자막 옆에 같은 이름으로
+     있는 영상을 씁니다(없으면 **원본 찾기…**). 2시간까지는 소리를 메모리에 두어 바로 재생합니다.
    - 같은 고침을 세 번 하면(예: 전국퀸 → 정커퀸) 위쪽에 "단어집에 넣을까요?"가 뜹니다.
 7. 왼쪽 **단어집**: 내가 더한 표기(맞는 표기, 틀린 표기, 메모)를 더하고 고치고 지웁니다. 찾기는 내장 단어집(영웅·선수·팀·용어)도
    함께 찾아서 이미 있는지 알려 줍니다. 직접 고친 내용에서 찾은 후보도 여기서 넣거나 무시합니다.
 8. 준비 화면의 **끝나면**: 다 만들면 알림을 띄우고(작업 표시줄도 깜빡임), **절전 모드로**를 고르면 1분 동안 취소할 수 있게
    기다린 뒤 컴퓨터를 재웁니다. 긴 방송을 밤에 걸어 둘 때 씁니다.
 
-GPU 사용 여부, 모델 폴더, Claude Desktop 연결 설정은 **설정**에 있습니다. 창은 최근 목록과 설정을 모델 폴더 옆
+GPU 사용 여부, 모델 폴더, Claude Desktop·Claude Code 연결은 **설정**에 있습니다. 창은 최근 목록과 설정을 모델 폴더 옆
 (`%LOCALAPPDATA%\OverFilm\recent.json`, `gui.json`)에 저장합니다.
 
 모델 위치: `%LOCALAPPDATA%\OverFilm\models`. 프로그램 옆에 `models` 폴더가 있으면 그것을 씁니다
@@ -108,8 +112,16 @@ overfilm-subs export 방송.srt --format txt                        대본 ([00:
 
 ## MCP로 검토하기 (Claude Desktop)
 
-창의 **설정 › Claude**가 아래 설정을 경로까지 채워서 보여 주고 복사해 줍니다. Claude Desktop → 설정 → 개발자 →
-설정 편집(`claude_desktop_config.json`)에 넣고 Claude Desktop을 다시 시작합니다.
+창의 **설정 › Claude**에서 **Claude Desktop에 연결**(또는 **Claude Code에 연결**)을 누르면 설정 파일에 overfilm-subs
+항목만 더하고 다른 설정은 그대로 둡니다. 바꾸기 전 파일은 같은 폴더에 `.bak`으로 남습니다. 그다음 Claude를 다시 시작합니다.
+이미 연결되어 있으면 **연결 해제**가, 프로그램 폴더를 옮겨 예전 위치와 연결되어 있으면 **다시 연결**이 나옵니다. 설정
+파일이 깨져 있으면 손대지 않고 알려 줍니다.
+
+- Claude Desktop: `%APPDATA%\Claude\claude_desktop_config.json` (Microsoft Store 설치는
+  `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\`)
+- Claude Code: `%USERPROFILE%\.claude.json`의 `mcpServers` (`claude mcp add --scope user`와 같은 곳)
+
+직접 넣으려면 Claude Desktop → 설정 → 개발자 → 설정 편집에 아래를 넣습니다(설정 화면에서 경로까지 채워 복사해 줍니다).
 
 ```json
 {
