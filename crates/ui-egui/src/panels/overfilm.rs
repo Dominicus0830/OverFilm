@@ -57,7 +57,7 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
         return None;
     }
     if let Some(Err(e)) = filmcraft_engine::find_command(id).map(|c| (c.enabled)(&app.session)) {
-        app.ui.status = e.clone();
+        app.ui.status = plain_error(&e);
         return Some(Err(e));
     }
     let s = &mut app.session;
@@ -280,8 +280,60 @@ fn learn_body(ui: &mut egui::Ui, elems: &mut Elems, d: &mut Draft) {
     });
     if let Some(list) = d.info["list"].as_array().filter(|l| !l.is_empty()) {
         let names: Vec<String> =
-            list.iter().map(|t| format!("{} ({})", t["name"].as_str().unwrap_or_default(), t["screen"].as_str().unwrap_or_default())).collect();
+            list.iter().map(|t| format!("{} ({})", t["name"].as_str().unwrap_or_default(), screen_label(t["screen"].as_str().unwrap_or_default()))).collect();
         ui.weak(tlf!("Already learnt: {names}", names = names.join(", ")));
+    }
+    if d.params["rects"].as_array().is_none_or(Vec::is_empty) {
+        ui.weak(tl!("Drag on the picture to draw at least one green box, then OK."));
+    }
+}
+
+/// A screen kind in the dialog's words.
+fn screen_label(screen: &str) -> &'static str {
+    match screen {
+        "standby" => tl!("Break screen (countdown)"),
+        "setup" => tl!("Round setup (PREPARE TO ATTACK…)"),
+        "pause" => tl!("Pause notice"),
+        "live" => tl!("Game HUD (in play)"),
+        _ => "",
+    }
+}
+
+/// An engine error in the user's words: the known OverFilm ones are said plainly (and translated);
+/// anything else keeps its text without the "invalid parameters for `…`:" lead.
+fn plain_error(e: &str) -> String {
+    const KNOWN: &[(&str, &str)] = &[
+        ("give `rects`", "Drag on the picture to draw at least one green box, then OK."),
+        ("`rect` is [x, y, w, h]", "Draw one green box around the team's name plates."),
+        (
+            "no break-screen, setup or pause template",
+            "No break-screen, setup or pause template yet: import a template file, or learn one from a frame of that screen.",
+        ),
+        ("has no player bars", "No name plates learnt yet: learn each team's name plates first (Learn Screen Template, Team 1/2 name plates)."),
+        ("every plate looks dark", "Every plate looks dark: learn them on a frame where the whole team is alive."),
+        ("flat colour", "That box is one flat colour: pick a part with text or graphics."),
+        ("empty or outside the frame", "The box is empty or outside the picture: draw it again."),
+        ("no video clip at that time", "No picture at the playhead: move it onto the broadcast first."),
+        ("has no media", "That clip has no media (offline?)."),
+        ("has no video", "That clip has no picture."),
+        ("can't decode the frame", "Couldn't read that frame of the video."),
+        ("already running", "It is already running: see the progress at the bottom."),
+        ("no video clip with media to analyse", "No video to analyse: put the broadcast on V1, or select its clips."),
+        ("nothing to recognise", "No clips with sound in the sequence."),
+        ("hours; cut it into parts", "The recording is too long: cut it into parts first."),
+        ("not in this build", "This build has no OverFilm speech recognition."),
+        ("has no captions to style", "That caption track has no captions."),
+        ("has no transcript", "The sequence has no transcript yet: make the captions first."),
+        ("no speech to caption", "No speech to caption (only in-game voice?)."),
+        ("that is the template file itself", "That is the template file itself."),
+        ("No such file", "The file is not there."),
+    ];
+    if let Some((_, msg)) = KNOWN.iter().find(|(k, _)| e.contains(k)) {
+        return crate::i18n::t(msg).to_string();
+    }
+    match e.strip_prefix("invalid parameters for `").and_then(|r| r.split_once("`: ")) {
+        Some((_, rest)) => rest.to_string(),
+        None => e.to_string(),
     }
 }
 
@@ -435,7 +487,11 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                 let c = ui.button(tl!("Cancel"));
                 elems.push((format!("{pre}.cancel"), c.rect, "Cancel".into()));
                 close |= c.clicked();
-                let ready = d.command != "overfilm.autoCut" || has_break_templates(&d.info);
+                let ready = match d.command {
+                    "overfilm.autoCut" => has_break_templates(&d.info),
+                    "overfilm.screenTemplate.learn" => d.params["rects"].as_array().is_some_and(|a| !a.is_empty()) && d.frame.is_some(),
+                    _ => true,
+                };
                 let o = ui.add_enabled(ready, egui::Button::new(egui::RichText::new(tl!("OK")).color(egui::Color32::WHITE)).fill(app.tokens.accent));
                 elems.push((format!("{pre}.ok"), o.rect, "OK".into()));
                 apply |= o.clicked();
@@ -457,7 +513,7 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
             }
             app.ui.status = match app.session.execute("overfilm.screenTemplate.import", p) {
                 Ok(v) => tlf!("Imported {n} template(s) and {b} player bar(s)", n = v["added"], b = v["bars"]),
-                Err(e) => e.to_string(),
+                Err(e) => plain_error(&e.to_string()),
             };
         });
     }
@@ -475,7 +531,7 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                 };
                 close = true;
             }
-            Err(e) => d.error = e.to_string(),
+            Err(e) => d.error = plain_error(&e.to_string()),
         }
     }
     ctx.data_mut(|m| m.insert_temp(draft_id(), if close { None } else { Some(d) }));

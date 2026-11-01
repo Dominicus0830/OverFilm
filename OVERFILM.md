@@ -221,8 +221,10 @@ project (`<project>.overfilm-screens.json`) when it exists, else the user's own
 `overfilm-screens.json` beside the OverFilmSubs models (`%LOCALAPPDATA%\OverFilm`), shared by every
 project and usable before the project is saved. `overfilm.screenTemplate.import {path}` (the
 **Import Templates…** button in the Auto Cut and Learn dialogs) merges someone else's file into it,
-e.g. a broadcast's templates learnt once. The repository ships none, since the league's graphics and
-the game HUD are not ours to redistribute.
+e.g. a broadcast's templates learnt once. The user's file starts with the built-in OWCS Asia Korea
+2026 templates and name plates (`crates/overfilm-vision/data/`, see its README): built in at the
+owner's request for this private build; they derive from the league's graphics and the game HUD, so
+they must not go into a public release.
 
 The analysis samples 2 frames a second at up to 1280 pixels wide in a background job (the HUD's
 objective text is about 8 pixels tall at 720p). By default

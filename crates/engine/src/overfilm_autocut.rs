@@ -112,7 +112,8 @@ pub(crate) fn user_file(name: &str) -> String {
 }
 
 /// The template file: `templates`; else one beside the saved project when it has templates; else the
-/// user's own (so an unsaved project works, and one library serves every project).
+/// user's own (so an unsaved project works, and one library serves every project), which starts
+/// with the built-in OWCS templates.
 pub(crate) fn templates_path(s: &Session, p: &Value, _cmd: &str) -> Result<String> {
     if let Some(t) = str_p(p, "templates").filter(|t| !t.trim().is_empty()) {
         return Ok(t.to_string());
@@ -124,7 +125,22 @@ pub(crate) fn templates_path(s: &Session, p: &Value, _cmd: &str) -> Result<Strin
             return Ok(beside);
         }
     }
-    Ok(user_file("overfilm-screens.json"))
+    let mine = user_file("overfilm-screens.json");
+    seed_builtin(&mine);
+    Ok(mine)
+}
+
+/// Give the user's template file the built-in OWCS templates when it has nothing yet (the first
+/// run), so Auto Cut and the kill scan work on those broadcasts out of the box. Templates learnt
+/// later are added beside them; a file with anything in it is left alone.
+fn seed_builtin(path: &str) {
+    if load_set(path).is_ok_and(|t| !t.templates.is_empty() || !t.bars.is_empty()) {
+        return;
+    }
+    if std::path::Path::new(path).is_file() && load_set(path).is_err() {
+        return; // a damaged file is the user's to look at, not to overwrite
+    }
+    let _ = write_file(path, overfilm_vision::builtin::OWCS_KOREA_2026);
 }
 
 /// Write `text` to `path`, making its folder first.
