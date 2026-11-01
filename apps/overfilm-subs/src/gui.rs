@@ -9,7 +9,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eframe::egui;
-use overfilm_subs::{MEDIA_EXTENSIONS, job, mcp, pack, review};
+use overfilm_subs::speakers::GameVoice;
+use overfilm_subs::{MEDIA_EXTENSIONS, job, mcp, pack, review, voices};
 
 #[derive(Default)]
 struct Shared {
@@ -29,6 +30,20 @@ struct App {
     gpu: bool,
     line_chars: u32,
     two_lines: bool,
+    speakers: bool,
+    /// 0 = count automatically
+    num_speakers: usize,
+    game_voice: GameVoice,
+    per_speaker: bool,
+    only_voices: bool,
+    voices: Vec<String>,
+    show_enroll: bool,
+    enroll_name: String,
+    enroll_from: String,
+    enroll_to: String,
+    /// Enrollment running in the background: its result when done.
+    enroll: Arc<Mutex<Option<Result<String, String>>>>,
+    enrolling: Arc<AtomicBool>,
     shared: Arc<Mutex<Shared>>,
     cancel: Arc<AtomicBool>,
     issues: Vec<(String, String)>,
@@ -51,6 +66,18 @@ impl App {
             gpu: true,
             line_chars: 16,
             two_lines: true,
+            speakers: true,
+            num_speakers: 0,
+            game_voice: GameVoice::Drop,
+            per_speaker: false,
+            only_voices: false,
+            voices: voices::list().into_iter().map(|v| v.name).collect(),
+            show_enroll: false,
+            enroll_name: String::new(),
+            enroll_from: String::new(),
+            enroll_to: String::new(),
+            enroll: Arc::default(),
+            enrolling: Arc::default(),
             shared: Arc::default(),
             cancel: Arc::default(),
             issues: Vec::new(),
@@ -71,6 +98,11 @@ impl App {
         o.gpu = self.gpu;
         o.line_chars = self.line_chars;
         o.max_lines = if self.two_lines { 2 } else { 1 };
+        o.speakers = self.speakers;
+        o.num_speakers = (self.num_speakers > 0).then_some(self.num_speakers);
+        o.game_voice = self.game_voice;
+        o.per_speaker = self.per_speaker;
+        o.only_voices = self.only_voices && self.speakers;
         let d = mcp::user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         Some(o)
@@ -170,6 +202,104 @@ impl App {
             ui.checkbox(&mut self.gpu, "그래픽카드(GPU) 사용")
                 .on_hover_text("AMD·NVIDIA·Intel 그래픽카드로 빠르게 처리합니다. 없거나 문제가 생기면 자동으로 CPU를 씁니다.");
         });
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.speakers, "목소리 구별 (화자1, 화자2…)").on_hover_text(
+                "말하는 사람이 둘 이상이면 몇 명인지 세고, 자막마다 누가 말했는지 (화자1)처럼 붙입니다. 자막 하나에 두 사람 말이 섞이지 않습니다.",
+            );
+            ui.add_enabled_ui(self.speakers, |ui| {
+                ui.label("사람 수");
+                ui.add(
+                    egui::DragValue::new(&mut self.num_speakers)
+                        .range(0..=20)
+                        .custom_formatter(|v, _| if v < 0.5 { "자동".into() } else { format!("{v:.0}명") }),
+                )
+                .on_hover_text("알면 정해 주세요. 자동이면 목소리로 셉니다.");
+                ui.checkbox(&mut self.per_speaker, "사람마다 SRT 따로 저장");
+            });
+            ui.separator();
+            ui.label("게임 음성(영웅 대사)");
+            for g in [GameVoice::Drop, GameVoice::Label, GameVoice::Keep] {
+                ui.radio_value(&mut self.game_voice, g, g.label());
+            }
+        });
+        ui.add_enabled_ui(self.speakers, |ui| self.voices_row(ui));
+    }
+
+    fn voices_row(&mut self, ui: &mut egui::Ui) {
+        if let Some(r) = self.enroll.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            self.status = Some(r);
+            self.voices = voices::list().into_iter().map(|v| v.name).collect();
+        }
+        let busy = self.enrolling.load(Ordering::Relaxed);
+        ui.horizontal_wrapped(|ui| {
+            ui.label("등록한 목소리");
+            if self.voices.is_empty() {
+                ui.weak("없음");
+            } else {
+                ui.strong(self.voices.join(", "));
+            }
+            ui.checkbox(&mut self.only_voices, "등록한 목소리만 자막")
+                .on_hover_text("예: 스트리머 목소리를 등록해 두면 스트리머 말만 자막으로 만듭니다 (게임 음성, 다른 사람 제외).");
+            ui.toggle_value(&mut self.show_enroll, "목소리 등록…");
+            if busy {
+                ui.spinner();
+                ui.weak("등록하는 중");
+            }
+        });
+        if !self.show_enroll {
+            return;
+        }
+        ui.group(|ui| {
+            ui.label("위에서 고른 파일에서 그 사람만 말하는 구간(10~30초)을 적고 등록합니다. 다음 추출부터 그 사람은 이 이름으로 나옵니다.");
+            ui.horizontal(|ui| {
+                ui.label("이름");
+                ui.add(egui::TextEdit::singleline(&mut self.enroll_name).hint_text("예: 아이치").desired_width(120.0));
+                ui.label("구간");
+                ui.add(egui::TextEdit::singleline(&mut self.enroll_from).hint_text("1:23").desired_width(60.0));
+                ui.label("~");
+                ui.add(egui::TextEdit::singleline(&mut self.enroll_to).hint_text("1:45").desired_width(60.0));
+                let can = !busy && self.input.is_some() && !self.enroll_name.trim().is_empty();
+                if ui.add_enabled(can, egui::Button::new("등록")).clicked() {
+                    self.start_enroll(ui.ctx());
+                }
+                if !self.voices.is_empty() {
+                    ui.separator();
+                    let mut remove = None;
+                    for v in &self.voices {
+                        if ui.small_button(format!("{v} 지우기")).clicked() {
+                            remove = Some(v.clone());
+                        }
+                    }
+                    if let Some(v) = remove {
+                        self.status = Some(voices::remove_in(&voices::dir(), &v).map(|()| format!("목소리 '{v}'를 지웠습니다")));
+                        self.voices = voices::list().into_iter().map(|v| v.name).collect();
+                    }
+                }
+            });
+        });
+    }
+
+    fn start_enroll(&mut self, ctx: &egui::Context) {
+        let Some(file) = self.input.clone() else { return };
+        let parse = |s: &str| {
+            if s.trim().is_empty() { Ok(None) } else { voices::parse_time(s).map(Some).ok_or(format!("시간 형식이 아닙니다: {s} (예: 1:23)")) }
+        };
+        let (from, to) = match (parse(&self.enroll_from), parse(&self.enroll_to)) {
+            (Ok(f), Ok(t)) => (f, t),
+            (Err(e), _) | (_, Err(e)) => {
+                self.status = Some(Err(e));
+                return;
+            }
+        };
+        let name = self.enroll_name.clone();
+        let (out, busy, ctx) = (self.enroll.clone(), self.enrolling.clone(), ctx.clone());
+        busy.store(true, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let r = job::guarded(|| voices::enroll(&name, &file, from, to)).map(|v| format!("목소리 '{}'를 등록했습니다 ({:.0}초 샘플)", v.name, v.seconds));
+            *out.lock().unwrap_or_else(PoisonError::into_inner) = Some(r);
+            busy.store(false, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
     }
 
     fn results(&mut self, ui: &mut egui::Ui) {
@@ -234,7 +364,10 @@ impl eframe::App for App {
                         done.seconds_taken % 60,
                         done.device,
                         done.corrections.len()
-                    )));
+                    ) + &{
+                        let who = job::speaker_summary(&done);
+                        if who.is_empty() { String::new() } else { format!("\n{who}") }
+                    }));
                 }
                 Err(e) => self.status = Some(Err(e)),
             }

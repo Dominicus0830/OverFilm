@@ -507,7 +507,7 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
         }
     }
     let _ = gpu;
-    Ok(Transcript { language: s.language.unwrap_or_default().to_string(), device, chunks })
+    Ok(Transcript { language: s.language.unwrap_or_default().to_string(), device, chunks, speakers: Vec::new() })
 }
 
 /// The real model on the GPU against the CPU: encoder output for 3 s of noise, decoder scores

@@ -20,6 +20,14 @@ const TABLES: &[(&str, &str)] = &[
     ("terms", include_str!("../../../packs/overwatch/ko/glossary/terms.tsv")),
 ];
 
+/// In-game voice lines (hero ultimates, announcer), to keep game audio out of captions.
+const VOICELINES: &str = include_str!("../../../packs/overwatch/ko/voicelines.tsv");
+
+/// The built-in voice line table.
+pub fn voicelines() -> overfilm_glossary::voicelines::VoiceLines {
+    overfilm_glossary::voicelines::VoiceLines::parse(VOICELINES)
+}
+
 /// Hero and term list given to the recogniser (the setup measured on the M1 test set).
 const CONTEXT: &str = include_str!("../../../packs/overwatch/ko/context.txt");
 
@@ -141,6 +149,13 @@ mod tests {
         assert_eq!(corrector_with(&g, false).apply("오 시즌 일 위").text, "오 시즌 일 위");
         // the spelling table is not scored as game terms
         assert!(!g.term_list().contains("강밴"));
+    }
+
+    #[test]
+    fn voice_lines_load() {
+        let v = voicelines();
+        assert!(v.lines.len() > 80);
+        assert!(!v.find(&["석양이", "진다"]).is_empty());
     }
 
     #[test]

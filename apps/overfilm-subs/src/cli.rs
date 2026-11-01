@@ -3,10 +3,15 @@
 //! ```text
 //! overfilm-subs extract <video or audio> [-o out.srt] [--mode general|commentary]
 //!               [--terms "이름, 용어"] [--no-mask] [--no-digits] [--glossary <folder>] [--line-chars 16]
+//!               [--speakers auto|off|N] [--game-voice drop|label|keep] [--per-speaker]
 //! overfilm-subs review <file.srt>
 //! overfilm-subs fix <file.srt>          apply the glossary (misrecognitions, profanity initials)
 //! overfilm-subs relayout <file.overfilm.json> [-o out.srt] [--line-chars 16] [--one-line]
+//!               [--game-voice drop|label|keep] [--rename 화자1=이름]…
 //!                                       captions again from the saved word times
+//! overfilm-subs voice add <name> <video or audio> [--from 1:23] [--to 1:45]
+//! overfilm-subs voice list | voice remove <name>
+//!                                 enrolled voices (named in captions, --only-voices keeps them)
 //! overfilm-subs models            download the models (about 6.5 GB) if missing
 //! overfilm-subs mcp               MCP server on stdin/stdout (Claude Desktop and others)
 //! overfilm-subs gpu-check [--quick] GPU kernels and the real model against the CPU
@@ -18,13 +23,21 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use overfilm_subs::{job, mcp, pack, review};
+use overfilm_subs::{job, mcp, pack, review, speakers, voices};
 
 const USAGE: &str = "사용법:
   overfilm-subs extract <영상/오디오> [-o 저장.srt] [--mode general|commentary] [--terms \"이름, 용어\"] [--no-mask] [--no-digits] [--glossary 폴더] [--line-chars 16] [--cpu]
+                [--speakers auto|off|숫자] [--game-voice drop|label|keep] [--per-speaker]
+      --speakers     목소리 구별: auto(기본, 사람 수 자동), off(끔), 숫자(사람 수를 알 때)
+      --game-voice   영웅 대사·아나운서 같은 게임 음성: drop(자막에서 빼기, 기본), label((게임) 표시), keep(그대로)
+      --per-speaker  사람마다 SRT를 따로 저장 (이름.화자1.srt …)
+      --only-voices  등록한 목소리(voice add)의 말만 자막으로 (스트리머 말만 등)
+      --no-voices    등록한 목소리로 이름 붙이지 않기
   overfilm-subs review <자막.srt>
   overfilm-subs fix <자막.srt>      단어집 교정 적용 (원본은 .srt.bak)
-  overfilm-subs relayout <이름.overfilm.json> [-o 저장.srt] [--line-chars 16] [--one-line]   인식 다시 안 하고 자막만 다시 나누기
+  overfilm-subs relayout <이름.overfilm.json> [-o 저장.srt] [--line-chars 16] [--one-line] [--game-voice …] [--rename 화자1=이름]   인식 다시 안 하고 자막만 다시 나누기
+  overfilm-subs voice add <이름> <영상/오디오> [--from 1:23] [--to 1:45]   목소리 등록 (10~30초 권장, 그 사람만 말하는 구간)
+  overfilm-subs voice list | voice remove <이름>
   overfilm-subs models     모델 받기 (약 6.5GB, 처음 한 번)
   overfilm-subs mcp        MCP 서버 (Claude Desktop 등에서 연결)
   overfilm-subs gpu-check  그래픽카드 계산이 CPU와 같은지 확인 (--quick: 모델 비교 생략)";
@@ -58,6 +71,18 @@ fn extract(args: &[String]) -> Result<(), String> {
             "--line-chars" => o.line_chars = val()?.parse().map_err(|_| "--line-chars는 숫자")?,
             "--one-line" => o.max_lines = 1,
             "--cpu" => o.gpu = false,
+            "--speakers" => match val()?.as_str() {
+                "auto" | "자동" => (o.speakers, o.num_speakers) = (true, None),
+                "off" | "끔" => o.speakers = false,
+                n => {
+                    (o.speakers, o.num_speakers) =
+                        (true, Some(n.parse::<usize>().ok().filter(|&n| (1..=20).contains(&n)).ok_or("--speakers는 auto, off 또는 1~20")?))
+                }
+            },
+            "--game-voice" => o.game_voice = speakers::GameVoice::parse(&val()?).ok_or("--game-voice는 drop, label 또는 keep")?,
+            "--per-speaker" => o.per_speaker = true,
+            "--only-voices" => o.only_voices = true,
+            "--no-voices" => o.use_voices = false,
             s if s.starts_with('-') => return Err(format!("모르는 옵션: {s}\n{USAGE}")),
             s => input = Some(PathBuf::from(s)),
         }
@@ -73,7 +98,53 @@ fn extract(args: &[String]) -> Result<(), String> {
     println!("자막 {}개 → {}", done.captions, done.srt.display());
     println!("단어 시간 → {}", done.transcript.display());
     println!("소리 {}초를 {}초 걸려 처리 ({}), 단어집 교정 {}곳", done.audio_seconds, done.seconds_taken, done.device, done.corrections.len());
+    let who = job::speaker_summary(&done);
+    if !who.is_empty() {
+        println!("{who}");
+    }
+    for p in &done.speaker_srts {
+        println!("화자별 자막 → {}", p.display());
+    }
     Ok(())
+}
+
+fn voice(args: &[String]) -> Result<(), String> {
+    match args.first().map(String::as_str) {
+        Some("add") => {
+            let name = args.get(1).ok_or(USAGE)?;
+            let file = args.get(2).map(PathBuf::from).ok_or(USAGE)?;
+            let (mut from, mut to) = (None, None);
+            let mut it = args.iter().skip(3);
+            while let Some(a) = it.next() {
+                let t = it.next().and_then(|v| voices::parse_time(v)).ok_or_else(|| format!("{a} 뒤에 시간 (예: 1:23)"))?;
+                match a.as_str() {
+                    "--from" => from = Some(t),
+                    "--to" => to = Some(t),
+                    s => return Err(format!("모르는 옵션: {s}")),
+                }
+            }
+            let v = job::guarded(|| voices::enroll(name, &file, from, to))?;
+            println!("목소리 '{}' 등록 ({:.0}초 샘플) → {}", v.name, v.seconds, voices::dir().display());
+            Ok(())
+        }
+        Some("list") => {
+            let l = voices::list();
+            if l.is_empty() {
+                println!("등록한 목소리가 없습니다. overfilm-subs voice add <이름> <파일> [--from 1:23] [--to 1:45]");
+            }
+            for v in l {
+                println!("{} ({:.0}초 샘플, {})", v.name, v.seconds, v.source);
+            }
+            Ok(())
+        }
+        Some("remove") => {
+            let name = args.get(1).ok_or(USAGE)?;
+            voices::remove_in(&voices::dir(), name)?;
+            println!("목소리 '{name}' 지움");
+            Ok(())
+        }
+        _ => Err(USAGE.into()),
+    }
 }
 
 fn review_cmd(args: &[String]) -> Result<(), String> {
@@ -107,9 +178,18 @@ fn relayout(args: &[String]) -> Result<(), String> {
     let mut input = None;
     let mut out = None;
     let mut o = job::Options::new(PathBuf::new());
+    let mut renames: Vec<(String, String)> = Vec::new();
     while let Some(a) = it.next() {
         match a.as_str() {
             "-o" | "--output" => out = it.next().map(PathBuf::from),
+            "--game-voice" => {
+                o.game_voice = it.next().and_then(|v| speakers::GameVoice::parse(v)).ok_or("--game-voice는 drop, label 또는 keep")?;
+            }
+            "--rename" => {
+                let v = it.next().ok_or("--rename 화자1=이름")?;
+                let (from, to) = v.split_once('=').ok_or("--rename 화자1=이름")?;
+                renames.push((from.trim().to_string(), to.trim().to_string()));
+            }
             "--line-chars" => o.line_chars = it.next().and_then(|v| v.parse().ok()).ok_or("--line-chars는 숫자")?,
             "--one-line" => o.max_lines = 1,
             "--cpu" => o.gpu = false,
@@ -121,10 +201,16 @@ fn relayout(args: &[String]) -> Result<(), String> {
         return Err("파일이 너무 큽니다".into());
     }
     let text = std::fs::read_to_string(&input).map_err(|e| format!("{}: {e}", input.display()))?;
-    let t: overfilm_asr::Transcript = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", input.display()))?;
-    let words: Vec<overfilm_captions::TimedWord> =
-        t.words().map(|w| overfilm_captions::TimedWord { text: w.text.clone(), start_ms: w.start_ms, end_ms: w.end_ms }).collect();
-    let caps = overfilm_captions::layout(&words, &o.layout());
+    let mut t: overfilm_asr::Transcript = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", input.display()))?;
+    if !renames.is_empty() {
+        for (from, to) in &renames {
+            let s = t.speakers.iter_mut().find(|s| &s.label == from).ok_or_else(|| format!("{from}: 그런 화자가 없습니다"))?;
+            s.label = to.chars().take(20).collect();
+        }
+        let json = serde_json::to_string_pretty(&t).map_err(|e| e.to_string())?;
+        std::fs::write(&input, json).map_err(|e| format!("{}: {e}", input.display()))?;
+    }
+    let caps = speakers::captions(&t, o.game_voice, &o.layout());
     let name = input.file_name().map(|n| n.to_string_lossy().replace(".overfilm.json", ".srt")).unwrap_or_else(|| "out.srt".into());
     let out = out.unwrap_or_else(|| input.with_file_name(name));
     job::write_srt(&out, &caps)?;
@@ -170,6 +256,7 @@ fn main() -> ExitCode {
         Some("review") => review_cmd(args.get(1..).unwrap_or_default()),
         Some("fix") => fix(args.get(1..).unwrap_or_default()),
         Some("relayout") => relayout(args.get(1..).unwrap_or_default()),
+        Some("voice") => voice(args.get(1..).unwrap_or_default()),
         Some("models") => {
             let mut p = progress_bar();
             let r = job::ensure_models(&job::models_dir(), &mut p);

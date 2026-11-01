@@ -12,6 +12,25 @@ use serde_json::{Value, json};
 use crate::job::{self, Options};
 use crate::pack::{self, Mode};
 use crate::review;
+use crate::speakers::{self, GameVoice};
+use crate::voices;
+
+/// `x.overfilm.json` for `x.overfilm.json` or `x.srt`, and the transcript in it.
+fn load_transcript(p: &Path) -> Result<(PathBuf, overfilm_asr::Transcript), String> {
+    let j = if p.to_string_lossy().ends_with(".overfilm.json") { p.to_path_buf() } else { job::transcript_path(p) };
+    if std::fs::metadata(&j).map(|m| m.len()).unwrap_or(0) > 256 << 20 {
+        return Err(format!("{}: 파일이 너무 큽니다", j.display()));
+    }
+    let text = std::fs::read_to_string(&j).map_err(|e| format!("{}: {e} (자막 추출 때 만든 .overfilm.json이 필요합니다)", j.display()))?;
+    let t = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", j.display()))?;
+    Ok((j, t))
+}
+
+/// `x.srt` beside `x.overfilm.json`.
+fn srt_of_transcript(j: &Path) -> PathBuf {
+    let name = j.file_name().map(|n| n.to_string_lossy().replace(".overfilm.json", ".srt")).unwrap_or_else(|| "out.srt".into());
+    j.with_file_name(name)
+}
 
 /// Longest request line read (an SRT path and a few fields; caps a hostile client).
 const MAX_LINE: usize = 1 << 20;
@@ -49,7 +68,25 @@ fn tools() -> Value {
             "extra_terms": {"type": "string", "description": "인식에 도움될 이름·용어, 쉼표로 구분"},
             "mask_profanity": {"type": "boolean", "description": "욕설을 초성으로 (기본 true)"},
             "digits": {"type": "boolean", "description": "말로 한 숫자를 숫자로: 오 시즌 → 5시즌, 사십칠 퍼센트 → 47% (기본 true)"},
-            "gpu": {"type": "boolean", "description": "그래픽카드(GPU)가 있으면 사용 (기본 true, 없거나 오류면 CPU)"}}}},
+            "gpu": {"type": "boolean", "description": "그래픽카드(GPU)가 있으면 사용 (기본 true, 없거나 오류면 CPU)"},
+            "speakers": {"type": "boolean", "description": "목소리를 구별해 사람이 둘 이상이면 자막에 (화자1), (화자2)를 붙임 (기본 true)"},
+            "num_speakers": {"type": "integer", "minimum": 1, "maximum": 20, "description": "사람 수를 알면 지정 (없으면 자동으로 셈)"},
+            "game_voice": {"type": "string", "enum": ["drop", "label", "keep"], "description": "영웅 대사·아나운서 같은 게임 음성: drop 자막에서 빼기(기본), label (게임) 표시, keep 그대로"},
+            "per_speaker": {"type": "boolean", "description": "사람마다 SRT를 따로 저장 (이름.화자1.srt …, 기본 false)"},
+            "only_voices": {"type": "boolean", "description": "등록한 목소리(add_voice)의 말만 자막으로, 예: 스트리머 말만 (기본 false)"},
+            "use_voices": {"type": "boolean", "description": "등록한 목소리와 같은 사람이면 그 이름을 붙임 (기본 true)"}}}},
+        {"name": "add_voice", "description": "한 사람만 말하는 구간(10~30초 권장)으로 목소리를 등록합니다. 이후 추출에서 그 사람은 화자1 대신 이 이름으로 나오고, only_voices로 그 사람 말만 자막으로 만들 수 있습니다.",
+         "inputSchema": {"type": "object", "required": ["name", "file"], "properties": {"name": {"type": "string"}, "file": {"type": "string", "description": "영상 또는 오디오 파일"},
+            "start": {"type": "string", "description": "시작 (예: 1:23, 생략하면 처음)"}, "end": {"type": "string", "description": "끝 (예: 1:45, 생략하면 끝, 최대 2분)"}}}},
+        {"name": "list_voices", "description": "등록한 목소리 목록.", "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "remove_voice", "description": "등록한 목소리를 지웁니다.", "inputSchema": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}}},
+        {"name": "list_speakers", "description": "추출 결과(.overfilm.json, 또는 그 옆의 .srt)에서 구별된 화자 목록: 이름, 말한 시간, 단어 수, 게임 음성 여부.",
+         "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": path}}},
+        {"name": "rename_speaker", "description": "화자 이름을 바꾸고(예: 화자1 → 아이치) 자막을 다시 만듭니다. game을 주면 그 화자를 게임 음성으로(또는 사람으로) 바꿉니다. path는 .overfilm.json 또는 그 옆의 .srt.",
+         "inputSchema": {"type": "object", "required": ["path", "speaker"], "properties": {"path": path,
+            "speaker": {"type": "string", "description": "지금 이름 (화자1 등)"}, "name": {"type": "string", "description": "새 이름"},
+            "game": {"type": "boolean", "description": "true: 게임 음성으로 표시, false: 사람"},
+            "game_voice": {"type": "string", "enum": ["drop", "label", "keep"], "description": "다시 만들 때 게임 음성 처리 (기본 drop)"}}}},
         {"name": "job_status", "description": "자막 추출 작업의 진행률, 메시지, 끝났으면 결과 파일과 단어집 교정 목록.", "inputSchema": {"type": "object", "properties": {}}},
         {"name": "cancel_job", "description": "진행 중인 자막 추출을 멈춥니다.", "inputSchema": {"type": "object", "properties": {}}},
         {"name": "read_subtitles", "description": "SRT 자막을 번호·시간·글자로 읽습니다.",
@@ -162,6 +199,14 @@ impl Server {
         o.mask_profanity = a.get("mask_profanity").and_then(Value::as_bool).unwrap_or(true);
         o.digits = a.get("digits").and_then(Value::as_bool).unwrap_or(true);
         o.gpu = a.get("gpu").and_then(Value::as_bool).unwrap_or(true);
+        o.speakers = a.get("speakers").and_then(Value::as_bool).unwrap_or(true);
+        o.num_speakers = a.get("num_speakers").and_then(Value::as_u64).map(|n| n.clamp(1, 20) as usize);
+        if let Some(g) = s(a, "game_voice") {
+            o.game_voice = GameVoice::parse(g).ok_or_else(|| format!("모르는 game_voice: {g}"))?;
+        }
+        o.per_speaker = a.get("per_speaker").and_then(Value::as_bool).unwrap_or(false);
+        o.only_voices = a.get("only_voices").and_then(Value::as_bool).unwrap_or(false);
+        o.use_voices = a.get("use_voices").and_then(Value::as_bool).unwrap_or(true);
         let d = user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         if !o.input.is_file() {
@@ -248,6 +293,60 @@ impl Server {
     fn call(&self, name: &str, a: &Value) -> Result<Value, String> {
         match name {
             "extract_subtitles" => self.extract(a),
+            "add_voice" => {
+                let name = s(a, "name").ok_or("name이 필요합니다")?;
+                let file = s(a, "file").map(PathBuf::from).ok_or("file이 필요합니다")?;
+                let t = |k: &str| -> Result<Option<u64>, String> {
+                    s(a, k).map(|v| voices::parse_time(v).ok_or_else(|| format!("{k}: 시간 형식 (예: 1:23)"))).transpose()
+                };
+                let (from, to) = (t("start")?, t("end")?);
+                let v = job::guarded(|| voices::enroll(name, &file, from, to))?;
+                Ok(json!({"name": v.name, "sample_seconds": v.seconds}))
+            }
+            "list_voices" => {
+                let l: Vec<Value> = voices::list().iter().map(|v| json!({"name": v.name, "sample_seconds": v.seconds, "source": v.source})).collect();
+                Ok(json!({"voices": l}))
+            }
+            "remove_voice" => {
+                let name = s(a, "name").ok_or("name이 필요합니다")?;
+                voices::remove_in(&voices::dir(), name)?;
+                Ok(json!({"removed": name}))
+            }
+            "list_speakers" => {
+                let (_, t) = load_transcript(&path_arg(a)?)?;
+                let list: Vec<Value> = t
+                    .speakers
+                    .iter()
+                    .map(|s| json!({"name": s.label, "seconds": (s.seconds * 10.0).round() / 10.0, "words": s.words, "game": s.game, "enrolled": s.enrolled}))
+                    .collect();
+                Ok(json!({"people": speakers::people(&t), "speakers": list}))
+            }
+            "rename_speaker" => {
+                let (jpath, mut t) = load_transcript(&path_arg(a)?)?;
+                let from = s(a, "speaker").ok_or("speaker가 필요합니다")?;
+                let idx = t.speakers.iter().position(|x| x.label == from).ok_or_else(|| format!("{from}: 그런 화자가 없습니다"))?;
+                if let Some(sp) = t.speakers.get_mut(idx) {
+                    if let Some(n) = s(a, "name").map(str::trim).filter(|n| !n.is_empty()) {
+                        sp.label = n.chars().take(20).collect();
+                    }
+                    if let Some(g) = a.get("game").and_then(Value::as_bool) {
+                        sp.game = g;
+                        for c in &mut t.chunks {
+                            for w in c.words.iter_mut().filter(|w| w.speaker == Some(idx)) {
+                                w.game = g;
+                            }
+                        }
+                    }
+                }
+                speakers::name_speakers(&mut t);
+                let game = s(a, "game_voice").and_then(GameVoice::parse).unwrap_or_default();
+                let caps = speakers::captions(&t, game, &Options::new(PathBuf::new()).layout());
+                let srt = srt_of_transcript(&jpath);
+                save(&srt, &caps)?;
+                let json = serde_json::to_string_pretty(&t).map_err(|e| e.to_string())?;
+                std::fs::write(&jpath, json).map_err(|e| format!("{}: {e}", jpath.display()))?;
+                Ok(json!({"srt": srt, "captions": caps.len(), "speakers": t.speakers.iter().map(|s| &s.label).collect::<Vec<_>>()}))
+            }
             "job_status" => Ok(serde_json::to_value(&*self.job.lock().unwrap_or_else(PoisonError::into_inner)).unwrap_or_default()),
             "cancel_job" => {
                 self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -456,6 +555,35 @@ mod tests {
         assert_eq!(gaps["silences"][0]["end"], "00:00:01,000");
         let del = text(&call(&s, "delete_subtitle", json!({"path": ps, "index": 1})));
         assert_eq!(del["captions"], 1);
+    }
+
+    #[test]
+    fn speakers_listed_and_renamed() {
+        use overfilm_asr::{ChunkText, Speaker, Transcript, Word};
+        let d = tempfile::tempdir().unwrap();
+        let j = d.path().join("a.overfilm.json");
+        let w = |t: &str, s: i64, sp: usize| Word { text: t.into(), start_ms: s, end_ms: s + 400, speaker: Some(sp), game: false };
+        let t = Transcript {
+            chunks: vec![ChunkText {
+                start_ms: 0, end_ms: 3000, text: String::new(), words: vec![w("안녕", 0, 0), w("네", 1000, 1), w("영웅은", 2000, 2)]
+            }],
+            speakers: (1..=3).map(|n| Speaker { label: format!("화자{n}"), seconds: 0.4, words: 1, ..Speaker::default() }).collect(),
+            ..Transcript::default()
+        };
+        std::fs::write(&j, serde_json::to_string(&t).unwrap()).unwrap();
+        let s = Server::default();
+        let l = text(&call(&s, "list_speakers", json!({"path": d.path().join("a.srt")})));
+        assert_eq!(l["people"], 3);
+        let r = call(&s, "rename_speaker", json!({"path": j, "speaker": "화자1", "name": "아이치"}));
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(&s, "rename_speaker", json!({"path": j, "speaker": "화자3", "game": true}));
+        assert_eq!(r["isError"], false, "{r}");
+        let srt = std::fs::read_to_string(d.path().join("a.srt")).unwrap();
+        assert!(srt.contains("(아이치) 안녕") && srt.contains("네") && !srt.contains("영웅은"), "{srt}");
+        let l = text(&call(&s, "list_speakers", json!({"path": j})));
+        assert_eq!(l["people"], 2);
+        assert_eq!(l["speakers"][2]["name"], "게임 음성");
+        assert_eq!(call(&s, "rename_speaker", json!({"path": j, "speaker": "없음", "name": "x"}))["isError"], true);
     }
 
     #[test]

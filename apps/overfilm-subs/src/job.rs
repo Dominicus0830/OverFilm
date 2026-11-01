@@ -3,10 +3,11 @@
 
 use std::path::{Path, PathBuf};
 
-use overfilm_captions::{Caption, Layout, TimedWord};
+use overfilm_captions::{Caption, Layout};
 use serde::{Deserialize, Serialize};
 
 use crate::pack::{self, Mode};
+use crate::speakers::{self, GameVoice};
 
 /// What to extract and how.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -38,6 +39,24 @@ pub struct Options {
     /// Use the GPU when there is one (Vulkan/DX12; falls back to the CPU).
     #[serde(default = "yes")]
     pub gpu: bool,
+    /// Tell voices apart and label captions (화자1, 화자2…) when there are two or more people.
+    #[serde(default = "yes")]
+    pub speakers: bool,
+    /// The number of speakers when known (`None`: counted automatically).
+    #[serde(default)]
+    pub num_speakers: Option<usize>,
+    /// What captions do with in-game voice (hero lines, announcer).
+    #[serde(default)]
+    pub game_voice: GameVoice,
+    /// Also write one SRT per person (`이름.화자1.srt`…).
+    #[serde(default)]
+    pub per_speaker: bool,
+    /// Name speakers after the enrolled voices (`voices/`).
+    #[serde(default = "yes")]
+    pub use_voices: bool,
+    /// Captions only for enrolled voices (e.g. the streamer's own speech).
+    #[serde(default)]
+    pub only_voices: bool,
 }
 
 fn yes() -> bool {
@@ -63,6 +82,12 @@ impl Options {
             line_chars: 16,
             max_lines: 2,
             gpu: true,
+            speakers: true,
+            num_speakers: None,
+            game_voice: GameVoice::Drop,
+            per_speaker: false,
+            use_voices: true,
+            only_voices: false,
         }
     }
 
@@ -92,6 +117,18 @@ pub struct Done {
     pub corrections: Vec<(String, String)>,
     /// Where recognition ran ("CPU" or "GPU <adapter>").
     pub device: String,
+    /// Speakers found: (label, seconds, game voice).
+    #[serde(default)]
+    pub speakers: Vec<(String, f32, bool)>,
+    /// In-game voice lines recognised.
+    #[serde(default)]
+    pub voice_lines: usize,
+    /// Extra SRT files written, one per person.
+    #[serde(default)]
+    pub speaker_srts: Vec<PathBuf>,
+    /// Something the user should know about the result (e.g. no enrolled voice was heard).
+    #[serde(default)]
+    pub note: String,
 }
 
 /// Where the models live: `models` beside the program if that folder exists (portable copy),
@@ -136,7 +173,7 @@ pub fn ensure_models(dir: &Path, progress: Progress) -> Result<(), String> {
 }
 
 /// Run one extraction. Stages share the progress bar: models 0–5 %, sound 5–10 %, recognition
-/// and timing 10–98 %, writing the rest.
+/// and timing 10–90 %, speakers 90–98 %, writing the rest.
 pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
     let t0 = std::time::Instant::now();
     let models = models_dir();
@@ -163,11 +200,46 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         correct: &correct,
         gpu: o.gpu,
     };
-    let transcript = overfilm_asr::transcribe(&audio, &settings, &mut |f, m| progress(0.1 + 0.88 * f, m)).map_err(|e| e.to_string())?;
-    let words: Vec<TimedWord> = transcript.words().map(|w| TimedWord { text: w.text.clone(), start_ms: w.start_ms, end_ms: w.end_ms }).collect();
-    let caps = overfilm_captions::layout(&words, &o.layout());
+    let rec_share = if o.speakers { 0.8 } else { 0.88 };
+    let mut transcript = overfilm_asr::transcribe(&audio, &settings, &mut |f, m| progress(0.1 + rec_share * f, m)).map_err(|e| e.to_string())?;
+    let mut speaker_device = String::new();
+    if o.speakers {
+        let known = if o.use_voices || o.only_voices { crate::voices::known(&crate::voices::list()) } else { Vec::new() };
+        let p = overfilm_asr::speakers::Params { speakers: o.num_speakers.filter(|&n| n > 0), known, ..Default::default() };
+        let mut cancelled = false;
+        let r = speakers::label(&audio, &mut transcript, &overfilm_asr::catalogue::SPEAKER.dir(&models), &p, o.gpu, &mut |f| {
+            let go = progress(0.9 + 0.08 * f, "목소리 구별하는 중");
+            cancelled |= !go;
+            go
+        });
+        if cancelled {
+            return Err("취소됨".into());
+        }
+        speaker_device = r?;
+    }
+    let voice_lines = speakers::mark_game_voice(&mut transcript, &pack::voicelines());
+    let mut note = String::new();
+    let keep = if o.only_voices {
+        if transcript.speakers.iter().any(|s| s.enrolled && !s.game) {
+            speakers::Keep::Enrolled
+        } else {
+            note = "등록한 목소리를 이 영상에서 찾지 못해 모든 사람의 자막을 만들었습니다.".into();
+            speakers::Keep::All
+        }
+    } else {
+        speakers::Keep::All
+    };
+    let caps = speakers::captions_keep(&transcript, o.game_voice, keep, &o.layout());
     let srt = o.srt_path();
     write_srt(&srt, &caps)?;
+    let mut speaker_srts = Vec::new();
+    if o.per_speaker && speakers::people(&transcript) > 1 {
+        for (_, label, caps) in speakers::captions_per_speaker(&transcript, &o.layout()) {
+            let p = per_speaker_path(&srt, &label);
+            write_srt(&p, &caps)?;
+            speaker_srts.push(p);
+        }
+    }
     let tpath = transcript_path(&srt);
     let json = serde_json::to_string_pretty(&transcript).map_err(|e| e.to_string())?;
     std::fs::write(&tpath, json).map_err(|e| format!("{}: {e}", tpath.display()))?;
@@ -180,8 +252,50 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         audio_seconds: (audio.len() / overfilm_asr::SAMPLE_RATE as usize) as u64,
         seconds_taken: t0.elapsed().as_secs(),
         corrections,
-        device: transcript.device.clone(),
+        device: if speaker_device.is_empty() || speaker_device == transcript.device {
+            transcript.device.clone()
+        } else {
+            format!("{}, 화자 구별 {}", transcript.device, speaker_device.split(" (").next().unwrap_or(&speaker_device))
+        },
+        speakers: transcript.speakers.iter().map(|s| (s.label.clone(), s.seconds, s.game)).collect(),
+        voice_lines,
+        speaker_srts,
+        note,
     })
+}
+
+/// `경기.srt` → `경기.화자1.srt` (characters a file name cannot hold become `_`).
+pub fn per_speaker_path(srt: &Path, label: &str) -> PathBuf {
+    let safe: String = label.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' }).take(40).collect();
+    let stem = srt.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    srt.with_file_name(format!("{stem}.{safe}.srt"))
+}
+
+/// One-line summary of the speakers found ("화자 3명: 화자1 4분 12초, …; 게임 음성 2줄 뺌").
+pub fn speaker_summary(d: &Done) -> String {
+    let people: Vec<String> = d
+        .speakers
+        .iter()
+        .filter(|s| !s.2)
+        .map(|(l, secs, _)| {
+            let s = secs.max(0.0) as u64;
+            if s >= 60 { format!("{l} {}분 {}초", s / 60, s % 60) } else { format!("{l} {s}초") }
+        })
+        .collect();
+    let mut out = if people.is_empty() { String::new() } else { format!("화자 {}명: {}", people.len(), people.join(", ")) };
+    if d.voice_lines > 0 || d.speakers.iter().any(|s| s.2) {
+        if !out.is_empty() {
+            out.push_str(" · ");
+        }
+        out.push_str(&format!("게임 음성 대사 {}줄 찾음", d.voice_lines));
+    }
+    if !d.note.is_empty() {
+        if !out.is_empty() {
+            out.push_str(" · ");
+        }
+        out.push_str(&d.note);
+    }
+    out
 }
 
 /// Write an SRT (UTF-8 with BOM, which Premiere and Windows tools read as UTF-8).

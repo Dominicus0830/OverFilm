@@ -138,9 +138,24 @@ pub static ALIGNER: Model = Model {
     ],
 };
 
-/// Both models, recogniser first.
-pub fn all() -> [&'static Model; 2] {
-    [&ASR, &ALIGNER]
+/// The speaker network (who spoke when): WeSpeaker ResNet34 trained on VoxCeleb, as published by
+/// pyannote. CC-BY-4.0 (attribution in `OVERFILM.md` and the program's README).
+pub static SPEAKER: Model = Model {
+    id: "wespeaker-voxceleb-resnet34-lm",
+    name: "WeSpeaker ResNet34 (화자 구별)",
+    source: "https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM",
+    license: "CC-BY-4.0",
+    files: &[ModelFile {
+        name: "pytorch_model.bin",
+        url: "https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM/resolve/837717ddb9ff5507820346191109dc79c958d614/pytorch_model.bin",
+        sha256: "366edf44f4c80889a3eb7a9d7bdf02c4aede3127f7dd15e274dcdb826b143c56",
+        size: 26_645_418,
+    }],
+};
+
+/// Every model, recogniser first.
+pub fn all() -> [&'static Model; 3] {
+    [&ASR, &ALIGNER, &SPEAKER]
 }
 
 /// Download whatever is missing of `m` into `models_dir/<id>/`; `progress(done, total, file)`
@@ -160,7 +175,10 @@ mod tests {
     #[test]
     fn pinned_and_complete() {
         for m in all() {
-            assert!(m.files.iter().all(|f| f.url.starts_with("https://huggingface.co/Qwen/") && f.url.ends_with(f.name) && f.sha256.len() == 64));
+            assert!(m.files.iter().all(|f| f.url.starts_with("https://huggingface.co/") && f.url.ends_with(f.name) && f.sha256.len() == 64));
+            if m.id == SPEAKER.id {
+                continue;
+            }
             for need in ["config.json", "vocab.json", "merges.txt", "tokenizer_config.json"] {
                 assert!(m.files.iter().any(|f| f.name == need), "{} lacks {need}", m.id);
             }

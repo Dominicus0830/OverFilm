@@ -310,6 +310,77 @@ fn elementwise(c: &Ctx, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), AsrE
     Ok(())
 }
 
+/// Plain-loop convolution (the reference for `conv.wgsl`): `(cin, h, w)` in, `(cout, ho, wo)` out.
+pub fn conv_ref(x: &[f32], c: &super::speaker::ConvSpec, h: usize, w: usize, res: Option<&[f32]>, relu: bool) -> (Vec<f32>, usize, usize) {
+    let ho = (h + 2 * c.pad - c.k) / c.stride + 1;
+    let wo = (w + 2 * c.pad - c.k) / c.stride + 1;
+    let mut out = vec![0f32; c.cout * ho * wo];
+    for oc in 0..c.cout {
+        for oy in 0..ho {
+            for ox in 0..wo {
+                let mut acc = c.b.get(oc).copied().unwrap_or(0.0);
+                for ic in 0..c.cin {
+                    for ky in 0..c.k {
+                        for kx in 0..c.k {
+                            let iy = (oy * c.stride + ky) as isize - c.pad as isize;
+                            let ix = (ox * c.stride + kx) as isize - c.pad as isize;
+                            if iy < 0 || ix < 0 || iy as usize >= h || ix as usize >= w {
+                                continue;
+                            }
+                            let xv = x.get((ic * h + iy as usize) * w + ix as usize).copied().unwrap_or(0.0);
+                            let wv = c.w.get(((oc * c.cin + ic) * c.k + ky) * c.k + kx).copied().unwrap_or(0.0);
+                            acc += xv * wv;
+                        }
+                    }
+                }
+                let i = (oc * ho + oy) * wo + ox;
+                if let Some(r) = res {
+                    acc += r.get(i).copied().unwrap_or(0.0);
+                }
+                if let Some(o) = out.get_mut(i) {
+                    *o = if relu { acc.max(0.0) } else { acc };
+                }
+            }
+        }
+    }
+    (out, ho, wo)
+}
+
+/// A tiny residual network (stem, one block with a stride-2 shortcut) on the GPU against
+/// [`conv_ref`].
+fn speaker_convs(c: &Arc<Ctx>, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), AsrError> {
+    use super::speaker::{ConvSpec, SpeakerNet};
+    let spec = |rng: &mut Rng, cout: usize, cin: usize, k: usize, stride: usize| ConvSpec {
+        w: rng.vec(cout * cin * k * k, 0.5),
+        b: rng.vec(cout, 0.1),
+        cout,
+        cin,
+        k,
+        stride,
+        pad: k / 2,
+    };
+    let (mels, frames) = (16usize, 37usize);
+    let stem = spec(rng, 4, 1, 3, 1);
+    let block = (spec(rng, 8, 4, 3, 2), spec(rng, 8, 8, 3, 1), Some(spec(rng, 8, 4, 1, 2)));
+    let feats = rng.vec(frames * mels, 2.0);
+    // reference, laid out (mels, frames)
+    let mut x0 = vec![0f32; frames * mels];
+    for f in 0..frames {
+        for m in 0..mels {
+            x0[m * frames + f] = feats[f * mels + m];
+        }
+    }
+    let (s, h, w) = conv_ref(&x0, &stem, mels, frames, None, true);
+    let (y, yh, yw) = conv_ref(&s, &block.0, h, w, None, true);
+    let (sc, _, _) = conv_ref(&s, block.2.as_ref().unwrap_or(&block.1), h, w, None, false);
+    let (want, _, wo) = conv_ref(&y, &block.1, yh, yw, Some(&sc), true);
+    let g = SpeakerNet::new(c, &stem, &[block])?;
+    let (got, t) = g.forward(&feats, frames, mels)?;
+    let err = if t == wo { max_rel(&got, &want) } else { f32::INFINITY };
+    out.push(Report { name: "speaker convolutions".into(), err, tol: 1e-4 });
+    Ok(())
+}
+
 /// erf for the reference (series / continued fraction, double precision).
 fn erf(x: f64) -> f64 {
     // Abramowitz–Stegun 7.1.28 is too coarse; use the Taylor series near 0 and erfc's continued
@@ -515,7 +586,7 @@ pub fn report(c: &Arc<Ctx>) -> Vec<Report> {
     let mut out = Vec::new();
     let mut rng = Rng(0x0F11_5EED);
     type Check = fn(&Arc<Ctx>, &mut Rng, &mut Vec<Report>) -> Result<(), AsrError>;
-    let checks: [(&str, Check); 8] = [
+    let checks: [(&str, Check); 9] = [
         ("matmul", |c, r, o| products(c, r, o)),
         ("norm", |c, r, o| norms(c, r, o)),
         ("rope/attention", |c, r, o| rope_attention(c, r, o)),
@@ -524,6 +595,7 @@ pub fn report(c: &Arc<Ctx>) -> Vec<Report> {
         ("argmax", |c, r, o| argmax(c, r, o)),
         ("decoder", decoder),
         ("encoder", encoder),
+        ("speaker convolutions", speaker_convs),
     ];
     for (name, f) in checks {
         if let Err(e) = c.scoped(|| f(c, &mut rng, &mut out)) {
