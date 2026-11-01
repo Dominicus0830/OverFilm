@@ -205,6 +205,9 @@ struct App {
     page: Page,
     step: Step,
     input: Option<PathBuf>,
+    /// The input's audio tracks ("트랙 1 · 스테레오 · 48 kHz · aac") and the one to recognise.
+    audio_tracks: Vec<String>,
+    audio_track: usize,
     output: Option<PathBuf>,
     prefs: Prefs,
     shared: Arc<Mutex<Shared>>,
@@ -253,6 +256,8 @@ impl App {
             page: Page::New,
             step: Step::Empty,
             input: None,
+            audio_tracks: Vec::new(),
+            audio_track: 0,
             output: None,
             prefs: load_prefs(),
             shared: Arc::default(),
@@ -296,12 +301,16 @@ impl App {
         o.input = self.input.clone()?;
         o.output = self.output.clone();
         o.only_voices = o.only_voices && o.speakers;
+        o.audio_track = self.audio_track.min(self.audio_tracks.len().saturating_sub(1));
         let d = mcp::user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         Some(o)
     }
 
     fn choose_file(&mut self, p: PathBuf) {
+        // a file that cannot be read shows its error when the run starts
+        self.audio_tracks = overfilm_subs::media::audio_tracks(&p).unwrap_or_default();
+        self.audio_track = 0;
         self.input = Some(p.clone());
         self.output = None;
         self.enroll_file = Some(p);

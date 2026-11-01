@@ -4,6 +4,13 @@
 //! timeline (an intro, a banner, plain camera footage), so the estimate uses the speed of a trailing
 //! window, not the average since the start, and it stays quiet until a second of readings shows
 //! progress. A stall shows as a falling speed, so the estimate grows instead of freezing.
+//!
+//! Jobs whose counter moves in long, even steps (speech recognition: one step per piece of sound,
+//! tens of seconds apart) would make that window hold zero, one or two steps by turns, and the
+//! estimate jump between "20 minutes" and "2 hours". Those ask for the steady pace
+//! ([`Pace::set_steady`]): the average speed from the counter's first step to its latest one
+//! (the time before the first step may be a slow start, reading a file, so it is left out),
+//! counting down between steps.
 
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -24,11 +31,69 @@ const MAX_ETA: Duration = Duration::from_secs(100 * 3600);
 pub(crate) struct Pace {
     /// (when, `done` then), oldest first.
     readings: VecDeque<(Instant, u64)>,
+    /// The steady pace, when the job asked for it.
+    steady: Option<Steady>,
+}
+
+/// Readings for the steady pace: the counter's first step, its latest step and the latest
+/// reading.
+#[derive(Default)]
+struct Steady {
+    start: Option<(Instant, u64)>,
+    step: Option<(Instant, u64)>,
+    last: Option<(Instant, u64)>,
+}
+
+impl Steady {
+    fn observe(&mut self, now: Instant, done: u64) {
+        if self.last.is_some_and(|(_, d)| done < d) {
+            *self = Steady::default();
+        }
+        match (self.start, self.last) {
+            (None, Some((_, d))) if done > d => {
+                self.start = Some((now, done));
+                self.step = Some((now, done));
+            }
+            (Some(_), _) if self.step.is_none_or(|(_, d)| done > d) => self.step = Some((now, done)),
+            _ => {}
+        }
+        if self.last.is_none_or(|(t, d)| done != d || now > t) {
+            self.last = Some((now, done));
+        }
+    }
+
+    fn eta(&self, remaining: u64) -> Option<Duration> {
+        let (t0, d0) = self.start?;
+        let (t1, d1) = self.step?;
+        let (now, _) = self.last?;
+        let span = t1.saturating_duration_since(t0);
+        if span < MIN_SPAN || d1 <= d0 {
+            return None;
+        }
+        if remaining == 0 {
+            return Some(Duration::ZERO);
+        }
+        let per_second = (d1 - d0) as f64 / span.as_secs_f64();
+        // count down between steps; a step that comes late holds the estimate at a second
+        let left = (remaining as f64 / per_second - now.saturating_duration_since(t1).as_secs_f64()).max(1.0);
+        Some(Duration::try_from_secs_f64(left).map_or(MAX_ETA, |d| d.min(MAX_ETA)))
+    }
 }
 
 impl Pace {
+    /// Use the steady pace (see the module notes) from now on.
+    pub(crate) fn set_steady(&mut self) {
+        if self.steady.is_none() {
+            self.steady = Some(Steady::default());
+        }
+    }
+
     /// Note that the job had done `done` units at `now`.
     pub(crate) fn observe(&mut self, now: Instant, done: u64) {
+        if let Some(st) = &mut self.steady {
+            st.observe(now, done);
+            return;
+        }
         // a count that went back (a job that started over) starts the history again
         if self.readings.back().is_some_and(|(_, d)| done < *d) {
             self.readings.clear();
@@ -53,6 +118,9 @@ impl Pace {
 
     /// The time `remaining` more units take at the pace of the readings, when they show one.
     pub(crate) fn eta(&self, remaining: u64) -> Option<Duration> {
+        if let Some(st) = &self.steady {
+            return st.eta(remaining);
+        }
         let (t0, d0) = *self.readings.front()?;
         let (t1, d1) = *self.readings.back()?;
         let span = t1.saturating_duration_since(t0);
@@ -221,5 +289,72 @@ mod tests {
         p.observe(t0, 0);
         p.observe(at(t0, 2.0), 100);
         assert_eq!(p.eta(0), Some(Duration::ZERO));
+    }
+
+    #[test]
+    fn the_steady_pace_does_not_jump_with_long_steps() {
+        // 3600 s of sound, recognised in 30 s pieces that take 12 s each (2.5 s of sound a second,
+        // 24 min in all), read every 0.2 s, after 30 s of reading the file with nothing done
+        let t0 = Instant::now();
+        let (mut window, mut steady) = (Pace::default(), Pace::default());
+        steady.set_steady();
+        let (mut w_eta, mut s_eta) = (Vec::new(), Vec::new());
+        for i in 0..=(600 * 5) {
+            let secs = i as f64 * 0.2;
+            let done = if secs < 30.0 { 0 } else { (((secs - 30.0) / 12.0).floor() as u64 * 30).min(3600) };
+            let now = at(t0, secs);
+            window.observe(now, done);
+            steady.observe(now, done);
+            let truth = 3600.0 / 2.5 - (secs - 30.0);
+            if secs > 120.0 {
+                w_eta.push(window.eta(3600 - done).map_or(f64::INFINITY, |d| d.as_secs_f64()) / truth);
+                s_eta.push(steady.eta(3600 - done).map_or(f64::INFINITY, |d| d.as_secs_f64()) / truth);
+            }
+        }
+        let spread = |v: &[f64]| v.iter().cloned().fold(f64::MIN, f64::max) / v.iter().cloned().fold(f64::MAX, f64::min);
+        // the window swings (the bug: 20 min to 2 h); the steady pace stays within 3 % of the truth
+        assert!(spread(&w_eta) > 1.5, "window spread {}", spread(&w_eta));
+        assert!(
+            s_eta.iter().all(|r| (0.97..=1.03).contains(r)),
+            "steady ratios {:?}",
+            s_eta.iter().cloned().fold((f64::MAX, f64::MIN), |a, r| (a.0.min(r), a.1.max(r)))
+        );
+        // and it counts down between steps instead of standing still
+        let a = steady.eta(3600 - 1410).unwrap();
+        steady.observe(at(t0, 606.0), 1410);
+        let b = steady.eta(3600 - 1410).unwrap();
+        assert!((a.as_secs_f64() - b.as_secs_f64() - 6.0).abs() < 0.01, "{a:?} -> {b:?}");
+    }
+
+    #[test]
+    fn the_steady_pace_needs_progress_starts_over_and_never_panics() {
+        let t0 = Instant::now();
+        let mut p = Pace::default();
+        p.set_steady();
+        assert_eq!(p.eta(100), None);
+        p.observe(t0, 0);
+        p.observe(at(t0, 5.0), 0);
+        assert_eq!(p.eta(100), None, "nothing done yet");
+        p.observe(at(t0, 5.5), 10);
+        assert_eq!(p.eta(90), None, "one step");
+        p.observe(at(t0, 6.0), 15);
+        assert_eq!(p.eta(85), None, "less than a second between steps");
+        p.observe(at(t0, 7.5), 30);
+        // 20 from the first step to the latest, 2 s apart: 10 a second
+        let e = p.eta(70).unwrap().as_secs_f64();
+        assert!((e - 7.0).abs() < 0.1, "{e}");
+        assert_eq!(p.eta(0), Some(Duration::ZERO));
+        // a count that goes back starts over
+        p.observe(at(t0, 8.0), 5);
+        assert_eq!(p.eta(95), None);
+        // huge numbers are capped
+        let mut q = Pace::default();
+        q.set_steady();
+        q.observe(t0, 0);
+        q.observe(at(t0, 1.0), 1);
+        q.observe(at(t0, 10.0), 2);
+        assert_eq!(q.eta(u64::MAX), Some(MAX_ETA));
+        q.observe(at(t0, 10.0), u64::MAX);
+        assert!(q.eta(1).is_some());
     }
 }

@@ -242,8 +242,20 @@ background job on the media of the sequence's audio clips (or `items`); the mode
 on first use into the folder OverFilmSubs uses (`%LOCALAPPDATA%\OverFilm\models`), and the user
 glossary (`…\OverFilm\glossary`) applies too. Options: `mode` (general / commentary: team and
 player names as context), `speakers`, `numSpeakers`, `extraTerms`, `gpu`, `gameVoice` (drop /
-label / keep), `lineChars`, `maxLines`, `cleanFillers`. The editor app builds with it by default
-(`apps/filmcraft` feature `overfilm-qwen`).
+label / keep), `lineChars`, `maxLines`, `cleanFillers`, `audioTrack`. The editor app builds with
+it by default (`apps/filmcraft` feature `overfilm-qwen`).
+
+- `audioTrack` (1 = A1; the dialog's "Audio track") recognises only the clips on that track, each
+  with the audio stream and source channels the clip plays: a recording with the microphone on a
+  stream of its own (OBS) lands on A2 when dropped in, so choosing A2 captions the voice alone. Only
+  those clips' media are captioned. OverFilmSubs has the same choice for files with several audio
+  tracks (`--audio-track N`, MCP `audio_track`).
+- `numSpeakers` up to 32 is kept as given (the automatic count stops at 8). `numSpeakers: 1` skips
+  telling voices apart altogether (WeSpeaker and the overlap model do not run): faster, and the
+  captions carry no labels anyway.
+- The time left is estimated from the average speed between the first and the latest step of the
+  recognition (`Progress::set_steady_pace`), not the last 15 seconds: recognition moves a piece of
+  sound (up to 30 s) at a time, and a 15 s window swung between "20 minutes" and "2 hours".
 
 - Each clip's transcript is stored like any other (Text panel ▸ Transcript): media-time words,
   speakers 화자1, 화자2…, in-game voice as the speaker "게임 음성". Text-based editing, search and

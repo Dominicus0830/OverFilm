@@ -3656,11 +3656,9 @@
 	Runs in the background. The models (about 6 GB) are downloaded the first time, into the folder OverFilmSubs uses.	백그라운드에서 진행됩니다. 처음 한 번 모델(약 6GB)을 OverFilmSubs와 같은 폴더에 받습니다.
 	Screen:	화면:
 	Slide Up	아래에서 위로
-	Speakers (0 = count them):	화자 수(0 = 자동):
 	Started: see the progress at the bottom	시작했습니다. 진행 상황은 아래에 표시됩니다
 	Style's own	스타일 기본값
 	Style:	스타일:
-	Tell speakers apart (화자1, 화자2…)	화자 구별(화자1, 화자2…)
 	Template file:	견본 파일:
 	Tournament commentary (teams and players too)	대회 해설(팀·선수 이름 포함)
 	Use the GPU	GPU 사용
@@ -3725,3 +3723,12 @@
 	No speech to caption (only in-game voice?).	자막으로 만들 말소리가 없어요(게임 음성만 있나요?).
 	That is the template file itself.	지금 쓰는 견본 파일 자체예요.
 	The file is not there.	파일이 없어요.
+# OverFilm Captions: the audio track and the number of speakers.
+	Audio track:	오디오 트랙:
+	All audio tracks	모든 오디오 트랙
+	A{n} · {name} ({clips} clips)	A{n} · {name} (클립 {clips}개)
+	Speakers:	화자 수:
+	Count them	자동으로 세기
+	Don't tell them apart	구별 안 함
+	1 person (faster)	1명 (구별 건너뛰어 빠름)
+	{n} people	{n}명

@@ -25,7 +25,8 @@ pub struct Request {
     pub gpu: bool,
     /// Tell voices apart.
     pub speakers: bool,
-    /// The number of speakers when known.
+    /// The number of speakers when known. One speaker and no enrolled voices skips telling voices
+    /// apart (and overlap detection) altogether: faster, and there is nobody to tell apart.
     pub num_speakers: Option<usize>,
     /// Enrolled voices to name speakers after.
     pub known: Vec<overfilm_asr::speakers::KnownVoice>,
@@ -76,6 +77,12 @@ pub fn ensure_models(dir: &Path, progress: Progress) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether [`recognise`] tells voices apart: speakers on, unless the user said there is one
+/// person and there are no enrolled voices to name them after.
+pub fn tell_apart(r: &Request) -> bool {
+    r.speakers && !(r.num_speakers == Some(1) && r.known.is_empty())
+}
+
 /// Recognise mono 16 kHz `audio` with the models in `models` (already downloaded, see
 /// [`ensure_models`]). Progress runs 0–1: recognition and timing first, speakers last.
 pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) -> Result<Recognised, String> {
@@ -102,10 +109,11 @@ pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) 
         correct: &correct,
         gpu: r.gpu,
     };
-    let rec_share = if r.speakers { 0.9 } else { 1.0 };
+    let label_speakers = tell_apart(r);
+    let rec_share = if label_speakers { 0.9 } else { 1.0 };
     let mut transcript = overfilm_asr::transcribe(audio, &settings, &mut |f, m| progress(rec_share * f, m)).map_err(|e| e.to_string())?;
     let mut speaker_device = String::new();
-    if r.speakers {
+    if label_speakers {
         let p = overfilm_asr::speakers::Params { speakers: r.num_speakers.filter(|&n| n > 0), known: r.known.clone(), ..Default::default() };
         let mut cancelled = false;
         let res = speakers::label(audio, &mut transcript, &overfilm_asr::catalogue::SPEAKER.dir(models), &p, r.gpu, &mut |f| {
@@ -127,4 +135,25 @@ pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) 
     let corrections = corrections.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
     let raw_texts = raw_texts.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
     Ok(Recognised { transcript, corrections, device, voice_lines, raw_texts })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_speaker_skips_telling_voices_apart() {
+        let mut r = Request::new(Mode::General);
+        assert!(tell_apart(&r), "counted automatically");
+        r.num_speakers = Some(2);
+        assert!(tell_apart(&r));
+        r.num_speakers = Some(1);
+        assert!(!tell_apart(&r), "one person: nothing to tell apart");
+        r.known = vec![overfilm_asr::speakers::KnownVoice { name: "나".into(), vector: vec![1.0] }];
+        assert!(tell_apart(&r), "an enrolled voice still names the one person");
+        r.speakers = false;
+        r.known.clear();
+        r.num_speakers = None;
+        assert!(!tell_apart(&r));
+    }
 }

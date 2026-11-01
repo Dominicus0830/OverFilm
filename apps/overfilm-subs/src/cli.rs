@@ -4,6 +4,7 @@
 //! overfilm-subs extract <video or audio> [-o out.srt] [--mode general|commentary]
 //!               [--terms "이름, 용어"] [--no-mask] [--no-digits] [--glossary <folder>] [--line-chars 16]
 //!               [--speakers auto|off|N] [--game-voice drop|label|keep] [--per-speaker] [--clean]
+//!               [--audio-track N]
 //! overfilm-subs review <file.srt>
 //! overfilm-subs fix <file.srt>          apply the glossary (misrecognitions, profanity initials)
 //! overfilm-subs relayout <file.overfilm.json> [-o out.srt] [--line-chars 16] [--one-line]
@@ -32,7 +33,8 @@ use overfilm_subs::{export, job, mcp, pack, review, speakers, voices};
 const USAGE: &str = "사용법:
   overfilm-subs extract <영상/오디오> [-o 저장.srt] [--mode general|commentary] [--terms \"이름, 용어\"] [--no-mask] [--no-digits] [--glossary 폴더] [--line-chars 16] [--cpu]
                 [--speakers auto|off|숫자] [--game-voice drop|label|keep] [--per-speaker]
-      --speakers     목소리 구별: auto(기본, 사람 수 자동), off(끔), 숫자(사람 수를 알 때)
+      --speakers     목소리 구별: auto(기본, 사람 수 자동), off(끔), 숫자(사람 수를 알 때, 1이면 구별을 건너뛰어 빠름)
+      --audio-track  인식할 오디오 트랙 번호 (1부터, 기본 1). OBS에서 마이크를 따로 녹음한 트랙 등
       --game-voice   영웅 대사·아나운서 같은 게임 음성: drop(자막에서 빼기, 기본), label((게임) 표시), keep(그대로)
       --per-speaker  사람마다 SRT를 따로 저장 (이름.화자1.srt …)
       --only-voices  등록한 목소리(voice add)의 말만 자막으로 (스트리머 말만 등)
@@ -87,6 +89,9 @@ fn extract(args: &[String]) -> Result<(), String> {
                         (true, Some(n.parse::<usize>().ok().filter(|&n| (1..=20).contains(&n)).ok_or("--speakers는 auto, off 또는 1~20")?))
                 }
             },
+            "--audio-track" => {
+                o.audio_track = val()?.parse::<usize>().ok().and_then(|n| n.checked_sub(1)).filter(|&n| n < 64).ok_or("--audio-track은 1~64")?;
+            }
             "--game-voice" => o.game_voice = speakers::GameVoice::parse(&val()?).ok_or("--game-voice는 drop, label 또는 keep")?,
             "--per-speaker" => o.per_speaker = true,
             "--only-voices" => o.only_voices = true,

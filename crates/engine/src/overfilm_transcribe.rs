@@ -2,13 +2,17 @@
 //! `OVERFILM.md`): Qwen3-ASR with the Overwatch glossary as context, glossary correction,
 //! speaker labels and in-game voice (hero lines, announcer) told apart.
 //!
-//! - `overfilm.captions.generate {items?, mode="general"|"commentary", speakers=true,
+//! - `overfilm.captions.generate {items?, audioTrack?, mode="general"|"commentary", speakers=true,
 //!   numSpeakers?, extraTerms?, gpu=true, gameVoice="drop"|"label"|"keep", lineChars=16,
 //!   maxLines=2, cleanFillers=false, wait=false}` recognises the media of the sequence's audio
 //!   clips (or `items`, or the Project panel selection) in a background job (feature
 //!   `overfilm-qwen`; models are downloaded on first use into the folder OverFilmSubs uses), stores
 //!   each item's transcript (Text panel ▸ Transcript; in-game voice is the speaker "게임 음성"),
-//!   then lays the captions out as `overfilm.captions.fromTranscript` does.
+//!   then lays the captions out as `overfilm.captions.fromTranscript` does. `audioTrack` (1 = A1)
+//!   recognises only the clips on that audio track, each with the audio stream and channels the
+//!   clip plays (a recording with the microphone on a track of its own, OBS-style), and captions
+//!   only those clips' media. `numSpeakers: 1` skips telling voices apart (faster). The time left
+//!   is estimated from the average speed since recognition started (it moves in long steps).
 //! - `overfilm.captions.fromTranscript {gameVoice?, lineChars?, maxLines?, cleanFillers?}` lays
 //!   the sequence transcript out as Korean captions (two lines at most, natural breaks, a turn per
 //!   speaker, `(화자1)` labels when two or more people talk) on the caption track "OverFilm 자막",
@@ -84,6 +88,8 @@ pub struct CaptionOptions {
     pub game: GameVoice,
     pub layout: Layout,
     pub clean: bool,
+    /// Caption only the words of these media items (an audio track was chosen); `None`: all.
+    pub only_items: Option<Vec<ItemId>>,
 }
 
 fn caption_options(p: &Value, cmd: &str) -> Result<CaptionOptions> {
@@ -97,6 +103,7 @@ fn caption_options(p: &Value, cmd: &str) -> Result<CaptionOptions> {
         game,
         layout: Layout { max_line: chars * 2, max_lines: lines, ..Layout::default() },
         clean: bool_p(p, "cleanFillers").unwrap_or(false),
+        only_items: None,
     })
 }
 
@@ -173,6 +180,49 @@ pub fn turns(words: &[filmcraft_edit::transcript::SeqWord], game: GameVoice) -> 
     out
 }
 
+/// What to recognise: a media item, the audio stream within it and the source channels to mix
+/// (empty: all).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Target {
+    pub item: ItemId,
+    pub stream: usize,
+    pub channels: Vec<u16>,
+}
+
+/// The targets of `p`: with `audioTrack` (1 = A1) the enabled clips on that audio track of the
+/// active sequence, with the stream and channels each plays; else the usual targets
+/// (`items`, the Project selection, the sequence's audio clips), first stream, all channels.
+pub fn targets(s: &Session, p: &Value, cmd: &str) -> Result<Vec<Target>> {
+    let Some(v) = p.get("audioTrack").filter(|v| !v.is_null()) else {
+        return Ok(crate::transcript::targets(s, p).into_iter().map(|item| Target { item, stream: 0, channels: Vec::new() }).collect());
+    };
+    let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
+    let n = v.as_u64().filter(|&n| n >= 1).ok_or_else(|| bad(cmd, "audioTrack is a track number: 1 for A1, 2 for A2…"))?;
+    let track = usize::try_from(n - 1)
+        .ok()
+        .and_then(|i| q.audio_tracks.get(i))
+        .ok_or_else(|| bad(cmd, format!("the sequence has no audio track A{n} (it has {})", q.audio_tracks.len())))?;
+    let mut out: Vec<Target> = Vec::new();
+    for it in track.items.iter().filter(|it| it.enabled) {
+        let Some((root, _, _)) = s.project.resolve_media(it.item) else { continue };
+        let t = Target { item: root, stream: it.audio_stream, channels: it.source_channels.clone() };
+        // one transcript per media item: the first clip's stream and channels decide
+        if !out.iter().any(|o| o.item == t.item) {
+            out.push(t);
+        }
+    }
+    if out.is_empty() {
+        return Err(bad(cmd, format!("there are no clips with sound on A{n}")));
+    }
+    Ok(out)
+}
+
+/// Mono of the chosen source channels (all when `pick` is empty or names none of them).
+pub fn mono_of(channels: &[Vec<f32>], pick: &[u16]) -> Vec<f32> {
+    let chosen: Vec<Vec<f32>> = pick.iter().filter_map(|&c| channels.get(usize::from(c)).cloned()).collect();
+    if chosen.is_empty() { filmcraft_speech::downmix(channels) } else { filmcraft_speech::downmix(&chosen) }
+}
+
 fn from_transcript(s: &mut Session, p: &Value) -> Result<Value> {
     let o = caption_options(p, "overfilm.captions.fromTranscript")?;
     place_captions(s, &o)
@@ -180,7 +230,10 @@ fn from_transcript(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// Lay the sequence transcript out as captions on the "OverFilm 자막" caption track.
 fn place_captions(s: &mut Session, o: &CaptionOptions) -> Result<Value> {
-    let words = crate::transcript::sequence_words(s);
+    let mut words = crate::transcript::sequence_words(s);
+    if let Some(only) = &o.only_items {
+        words.retain(|w| only.contains(&w.item));
+    }
     if words.is_empty() {
         return Err(EngineError::Other("the sequence has no transcript".into()));
     }
@@ -285,7 +338,7 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
     use overfilm_pipeline::recognise::{Request, ensure_models, recognise};
     const CMD: &str = "overfilm.captions.generate";
     let seq = s.state.active_sequence.ok_or(EngineError::NoSequence)?;
-    let options = caption_options(p, CMD)?;
+    let mut options = caption_options(p, CMD)?;
     let mode = match str_p(p, "mode") {
         Some(m) => Mode::parse(m).ok_or_else(|| bad(CMD, format!("mode is general or commentary, not {m}")))?,
         None => Mode::General,
@@ -300,13 +353,18 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
     req.num_speakers = u64_p(p, "numSpeakers").map(|n| n.clamp(1, 32) as usize);
     let user = overfilm_pipeline::user_glossary_dir();
     req.glossary_dir = user.is_dir().then_some(user);
-    if req.speakers {
+    // one person: nothing to tell apart or name (the label is not shown), so it is skipped
+    if req.speakers && req.num_speakers != Some(1) {
         req.known = overfilm_pipeline::voices::known(&overfilm_pipeline::voices::list());
+    }
+    let chosen = targets(s, p, CMD)?;
+    if p.get("audioTrack").is_some_and(|v| !v.is_null()) {
+        options.only_items = Some(chosen.iter().map(|t| t.item).collect());
     }
     // the media to recognise and how long each is
     let sr = filmcraft_speech::SAMPLE_RATE;
     let mut work = Vec::new();
-    for item in crate::transcript::targets(s, p) {
+    for Target { item, stream, channels } in chosen {
         let Some(it) = s.project.item(item) else { continue };
         let dur = match &it.kind {
             filmcraft_project::ItemKind::Media(m) => m.duration(),
@@ -314,14 +372,14 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
         };
         let name = it.name.clone();
         let Some(src) = s.source(item) else { continue };
-        if !src.info().has_audio() {
+        if !src.info().has_audio() || stream >= src.info().audio_streams.len() {
             continue;
         }
         if dur > Tick(MAX_HOURS * 3600 * TICKS_PER_SECOND) {
             return Err(bad(CMD, format!("{name} is longer than {MAX_HOURS} hours; cut it into parts first")));
         }
         let len = usize::try_from(dur.to_units_floor(i64::from(sr)).max(0)).unwrap_or(0);
-        work.push((item, name, src, len));
+        work.push((item, name, src, len, stream, channels));
     }
     if work.is_empty() {
         return Err(bad(CMD, "nothing to recognise (put clips with sound in the sequence, or pass `items`)"));
@@ -330,6 +388,8 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
     let id = s.jobs.iter().map(|j| j.id).max().unwrap_or(0) + 1;
     let job = crate::Job { id, label: "OverFilm Captions".into(), progress: Default::default(), result: Default::default() };
     job.progress.total.store(total, std::sync::atomic::Ordering::Relaxed);
+    // recognition moves in long steps (a piece of sound at a time): a 15 s window would swing
+    job.progress.set_steady_pace();
     let result: Arc<Mutex<Option<Vec<(ItemId, Transcript)>>>> = Arc::default();
     let report: Arc<Mutex<Value>> = Arc::default();
     let raw: Arc<Mutex<Vec<(ItemId, Vec<overfilm_review::captions::RawChunk>)>>> = Arc::default();
@@ -349,7 +409,7 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
             let mut done_secs = 0u64;
             let mut items = Vec::new();
             let mut reports = Vec::new();
-            for (item, name, src, len) in &work {
+            for (item, name, src, len, stream, channels) in &work {
                 // the sound in one-minute pieces, so a long broadcast can be stopped
                 let step = 60 * sr as usize;
                 let mut audio = Vec::with_capacity(*len);
@@ -359,8 +419,8 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
                         return Err("stopped".into());
                     }
                     let n = step.min(len - at);
-                    let buf = src.audio(at as i64, n, sr).map_err(|e| format!("{name}: {e}"))?;
-                    let mono = filmcraft_speech::downmix(&buf.channels);
+                    let buf = src.audio_stream(*stream, at as i64, n, sr).map_err(|e| format!("{name}: {e}"))?;
+                    let mono = mono_of(&buf.channels, channels);
                     if mono.is_empty() {
                         break;
                     }

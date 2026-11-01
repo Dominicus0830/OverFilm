@@ -29,6 +29,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{SAMPLE_RATE, Word};
 
+/// The most speakers a user can ask for.
+pub const MAX_ASKED_SPEAKERS: usize = 32;
+
 /// Tunables (defaults measured on synthetic Korean conversations; see `OVERFILM.md`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Params {
@@ -41,7 +44,8 @@ pub struct Params {
     pub threshold: f32,
     /// The number of speakers when the user knows it.
     pub speakers: Option<usize>,
-    /// At most this many speakers are kept.
+    /// At most this many speakers are kept when they are counted automatically (a count the user
+    /// gives, up to [`MAX_ASKED_SPEAKERS`], is kept as given).
     pub max_speakers: usize,
     /// A speaker needs at least this much speech (seconds) to be kept, or 8 % of all speech when
     /// that is less (short clips).
@@ -306,7 +310,7 @@ pub fn cluster_windows(vecs: &[Option<Vec<f32>>], wins: &[(i64, i64)], p: &Param
     let stride = have.len().div_ceil(cluster::MAX_POINTS).max(1);
     let sample: Vec<Vec<f32>> = have.iter().step_by(stride).filter_map(|&i| vecs.get(i).cloned().flatten()).collect();
     let merges = cluster::average_linkage(&sample);
-    let want = p.speakers.map(|k| k.clamp(1, p.max_speakers.max(1)));
+    let want = p.speakers.map(|k| k.clamp(1, MAX_ASKED_SPEAKERS));
     let labels = cluster::cut(sample.len(), &merges, p.threshold, want);
     let k = labels.iter().max().map_or(1, |m| m + 1);
     let mut cents = cluster::centroids(&sample, &labels, k, dim);
@@ -333,7 +337,7 @@ pub fn cluster_windows(vecs: &[Option<Vec<f32>>], wins: &[(i64, i64)], p: &Param
             }
         }
         let keep_min = if want.is_some() { 0.0 } else { p.min_speaker_seconds.min(0.08 * total) };
-        let over = cents.len() > p.max_speakers.max(1);
+        let over = cents.len() > want.unwrap_or(p.max_speakers).max(1);
         let smallest = secs.iter().enumerate().min_by(|a, b| a.1.total_cmp(b.1)).map(|(i, &s)| (i, s));
         match smallest {
             Some((i, s)) if cents.len() > 1 && (s < keep_min || over) => {
@@ -659,6 +663,29 @@ mod tests {
         // the user's count wins
         let one = cluster_windows(&vecs, &wins, &Params { speakers: Some(1), ..p.clone() });
         assert_eq!(label_words(&words, &wins, &vecs, &one, &p).speakers.len(), 1);
+    }
+
+    #[test]
+    fn a_count_above_the_automatic_limit_is_kept() {
+        // ten clearly different voices, the user says ten: the automatic limit (8) does not apply
+        let wins: Vec<(i64, i64)> = (0..100).map(|i| (i * 1000, i * 1000 + 900)).collect();
+        let vecs: Vec<Option<Vec<f32>>> = (0..100)
+            .map(|i| {
+                let mut v = vec![0.05f32; 10];
+                if let Some(x) = v.get_mut(i % 10) {
+                    *x = 1.0;
+                }
+                cluster::normalize(&mut v);
+                Some(v)
+            })
+            .collect();
+        let p = Params { speakers: Some(10), ..Params::default() };
+        assert_eq!(cluster_windows(&vecs, &wins, &p).centroids.len(), 10);
+        let auto = Params { min_speaker_seconds: 0.0, ..Params::default() };
+        assert_eq!(cluster_windows(&vecs, &wins, &auto).centroids.len(), 8);
+        // a hostile count is capped
+        let huge = Params { speakers: Some(usize::MAX), ..Params::default() };
+        assert!(cluster_windows(&vecs, &wins, &huge).centroids.len() <= MAX_ASKED_SPEAKERS);
     }
 
     #[test]
