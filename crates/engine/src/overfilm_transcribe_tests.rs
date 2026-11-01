@@ -149,3 +149,53 @@ fn overfilm_e2e_recognises_a_real_recording() {
         s.execute("captions.export", json!({"path": out.to_string_lossy(), "track": t.id.0})).unwrap();
     }
 }
+
+#[test]
+fn an_audio_track_picks_its_clips_with_their_stream_and_channels() {
+    let mut s = session();
+    const CMD: &str = "overfilm.captions.generate";
+    // no track chosen: the usual targets, first stream, all channels
+    let all = targets(&s, &json!({}), CMD).unwrap();
+    assert!(!all.is_empty() && all.iter().all(|t| t.stream == 0 && t.channels.is_empty()));
+    let q = s.active_sequence().unwrap();
+    let a1 = q.audio_tracks[0].items[0].clone();
+    let root = s.project.resolve_media(a1.item).map(|(r, _, _)| r).unwrap();
+    // A1's clip plays the media's second stream, left channel only (a microphone track)
+    let seq = s.state.active_sequence.unwrap();
+    {
+        let p = Arc::make_mut(&mut s.project);
+        let q = p.sequence_mut(seq).unwrap();
+        let it = &mut q.audio_tracks[0].items[0];
+        it.audio_stream = 1;
+        it.source_channels = vec![0];
+    }
+    let t = targets(&s, &json!({"audioTrack": 1}), CMD).unwrap();
+    assert_eq!(t.first(), Some(&Target { item: root, stream: 1, channels: vec![0] }));
+    // hostile or missing tracks are refused, not trusted
+    for bad in [json!(0), json!(-1), json!("A1"), json!(u64::MAX), json!(999)] {
+        assert!(targets(&s, &json!({"audioTrack": bad}), CMD).is_err(), "{bad}");
+    }
+    assert!(targets(&s, &json!({"audioTrack": null}), CMD).is_ok(), "null = all tracks");
+}
+
+#[test]
+fn chosen_channels_are_mixed_and_odd_picks_fall_back_to_all() {
+    let ch = vec![vec![1.0, 1.0], vec![0.0, 0.0]];
+    assert_eq!(mono_of(&ch, &[]), vec![0.5, 0.5]);
+    assert_eq!(mono_of(&ch, &[0]), vec![1.0, 1.0]);
+    assert_eq!(mono_of(&ch, &[1]), vec![0.0, 0.0]);
+    assert_eq!(mono_of(&ch, &[7, u16::MAX]), vec![0.5, 0.5], "channels the media does not have");
+    assert!(mono_of(&[], &[0]).is_empty());
+}
+
+#[test]
+fn captions_of_a_chosen_track_leave_other_media_out() {
+    let mut s = session();
+    let mut o = caption_options(&json!({}), "t").unwrap();
+    o.only_items = Some(vec![ItemId(u64::MAX)]);
+    assert!(place_captions(&mut s, &o).is_err(), "no words of the chosen media");
+    let q = s.active_sequence().unwrap();
+    let item = q.audio_tracks[0].items[0].item;
+    o.only_items = Some(vec![s.project.resolve_media(item).map(|(r, _, _)| r).unwrap()]);
+    assert!(place_captions(&mut s, &o).unwrap()["captions"].as_u64().unwrap() > 0);
+}
