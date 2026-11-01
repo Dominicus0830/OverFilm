@@ -60,8 +60,8 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
         },
         CommandSpec {
             id: "overfilm.screenTemplate.learn",
-            label: "Learn Screen Template (OverFilm)",
-            menu: &[],
+            label: "Learn Screen Template (OverFilm)…",
+            menu: &["Sequence", "OverFilm"],
             shortcut: None,
             params: r#"{"screen":"standby"|"setup"|"pause"|"live","name":str?,"rects":[[x,y,w,h]],"ignore":[[x,y,w,h]]?,"time":ticks?,"clip":id?,"templates":path?,"threshold":0..1?}"#,
             enabled: has_seq,

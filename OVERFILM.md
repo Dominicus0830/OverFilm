@@ -247,6 +247,10 @@ label / keep), `lineChars`, `maxLines`, `cleanFillers`. The editor app builds wi
   by default. Making them again replaces that track. Because the words are taken through the clips
   as they are now, running it after an Auto Cut or any edit gives captions that fit the cut.
 - Then `Styled Captions` and `Export for Premiere Pro` below take that track.
+- Checked end to end on 60 s of a Korean Overwatch video (`overfilm_e2e_recognises_a_real_recording`,
+  ignored by default: `OVERFILM_E2E_MEDIA=clip.mp4 cargo test -p filmcraft-engine --features
+  overfilm-qwen -- --ignored overfilm_e2e`): the editor's captions are the same, cue for cue, as
+  OverFilmSubs' SRT of the same clip.
 - Overlapped speech (`화자1·화자2` turns) is not carried into the project transcript, which has one
   speaker per word; OverFilmSubs still writes those.
 
@@ -274,6 +278,24 @@ track. Then:
   `<name>.srt`, `<name>-자막.mov` (the styled captions alone, ProRes 4444 with alpha, from 00:00
   to the last caption, to lay on the top track at 00:00) and a short how-to in Korean. Adobe's
   `.mogrt` is not written (closed format).
+
+## Dialogs
+
+The Sequence ▸ OverFilm menu items open a dialog when chosen from the menu (`crates/ui-egui/src/panels/overfilm.rs`;
+called with parameters, over the control channel or MCP, the command runs directly):
+
+- **OverFilm Captions (Korean)…**: video kind, in-game voice, speaker count, characters per line,
+  lines, extra terms, speakers / fillers / GPU switches.
+- **Styled Captions (OverFilm)…**: caption track (the "OverFilm 자막" track first), style, motion in
+  and out.
+- **Auto Cut Waiting and Pauses (OverFilm)…**: template file, time kept before the start, frames
+  per second, markers or cut right away, frozen picture as pause.
+- **Learn Screen Template (OverFilm)…**: the Program frame at the playhead; drag on it to mark what
+  always looks the same on that screen (green) and, switched to ignore, what changes (red: the
+  clock, a camera). OK learns it into the template file.
+
+The labels are in English in the code and Korean in `crates/ui-egui/src/i18n/ko.tsv` (Edit ▸
+Language ▸ 한국어).
 
 ## Upstream updates
 
@@ -319,5 +341,8 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `crates/engine/src/transcript.rs` | `targets` is `pub(crate)` (which clips to recognise) |
 | `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |
 | `apps/filmcraft/Cargo.toml` | feature `overfilm-qwen`, on by default |
+| `crates/ui-egui/src/panels/overfilm.rs` | new file: the OverFilm dialogs |
+| `crates/ui-egui/src/panels.rs`, `menus.rs`, `panels/dialogs.rs` | `mod overfilm`, its `route` before the menu dialogs, its `show` |
+| `crates/ui-egui/src/i18n/ko.tsv` | Korean labels of the OverFilm menu items and dialogs (appended) |
 | `crates/engine/src/overfilm_autocut.rs` (+ `tests.rs`) | new file: Auto Cut commands (frames in, cuts out) |
 | `crates/engine/src/overfilm_captions.rs` | new file: styled captions and the Premiere Pro export |
