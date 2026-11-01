@@ -148,11 +148,15 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   `voicelines.tsv` on letters only (edit distance at most a fifth of the line). An exact match of a line
   of 5+ characters (score ≥ 0.8 for lines of 8+) marks its words as game audio; a speaker with 2+ matches whose
   words are at least half voice lines becomes a game voice as a whole; near misses of short lines
-  are ignored, and communication-wheel lines (kind `comm`, "방어구가 필요해") only count towards a
-  speaker, never on their own. The table holds ~4,100 lines: ultimates and announcer for most heroes,
-  plus every Korean line of Genji, Ana, Kiriko, Mercy, Reinhardt and Soldier: 76 taken from the
-  client's sound file names. `find` compares only lines sharing enough character pairs with the
-  text (an edit removes at most two distinct pairs), ~15 ms for 1,000 words. Captions drop game audio
+  are ignored, and only ultimate/announcer/skin lines or lines of 8+ characters count on their own;
+  communication-wheel lines (kind `comm`, "방어구가 필요해") and short everyday lines ("아니거든요")
+  only count towards a speaker. The table holds ~20,000 lines: ultimates and announcer for most
+  heroes, plus the Korean lines of 39 heroes taken from the client's sound file names (lines of
+  under 5 characters, glossary words such as Echo's copied hero names, foreign-language and
+  event-mode lines left out; Anran, D.Mon, Domina, Shion, Sierra and Zenyatta still missing).
+  `find` compares only lines sharing enough character pairs with the text (an edit removes at most
+  two distinct pairs): ~60 ms for 1,000 words. On 40 recognised hero lines 19 are marked on their
+  own; on two real streams no streamer words are. Captions drop game audio
   by default (`--game-voice label|keep` to show it). Recognising game audio by sound rather than
   text (hero voices, effects, music) is not done yet.
 
