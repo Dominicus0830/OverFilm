@@ -230,6 +230,8 @@ pub struct PendingCaptions {
     pub seq: ItemId,
     pub options: CaptionOptions,
     pub result: Arc<Mutex<Option<Vec<(ItemId, Transcript)>>>>,
+    /// Each item's pure recognition (before the glossary correction), for Claude Code review.
+    pub raw: Arc<Mutex<Vec<(ItemId, Vec<overfilm_review::captions::RawChunk>)>>>,
 }
 
 /// Apply finished recognitions. Called once per UI frame and after synchronous runs.
@@ -246,6 +248,7 @@ pub fn poll(s: &mut Session) {
         }
         let pj = s.overfilm_caption_jobs.remove(i);
         let Some(done) = lock(&pj.result).take().filter(|_| !cancelled) else { continue };
+        let raw = std::mem::take(&mut *lock(&pj.raw));
         let r = s.edit("OverFilm Transcribe", move |pr, _| {
             for (item, t) in done {
                 pr.transcripts.insert(item, Arc::new(t));
@@ -256,12 +259,16 @@ pub fn poll(s: &mut Session) {
             s.error_toast("overfilm.captions.generate", format!("OverFilm Captions: {e}"));
             continue;
         }
+        crate::overfilm_review::store_raw(s, raw);
         if s.state.active_sequence != Some(pj.seq) {
             s.toast("OverFilm Captions: transcripts saved; open the sequence and run OverFilm Captions from Transcript");
             continue;
         }
         match place_captions(s, &pj.options) {
-            Ok(v) => s.toast(format!("OverFilm Captions: {} caption(s) on the track \"{CAPTION_TRACK}\"", v["captions"])),
+            Ok(v) => {
+                s.toast(format!("OverFilm Captions: {} caption(s) on the track \"{CAPTION_TRACK}\"", v["captions"]));
+                crate::overfilm_review::after_captions(s);
+            }
             Err(e) => s.error_toast("overfilm.captions.generate", format!("OverFilm Captions: {e}")),
         }
     }
@@ -325,6 +332,8 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
     job.progress.total.store(total, std::sync::atomic::Ordering::Relaxed);
     let result: Arc<Mutex<Option<Vec<(ItemId, Transcript)>>>> = Arc::default();
     let report: Arc<Mutex<Value>> = Arc::default();
+    let raw: Arc<Mutex<Vec<(ItemId, Vec<overfilm_review::captions::RawChunk>)>>> = Arc::default();
+    let raw_out = raw.clone();
     let (prog, res, out, rep) = (job.progress.clone(), job.result.clone(), result.clone(), report.clone());
     let run = move || {
         use std::sync::atomic::Ordering;
@@ -371,6 +380,7 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
                 done_secs += secs;
                 prog.done.store(done_secs, Ordering::Relaxed);
                 let t = to_project(&rec.transcript);
+                lock(&raw_out).push((*item, crate::overfilm_review::raw_chunks(&rec)));
                 reports.push(json!({"item": item.0, "words": t.words.len(), "speakers": t.speakers.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
                     "voiceLines": rec.voice_lines, "corrections": rec.corrections.len(), "device": rec.device}));
                 items.push((*item, t));
@@ -395,7 +405,7 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let run = crate::export_tools::guard_job(job.progress.clone(), job.result.clone(), run);
     s.jobs.push(job);
-    s.overfilm_caption_jobs.push(PendingCaptions { job: id, seq, options, result });
+    s.overfilm_caption_jobs.push(PendingCaptions { job: id, seq, options, result, raw });
     let mut out = json!({"job": id, "seconds": total});
     if bool_p(p, "wait").unwrap_or(false) || cfg!(target_arch = "wasm32") {
         run();

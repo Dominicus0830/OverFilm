@@ -20,6 +20,7 @@ calling the caption layout) and listed in the table at the end.
 | `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the shared models folder |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L1 | M6 | analysis behind the editing suggestions: loudness, silences, highlights (`overfilm.assist.suggest` in the engine), the learnt editing style (`style`) |
+| `overfilm-review` | L1 | M6 | Claude Code review: runs the local `claude -p` (the user's subscription, no API key) on unclear cuts and captions; questions, JSON schemas and checked answers; see "Claude Code review" below |
 | `overfilm-subs` (`apps/`) | L6 | — | standalone subtitle extractor: window (`OverFilmSubs`), command line and MCP review server (`overfilm-subs`); see its README |
 | `packs/overwatch/ko/` | data | M2 | Overwatch Korean pack: `glossary/` (heroes, abilities, maps, modes, terms, teams, players; see its README), `voicelines.tsv` (hero ultimates and announcer as heard in the Korean client), later fillers, caption rules |
 
@@ -344,6 +345,50 @@ the fights at 31:06 and 34:30 (a team wipe) died in the order and at the times t
 and two of the four sound-only highlights (31:06, 1:15:19) fall on fights. A plate that flickers back
 mid-respawn made a few double deaths, hence no second death of a player within 8 s.
 
+## Claude Code review
+
+Off until switched on in `Sequence ▸ OverFilm ▸ Claude Code Review Settings…`
+(`overfilm.review.settings {enabled, auto, cliPath, model, timeoutSeconds=180, batch=6,
+maxItems=60}`, saved as `claude-review.json` in the OverFilm data folder). When on, the editor hands
+the calls it is unsure of to the Claude Code command line on the same computer:
+
+- **How it runs** (`overfilm_review::cli`): one `claude -p --output-format json --json-schema …
+  --tools "" --no-session-persistence --strict-mcp-config` run per batch of questions, the prompt on
+  stdin, in an empty temporary folder. `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are removed
+  from its environment, so it always uses the Claude account the user signed in to Claude Code
+  with (their subscription). Windows: `claude.exe` (native install) or the script behind an npm
+  `claude.cmd`, no console window. A time limit per question (killed after it), the Jobs panel's
+  stop button kills it too. Not installed, not signed in, usage limit, timeout or an answer that
+  does not parse: a toast says which, nothing changes. `Check Claude Code` in the dialog runs
+  `claude --version` and `claude auth status`.
+- **Unclear cuts** (`Ask Claude Code About Unclear Cuts`, `overfilm.review.cuts {markers?, all,
+  again, rules?}`): "OverFilm 컷" markers with speech within 1.5 s of an edge or inside, game voice
+  inside, or a highlight or team fight ("OverFilm 교전") within 5 s. Each goes with the words heard
+  30 s around it (speaker, game voice, before/inside/after) and what the screen templates see at five points. The answer per
+  marker is `cut` (the reason added to the comment), `keep` (renamed "OverFilm 유지 (Claude)", blue,
+  so Apply OverFilm Cut Markers skips it) or `partial` with exact keep ranges in ms (the marker
+  becomes cut markers for the rest and keep markers for those; pieces under 0.5 s are dropped).
+  Keep ranges are clipped into the marker. The user's rule goes with every question: waiting time up
+  to 10 s before the start, pauses whole, silences only when nothing happens, nothing else.
+- **Captions** (`Ask Claude Code About Unclear Captions`, `overfilm.review.captions {track?,
+  captions?, all, again, lineChars=16, maxLines=2}`): captions with unsure words (confidence under
+  0.7), a glossary correction (the pure recognition differs from the corrected text), over the
+  line limits, a one- or two-letter line, or a very short caption after them. Each goes with the
+  caption, the pure recognition of its words (kept from recognition: `Recognised::raw_texts`,
+  lined up with the corrected words by edit distance; beside a saved project as
+  `<project>.overfilm-raw.json`), the corrected text, and the two captions before and after with
+  their own pure recognition. Answers: `keep`, `fix` (new text, at most two lines) or `split`
+  (2–4 captions; times cut at the word boundary where each part's letters run out). A fix far from
+  both the caption and the pure recognition (over 40 % of the letters changed) or over the line
+  limits is dropped; speaker labels such as `(화자1)` are kept.
+- **On its own** (`auto`): after Auto Cut or Suggestions mark cuts, and after OverFilm Captions
+  places captions, the matching review starts by itself.
+
+Every review is one undo step; a marker or caption changed while it ran is left alone, and
+reviewed ones are not asked again unless `again`. Measured with Claude Code 2.1 (default model):
+about 6–8 s for one question. `cargo test -p overfilm-review -- --ignored` asks the real
+Claude Code one cut and one caption.
+
 ## Editing style (beta)
 
 `Sequence ▸ OverFilm ▸ Learn Editing Style (Beta)` (`overfilm.style.learn {sequences?, style?}`) learns
@@ -379,6 +424,8 @@ called with parameters, over the control channel or MCP, the command runs direct
   always looks the same on that screen (green) and, switched to ignore, what changes (red: the
   clock, a camera). OK learns it into the template file. "Team 1/2 name plates (kills)" learns a
   player bar instead (the first green rectangle, and the number of players).
+- **Claude Code Review Settings (OverFilm)…** (`panels/overfilm_review.rs`): on/off, on its own,
+  `claude` path, model, time limit, batch size, most items, and a connection check.
 
 The labels are in English in the code and Korean in `crates/ui-egui/src/i18n/ko.tsv` (Edit ▸
 Language ▸ 한국어).
@@ -421,15 +468,17 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `xtask/src/main.rs` | `overfilm-*` crates in `LAYERS`; layering also checks `overfilm-*` dependencies |
 | `.github/workflows/overfilm.yml` | new file (OverFilm CI) |
 | `OVERFILM.md` | new file (this document) |
-| `crates/engine/Cargo.toml` | depends on `overfilm-vision`, `overfilm-captions`, `overfilm-pipeline`, `overfilm-asr`, `overfilm-ai`; feature `overfilm-qwen` |
-| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `mod overfilm_kills`, `mod overfilm_style`, `Session::overfilm_jobs`, `overfilm_caption_jobs`, `overfilm_assist_jobs` and `overfilm_kill_jobs`, their `poll` in `poll_persistence` |
-| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()`, `overfilm_reel::commands()`, `overfilm_kills::commands()` and `overfilm_style::commands()` |
+| `crates/engine/Cargo.toml` | depends on `overfilm-vision`, `overfilm-captions`, `overfilm-pipeline`, `overfilm-asr`, `overfilm-ai`, `overfilm-review`; feature `overfilm-qwen` |
+| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `mod overfilm_kills`, `mod overfilm_style`, `mod overfilm_review`, `Session::overfilm_jobs`, `overfilm_caption_jobs`, `overfilm_assist_jobs`, `overfilm_kill_jobs` and `overfilm_review`, their `poll` in `poll_persistence` |
+| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()`, `overfilm_reel::commands()`, `overfilm_kills::commands()`, `overfilm_style::commands()` and `overfilm_review::commands()` |
 | `crates/engine/src/transcript.rs` | `targets` is `pub(crate)` (which clips to recognise) |
 | `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |
 | `crates/engine/src/overfilm_assist.rs` (+ `_tests.rs`) | new file: silence and highlight suggestions |
 | `crates/engine/src/overfilm_reel.rs` (+ `_tests.rs`) | new file: the highlight reel |
 | `crates/engine/src/overfilm_kills.rs` (+ `_tests.rs`) | new file: player bars, deaths and team fights |
 | `crates/engine/src/overfilm_style.rs` (+ `_tests.rs`) | new file: the learnt editing style |
+| `crates/engine/src/overfilm_review.rs` (+ `_tests.rs`) | new file: Claude Code review of cuts and captions; Auto Cut's `mark`, Suggestions' `make` and OverFilm Captions' `poll` call its `after_*` hooks, OverFilm Captions keeps the pure recognition for it |
+| `crates/ui-egui/src/panels/overfilm_review.rs` | new file: the Claude Code review settings dialog (`route`/`show` next to `overfilm`'s) |
 | `apps/filmcraft/Cargo.toml` | feature `overfilm-qwen`, on by default |
 | `crates/ui-egui/src/panels/overfilm.rs` | new file: the OverFilm dialogs |
 | `crates/ui-egui/src/panels.rs`, `menus.rs`, `panels/dialogs.rs` | `mod overfilm`, its `route` before the menu dialogs, its `show` |
