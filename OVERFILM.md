@@ -298,7 +298,7 @@ Measured on the 84-minute OWCS broadcast by sound alone (`cargo run -p overfilm-
 assist_raw`, no transcript): of 12 highlights, 4 were team fights in play, the rest the pre-show
 (caster laughter, the intro video) and the loud bumpers between rounds. Hence two filters in the
 editor: no highlight inside Auto Cut's waiting markers, and, when the screen-template file has a
-game-HUD (`live`) template, a highlight must show the game at its peak (or 3 s either side).
+game-HUD (`live`) template, a highlight must show the game in at least two of its peak and 2 s either side.
 Silences: an esports broadcast has hardly any (3, 3 s in all); they matter for talking videos.
 
 ## Dialogs

@@ -238,8 +238,14 @@ pub fn make(s: &mut Session, levels: &[f32], o: &AssistOptions) -> Result<Value>
                 continue;
             }
             if let Some(set) = &set {
-                let on = [0, -3000, 3000].iter().filter_map(|d| crate::overfilm_autocut::frame_at(s, None, tick(h.peak_ms + d)).ok()).any(|f| set.live(&f));
-                if !on {
+                // the game on screen in at least two of the peak and 2 s either side: a bumper
+                // between rounds is loud too, and the HUD may still show for a second of it
+                let on = [0, -2000, 2000]
+                    .iter()
+                    .filter_map(|d| crate::overfilm_autocut::frame_at(s, None, tick(h.peak_ms + d)).ok())
+                    .filter(|f| set.live(f))
+                    .count();
+                if on < 2 {
                     continue;
                 }
             }

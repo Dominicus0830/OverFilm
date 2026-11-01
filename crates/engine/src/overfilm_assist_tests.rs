@@ -105,3 +105,15 @@ fn the_command_runs_on_the_demo_and_refuses_bad_params() {
     let mut empty = Session::default();
     assert!(empty.execute("overfilm.assist.suggest", json!({"wait": true})).is_err(), "no sequence");
 }
+
+/// On a real broadcast with its screen templates:
+/// `OVERFILM_E2E_BROADCAST=match.mp4 OVERFILM_E2E_TEMPLATES=screens.json cargo test -p
+/// filmcraft-engine -- --ignored overfilm_assist_e2e --nocapture`.
+#[test]
+#[ignore = "needs a broadcast recording and its screen templates"]
+fn overfilm_assist_e2e_on_a_broadcast() {
+    let (Some(path), Some(templates)) = (std::env::var_os("OVERFILM_E2E_BROADCAST"), std::env::var_os("OVERFILM_E2E_TEMPLATES")) else { return };
+    let (mut s, _, _) = crate::media_test_util::session_with(&[std::path::Path::new(&path)]);
+    let r = s.execute("overfilm.assist.suggest", json!({"wait": true, "templates": templates.to_string_lossy()})).unwrap();
+    eprintln!("{}", serde_json::to_string_pretty(&r).unwrap());
+}
