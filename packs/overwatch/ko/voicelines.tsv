@@ -1,6 +1,6 @@
 # 오버워치 한국어 클라이언트의 게임 음성(영웅 궁극기 대사, 아나운서). 자막에서 게임 음성을 찾아 빼는 데 쓴다.
 # 열: hero kind text lang note. kind: ult_ally(아군이 듣는 궁 대사) ult_enemy(적이 듣는 궁 대사, 공격·돌격은 본인도 이것을 들음) other(스킨·기타) announcer.
-# 'sourced game files' 줄은 사용자가 준 한국어 클라이언트 음성 파일 이름에서 뽑음(영웅 39명; 안란·디몬·도미나·시온·시에라는 파일 이름이 한국어가 아니고 젠야타는 파일이 잘려 없음). 다섯 글자 미만 대사와 영웅 이름 같은 단어집 낱말만인 대사는 뺌. kind는 파일 폴더 이름(ult, elimination, matchtalk…), comm은 소통 대사("방어구가 필요해" 등)로 사람도 흔히 하는 말이라 그것만으로는 게임 음성으로 보지 않음. 일본어·아랍어 원어 대사와 이벤트 모드 대사는 뺌.
+# 'sourced game files' 줄은 사용자가 준 한국어 클라이언트 음성 파일 이름에서 뽑음(영웅 40명; 안란·디몬·도미나·시온·시에라는 파일 이름이 한국어가 아니라 없음). 다섯 글자 미만 대사와 영웅 이름 같은 단어집 낱말만인 대사는 뺌. kind는 파일 폴더 이름(ult, elimination, matchtalk…), comm은 소통 대사("방어구가 필요해" 등)로 사람도 흔히 하는 말이라 그것만으로는 게임 음성으로 보지 않음. 일본어·아랍어 원어 대사와 이벤트 모드 대사는 뺌.
 # note의 sourced는 출처 페이지에서 확인한 것, recalled는 기억에 의존한 것(확인 필요). 외국어 대사는 한국 사람들이 받아 적는 한글 표기.
 # 2016~2019년 글이 많아 이후 바뀐 대사가 있을 수 있음(오리사·시메트라 궁 개편, 2025년 본인 궁 대사 재녹음). 빠진 영웅: 라마트라, 마우가(기본), 벤처, 주노, 해저드, 우양, 제트팩 캣, 시온, 독트린.
 hero	kind	text	lang	note
@@ -19990,3 +19990,673 @@ D.Va	enemykilled	떡 하나 안 주면 이렇게 되는 거야!	ko	sourced game 
 자리야	match	더욱 노력하면, 챔피언이 될 수 있을 겁니다	ko	sourced game files
 자리야	match	승리가 코앞입니다. 집중하십시오!	ko	sourced game files
 자리야	match	기세를 탔지만, 해이해지진 맙시다	ko	sourced game files
+젠야타	comm	방어구가 필요하오	ko	sourced game files
+젠야타	comm	도움이 필요하오	ko	sourced game files
+젠야타	comm	지원이 시급하오	ko	sourced game files
+젠야타	behindyou	뒤를 보시오	ko	sourced game files
+젠야타	comm	편안히 가시오	ko	sourced game files
+젠야타	cleararea	이 지역을 정리해야 하오	ko	sourced game files
+젠야타	comeforhealing	이쪽으로 와서 치유를 받으시오	ko	sourced game files
+젠야타	comeforhealing	치유로 가는 길이 이쪽으로 이어지오	ko	sourced game files
+젠야타	comeforhealing	내게 와서 치유를 받으시오	ko	sourced game files
+젠야타	damageboosted	내 안에 힘이 휘몰아치오	ko	sourced game files
+젠야타	damageboosted	내 영혼이 강해졌소	ko	sourced game files
+젠야타	damageboosted	적을 칠 시간이오	ko	sourced game files
+젠야타	discorded	작은 차질일 뿐이오	ko	sourced game files
+젠야타	discorded	나는 역경을 반긴다오	ko	sourced game files
+젠야타	eliminatetarget	이 대상을 제거해야 하오	ko	sourced game files
+젠야타	elimination	낙담하지 마시오. 처음에는 누구나 무지한 법이니	ko	sourced game files
+젠야타	elimination	그대의 나약함이 드러났소	ko	sourced game files
+젠야타	elimination	복수는 정의가 아니오	ko	sourced game files
+젠야타	elimination	마음이 편협하면 이미 진 것	ko	sourced game files
+젠야타	elimination	무지는 실패에 이르는 지름길이오	ko	sourced game files
+젠야타	elimination	화를 내면 자신이 화를 입는 법	ko	sourced game files
+젠야타	elimination	결국 우리 모두 우주와 하나가 될지니	ko	sourced game files
+젠야타	elimination	실수로부터 배워야 하오	ko	sourced game files
+젠야타	elimination	본인의 소행을 반성하시오	ko	sourced game files
+젠야타	elimination	이것 또한 곧 지나가리니	ko	sourced game files
+젠야타	elimination	우리는 누구나 잠재력을 지니고 있소	ko	sourced game files
+젠야타	elimination	이번엔 내가 승리할 거요, 겐지	ko	sourced game files
+젠야타	elimination	너무 빨리 움직이면 놓치는 게 많다오	ko	sourced game files
+젠야타	elimination	굽히지 않으면 부러진다오	ko	sourced game files
+젠야타	elimination	정의는 승자의 손으로 쓰는 거요	ko	sourced game files
+젠야타	elimination	헛손질만 하게 될 뿐이오	ko	sourced game files
+젠야타	elimination	그대는 아웃이오!	ko	sourced game files
+젠야타	elimination	이런 게 야구의 묘미라오	ko	sourced game files
+젠야타	elimination	졌다고 울진 마시오	ko	sourced game files
+젠야타	elimination	빠른 결단을 내려드렸소	ko	sourced game files
+젠야타	elimination	아름다운 백조의 노래였소	ko	sourced game files
+젠야타	elimination	모든 얼음은 녹기 마련이오	ko	sourced game files
+젠야타	elimination	피해의 근원을 찾아 제거했소	ko	sourced game files
+젠야타	elimination	이렇게 가면이 쓰러지는군	ko	sourced game files
+젠야타	elimination	패배는 승리보다 뛰어난 스승이오	ko	sourced game files
+젠야타	elimination	때로는 안 좋은 경험에서 좋은 판단이 피어날 수 있소	ko	sourced game files
+젠야타	elimination	탐욕이 그대를 이용했소	ko	sourced game files
+젠야타	elimination	이번엔 봐주지 않았소	ko	sourced game files
+젠야타	elimination	혼돈 속에 혼돈이 더 있소	ko	sourced game files
+젠야타	elimination	그대의 자부심에 석양이 비추길	ko	sourced game files
+젠야타	elimination	주먹으로는 보자기를 이길 수 없소	ko	sourced game files
+젠야타	elimination	매사를 진지하게만 받아들이지 마시오	ko	sourced game files
+젠야타	elimination	때가 되면 알게 될 것이오	ko	sourced game files
+젠야타	elimination	우리의 길이 또다시 갈라졌구려	ko	sourced game files
+젠야타	elimination	자긍심은 그대를 지켜주지 못하오	ko	sourced game files
+젠야타	elimination	후회는 모든 것을 삼키오	ko	sourced game files
+젠야타	elimination	과학으로는 설명할 수 없는 질문도 있소	ko	sourced game files
+젠야타	elimination	침묵은 모든 질문의 답이라오	ko	sourced game files
+젠야타	elimination	뿌린 대로 거두기 마련이오	ko	sourced game files
+젠야타	elimination	그대의 목숨보다 소중한 유산은 무엇이오	ko	sourced game files
+젠야타	elimination	올라갈 때는 떨어질 각오도 해야 하오	ko	sourced game files
+젠야타	elimination	멈추면 답이 보일 것이오	ko	sourced game files
+젠야타	elimination	집중력을 잃은 것 같소, 겐지	ko	sourced game files
+젠야타	elimination	잔혹한 운명이오	ko	sourced game files
+젠야타	elimination	편히 잠드시오	ko	sourced game files
+젠야타	elimination	엄청난 거리를 한 걸음처럼 느끼는 이들도 있소	ko	sourced game files
+젠야타	elimination	선견도 속도만큼 가치있소	ko	sourced game files
+젠야타	elimination	전투에 앞장서는 이들은 머리를 잘 보호해야 할 것이오	ko	sourced game files
+젠야타	elimination	투명해져도 무적이 되는 건 아니오	ko	sourced game files
+젠야타	elimination	궁지에 몰린 건 피차일반이라오	ko	sourced game files
+젠야타	elimination	기억하시오, 겐지. 가장 강력한 순간이 가장 취약한 순간이오	ko	sourced game files
+젠야타	elimination	먼저 생각한 후에 도약하시오	ko	sourced game files
+젠야타	elimination	죽음을 원한다니 선사해 드리겠소	ko	sourced game files
+젠야타	elimination	그대는 스스로 운명을 결정했소	ko	sourced game files
+젠야타	elimination	운명은 피하고자 했던 길에서 만나는 법이라오	ko	sourced game files
+젠야타	elimination	배움의 기회는 우리 모두에게 찾아온다오	ko	sourced game files
+젠야타	elimination	흠. 흥미롭구려	ko	sourced game files
+젠야타	elimination	과거에서 배우고, 발전하시오	ko	sourced game files
+젠야타	elimination	필연적인 결론이오	ko	sourced game files
+젠야타	elimination	약자에겐 선택할 권리조차 없소	ko	sourced game files
+젠야타	elimination	모든 결정엔 대가가 따르는 법	ko	sourced game files
+젠야타	elimination	치명적인 실수로군	ko	sourced game files
+젠야타	elimination	자신의 최후는 선택할 수 없는 법	ko	sourced game files
+젠야타	elimination	자아 성찰에서 힘을 얻기를	ko	sourced game files
+젠야타	elimination	감정이 넘치면 생각이 부족해질 수 있다오	ko	sourced game files
+젠야타	elimination	햇빛도 두꺼운 구름을 뚫지는 못하오	ko	sourced game files
+젠야타	elimination	모든 노력이 열매를 맺는 것은 아니오	ko	sourced game files
+젠야타	elimination	폭풍이 지나가면 고요가 찾아오지요	ko	sourced game files
+젠야타	elimination	형제여, 나를 용서하시오	ko	sourced game files
+젠야타	elimination	꼭 고통이 고통을 낳아야 하오	ko	sourced game files
+젠야타	elimination	그대의 광채는 사라졌소	ko	sourced game files
+젠야타	elimination	불행에 광채를 잃었구려	ko	sourced game files
+젠야타	elimination	그대의 운이 다하고 있소	ko	sourced game files
+젠야타	enemiesattacking	적이 오른쪽에 있소	ko	sourced game files
+젠야타	enemiesattacking	공격이 오른쪽에서 들어오오	ko	sourced game files
+젠야타	enemiesattacking	적이 왼쪽에 있소	ko	sourced game files
+젠야타	enemiesattacking	공격이 왼쪽에서 들어오오	ko	sourced game files
+젠야타	enemiesattacking	적이 정면에서 공격하오	ko	sourced game files
+젠야타	enemiesattacking	적이 우리 앞에 있소	ko	sourced game files
+젠야타	enemiesattacking	적이 아래에서 공격하오	ko	sourced game files
+젠야타	enemiesattacking	적이 우리 아래 있소	ko	sourced game files
+젠야타	enemiesattacking	적이 후방에서 공격하오!	ko	sourced game files
+젠야타	enemiesattacking	적이 우리 뒤에 있소	ko	sourced game files
+젠야타	enemiesattacking	적이 위에서 공격하오	ko	sourced game files
+젠야타	enemiesattacking	적이 우리 위에 있소	ko	sourced game files
+젠야타	enemycomingdoorway	문이 적에게 활짝 열렸소	ko	sourced game files
+젠야타	enemycomingdoorway	적이 문으로 들어오고 있소	ko	sourced game files
+젠야타	comm	적이 감지되었소	ko	sourced game files
+젠야타	comm	그대의 존재가 느껴지오	ko	sourced game files
+젠야타	comm	저기 누가 있소	ko	sourced game files
+젠야타	enemygathers	적들이 이곳에 모이고 있소	ko	sourced game files
+젠야타	enemyresurrect	적들이 복수를 품고 돌아왔소	ko	sourced game files
+젠야타	enemyresurrect	조심하시오. 적들이 돌아왔소	ko	sourced game files
+젠야타	comm	여기 적이 있소	ko	sourced game files
+젠야타	comm	적이 대결을 원하고 있소	ko	sourced game files
+젠야타	enemysniper	저격수가 보이는군	ko	sourced game files
+젠야타	comm	물러나시오	ko	sourced game files
+젠야타	getoutofthere	거기서 나오시오	ko	sourced game files
+젠야타	getready	준비하시오	ko	sourced game files
+젠야타	goingin	진입하겠소	ko	sourced game files
+젠야타	comm	모두 내게 오시오	ko	sourced game files
+젠야타	comm	여기 뭉칩시다	ko	sourced game files
+젠야타	comm	내게 합류하시오	ko	sourced game files
+젠야타	comm	한 곳에 모여야 하오	ko	sourced game files
+젠야타	groupupcontinue	모여야만 앞으로 나아갈 수 있소	ko	sourced game files
+젠야타	groupupcontinue	하나 되어 가야 하오. 흩어지면 계속 나아갈 수가 없소	ko	sourced game files
+젠야타	healing	치료가 필요하오	ko	sourced game files
+젠야타	healing	치료가 시급하오	ko	sourced game files
+젠야타	healthpack	나는 완전해졌소	ko	sourced game files
+젠야타	healthpack	회복되었소	ko	sourced game files
+젠야타	healthpack	내 시스템이 복구됐소	ko	sourced game files
+젠야타	healthpack	내 시스템이 수리되었소	ko	sourced game files
+젠야타	healthrestoredfriendly	치유되었소	ko	sourced game files
+젠야타	healthrestoredfriendly	언젠가는 이 호의에 보답하겠소	ko	sourced game files
+젠야타	comm	안녕하시오	ko	sourced game files
+젠야타	comm	평화가 함께하길	ko	sourced game files
+젠야타	herochange	젠야타가 왔소	ko	sourced game files
+젠야타	herochange	젠야타는 만물과 함께하오	ko	sourced game files
+젠야타	herochange	젠야타 선수, 마운드에 오르오	ko	sourced game files
+젠야타	heroselect	진정한 자아엔 형체가 없는 법	ko	sourced game files
+젠야타	heroselect	불화 속에서 평온함을 찾을 것이오	ko	sourced game files
+젠야타	heroselect	불화 속에서 승리를 찾을 것이오	ko	sourced game files
+젠야타	heroselect	징벌 중에도 부귀를 누릴 것이오	ko	sourced game files
+젠야타	comm	조화를 이루어 공격합시다	ko	sourced game files
+젠야타	imdefending	하나 되어 방어합시다	ko	sourced game files
+젠야타	imdefending	나와 함께 방어합시다	ko	sourced game files
+젠야타	imready	난 준비되었소	ko	sourced game files
+젠야타	imready	준비되었소	ko	sourced game files
+젠야타	comm	우리는 하나요	ko	sourced game files
+젠야타	comm	함께하겠소	ko	sourced game files
+젠야타	comm	적이 오고 있소	ko	sourced game files
+젠야타	injuredcallout	다시 싸울 수 있도록 나를 되살려 주시오	ko	sourced game files
+젠야타	injuredcallout	부활이 필요하오	ko	sourced game files
+젠야타	injuredcallout	심한 손상을 입었소	ko	sourced game files
+젠야타	killstreak	우주의 품에 안기시오	ko	sourced game files
+젠야타	killstreak	내 솜씨를 보았겠지요	ko	sourced game files
+젠야타	killstreak	흐름이 보이기 시작하는군	ko	sourced game files
+젠야타	killstreak	만물이 조화 속에 흐르고 있소	ko	sourced game files
+젠야타	killstreak	승리의 전령이 왔소	ko	sourced game files
+젠야타	killstreak	실력은 숨길 수 없소	ko	sourced game files
+젠야타	killstreak	예술은 존중받아 마땅한 가치라오	ko	sourced game files
+젠야타	killstreak	날 기억하시오. 나도 그대를 기억할 테니	ko	sourced game files
+젠야타	killstreak	내가 짊어져야 할 무거운 짐이오	ko	sourced game files
+젠야타	killstreak	오늘은 옥황상제도 우리 편이오	ko	sourced game files
+젠야타	lookingatearth	이 위에서 보니 파괴가 그리 심해 보이지 않는군요	ko	sourced game files
+젠야타	matchstarttalk	우리는 하나처럼 호흡을 맞춰야 하오	ko	sourced game files
+젠야타	matchstarttalk	함께 나아가지 않겠소	ko	sourced game files
+젠야타	matchstarttalk	우리는 모두 임무에 오른 순례자요	ko	sourced game files
+젠야타	matchstarttalk	함께 길을 닦아 보는 게 어떻소	ko	sourced game files
+젠야타	matchstarttalk	세상의 주인은 바로 우리요!	ko	sourced game files
+젠야타	matchstarttalk	강자의 싸움을 보여 주겠소	ko	sourced game files
+젠야타	matchtalk	수양한 정신이야말로 가장 든든한 아군이오	ko	sourced game files
+젠야타	matchtalk	전사의 가장 큰 무기는... 인내요	ko	sourced game files
+젠야타	matchtalk	오로지 승리만 생각하시오. 패배는 불가능하다고 여기시오	ko	sourced game files
+젠야타	matchtalk	생각을 말해 보시오, 친구여	ko	sourced game files
+젠야타	matchtalk	그대가 이곳에서 자랐구려. 구경을 시켜 주겠소	ko	sourced game files
+젠야타	matchtalk	집중할 기회로군	ko	sourced game files
+젠야타	matchtalk	그대는 고집이 대단하구려, 친구여. 하지만 언젠가는 우리가 그리 다르지 않단 걸 알게 될 거요	ko	sourced game files
+젠야타	matchtalk	내 제자 중에도 백미인 그대와 함께 싸우니 좋구려	ko	sourced game files
+젠야타	matchtalk	한때 그대의 동생을 삼켰던 분노가 그대에게서도 느껴지는군요	ko	sourced game files
+젠야타	matchtalk	그렇소. 우리 형제 몬다타는 그들의 생활을 개선하기 위해 힘썼지만, 끝내 이루지 못했지	ko	sourced game files
+젠야타	matchtalk	그렇다면 나는 그대의 뒤를 봐 드리겠소	ko	sourced game files
+젠야타	matchtalk	우리 모두 그랬다오. 그가 정말 그립소	ko	sourced game files
+젠야타	matchtalk	이곳에는 한참이나 돌아오지 않았소. 과연 형제자매들이 나를 반길지 궁금하군요	ko	sourced game files
+젠야타	matchtalk	돌아오니 좋지만, 아직도 이곳에서 나를 반길지	ko	sourced game files
+젠야타	matchtalk	여기서는 눈동자의 품이 너무나 강하게 느껴지오	ko	sourced game files
+젠야타	matchtalk	이곳의 인간과 옴닉이 평화롭게 공존하는 법을 배울 수만 있다면	ko	sourced game files
+젠야타	matchtalk	그대는 꿈이 있소	ko	sourced game files
+젠야타	matchtalk	치글러 박사, 나는 그대의 치유 방식을 이해할 수 없다오. 그저 믿어야만 하는 것도 있나 보오	ko	sourced game files
+젠야타	matchtalk	실로 흥미로운 장소요. 과연 과학만으로 깨달음의 물꼬를 틀 수 있을런지	ko	sourced game files
+젠야타	matchtalk	달 위의 옴닉은 별로 특별하지 않소. 우주에는 인간보다 로봇이 많으니	ko	sourced game files
+젠야타	matchtalk	튜링 그린. 내 형제의 꿈이었으나 끝내 이루어지지 않았소	ko	sourced game files
+젠야타	matchtalk	한때는 평화로웠을 곳이 이렇게 되다니, 통탄스럽군요	ko	sourced game files
+젠야타	matchtalk	배척당하는 기분이오	ko	sourced game files
+젠야타	matchtalk	기꺼이 가르쳐 드리리다. 이처럼 무정형한 정신을 지닌 이를 만나는 일은 흔치 않다오	ko	sourced game files
+젠야타	matchtalk	고귀하나 비극적인 희생이로군요. 그의 뜻을 기억하기 바라오	ko	sourced game files
+젠야타	matchtalk	눈앞의 문제를 해결할 방안을 찾기 위하여 각자 자기 몫을 해야 한다고 믿소	ko	sourced game files
+젠야타	matchtalk	존재는 수수께끼라오. 그렇지 않소	ko	sourced game files
+젠야타	matchtalk	이상하고 아니고는 보는 사람의 눈에 달렸다오	ko	sourced game files
+젠야타	matchtalk	토르비욘의 영향을 받은 모양이군요	ko	sourced game files
+젠야타	matchtalk	겐지, 형과의 재회는 어떠했소	ko	sourced game files
+젠야타	matchtalk	시메트라. 그대는 법과 질서를 이야기하나, 삶은 본질적으로 혼돈임을 알아야 하오	ko	sourced game files
+젠야타	matchtalk	내면을 들여다보면 평화를 찾을 수 있다오	ko	sourced game files
+젠야타	matchtalk	시간은 강이라오. 잠시 멈출 수는 있어도, 언제나 같은 방향으로 흐르지요	ko	sourced game files
+젠야타	matchtalk	그렇소, 친구여. 참으로 그렇소	ko	sourced game files
+젠야타	matchtalk	임무가 우리를 기다리고 있소	ko	sourced game files
+젠야타	matchtalk	성과는 내면에서 발현되오... 실패도 마찬가지오	ko	sourced game files
+젠야타	matchtalk	성공은 조화 속에 있소	ko	sourced game files
+젠야타	matchtalk	의구심을 떨쳐내면 잡념이 사라질 것이오	ko	sourced game files
+젠야타	matchtalk	반항심은 존중받아 마땅하오. 전통에 대한 의문이 새로운 전통을 만드는 법이니	ko	sourced game files
+젠야타	matchtalk	구슬의 기원보다, 의미에 관심을 가져보시오	ko	sourced game files
+젠야타	matchtalk	모르는 것도 받아들일 순 있다오	ko	sourced game files
+젠야타	matchtalk	집중력을 유지한 자만이 승리할 수 있소	ko	sourced game files
+젠야타	matchtalk	나도 반갑소, 사티아. 그대가 우리 사원에 베푼 호의를 돌려줄 수 있길 바라오	ko	sourced game files
+젠야타	matchtalk	트랙터를 몰았소	ko	sourced game files
+젠야타	matchtalk	방목장에서 양을 안마해 주었소	ko	sourced game files
+젠야타	matchtalk	마법처럼 보이는 것들은 때론 우리가 미처 이해하지 못한 과학 현상이오	ko	sourced game files
+젠야타	matchtalk	나는 내 호흡에 집중한다오	ko	sourced game files
+젠야타	matchtalk	워터파크에서 안전요원이었소	ko	sourced game files
+젠야타	matchtalk	커피를 내렸소	ko	sourced game files
+젠야타	matchtalk	레이저 태그 시설에서 카운터를 봤소	ko	sourced game files
+젠야타	matchtalk	날 왜 평화주의자라 생각하오	ko	sourced game files
+젠야타	matchtalk	자유 의지가 있는 한, 안타깝게도 악은 존재할 것이오	ko	sourced game files
+젠야타	matchtalk	참 어려운 문제가 아닐 수 없소	ko	sourced game files
+젠야타	matchtalk	어쩌면 편견이야말로 바보짓일 수 있다오	ko	sourced game files
+젠야타	matchtalk	난 평화를 꿈꾸오. 때로는 떨어지기까지 하오	ko	sourced game files
+젠야타	matchtalk	나도 더할 나위 없이 좋소	ko	sourced game files
+젠야타	matchtalk	그대는 아직 가장 어려운 싸움을 겪어보지 못한 것 같소	ko	sourced game files
+젠야타	matchtalk	그럼 내면의 적은 마주해 보셨소	ko	sourced game files
+젠야타	matchtalk	혼돈을 갈구하며 발전하려는 건 화산에 나무를 심으려는 것과 같소	ko	sourced game files
+젠야타	matchtalk	오직 자신만 배를 불리려는 이들이 제일 궁핍하게 살아가오	ko	sourced game files
+젠야타	matchtalk	침묵에 귀를 기울이시오	ko	sourced game files
+젠야타	matchtalk	승리가 그렇게 중요한 것이오	ko	sourced game files
+젠야타	matchtalk	그러게 말이오. 우리는 왜 여기 모인 거라 생각하오	ko	sourced game files
+젠야타	matchtalk	구체 안에 들어가면 어떤 느낌일지 언제나 궁금했소	ko	sourced game files
+젠야타	matchtalk	일리 있는 말이오. 게다가 실망감도 잘 감출 수 있으니 훌륭한 스승도 될 수 있소	ko	sourced game files
+젠야타	matchtalk	그대는 삶이 준 두 번째 인생을 홀로 걸어가기로 결심했구려	ko	sourced game files
+젠야타	matchtalk	누군가는 분명 신경 쓰고 있소. 그대는 찾아나서기만 하면 될 뿐이오	ko	sourced game files
+젠야타	matchtalk	강렬한 시선이오, 박사	ko	sourced game files
+젠야타	matchtalk	다가올 전투에서 말이오	ko	sourced game files
+젠야타	matchtalk	그럼 공허함으로 채워 보시오	ko	sourced game files
+젠야타	matchtalk	모두 눈동자 덕분이오	ko	sourced game files
+젠야타	matchtalk	그대는... 운이 좋구려	ko	sourced game files
+젠야타	matchtalk	하나, 그대는 동생과 똑같은 말을 하고 있소	ko	sourced game files
+젠야타	matchtalk	거울은 눈에 보이는 것만 비춘다오	ko	sourced game files
+젠야타	matchtalk	각성 이전의 기억은 희미한 꿈처럼 흐릿하지만, 기억나는 것도 있다오	ko	sourced game files
+젠야타	matchtalk	잠들지 않는 도시라면 꿈을 꾸지 않는단 말이오	ko	sourced game files
+젠야타	matchtalk	어쩌면 저들은 우리가 여길 버릴 거라고 생각할 수도 있소. 하지만 이 세상 모든 곳이 무너진다 해도, 난 여기에 서 있을 것이오	ko	sourced game files
+젠야타	matchtalk	두려워 마시오. 성장에는 고통이 뒤따르는 법이니	ko	sourced game files
+젠야타	matchtalk	대업은 언제나 하고자 하는 뜻에서 비롯한다오	ko	sourced game files
+젠야타	matchtalk	이상하게 들리겠지만, 분명 이곳에도 보고 배울 것이 있소	ko	sourced game files
+젠야타	matchtalk	난 바닷가를 좋아하오. 내가 태어난 곳이 떠오르기 때문이오	ko	sourced game files
+젠야타	matchtalk	변화는 원치 않아도 찾아오기 마련이오. 이를 어떻게 받아들일지는 그대의 마음가짐에 달렸소	ko	sourced game files
+젠야타	matchtalk	내가 그 짐을 덜어주겠소	ko	sourced game files
+젠야타	matchtalk	형제여, 그대 안에 새로운 슬픔이 있구려	ko	sourced game files
+젠야타	matchtalk	난 분명한 삶의 목적을 가진 개미들이 부럽소	ko	sourced game files
+젠야타	matchtalk	물론이오. 얼마나 많은 옴닉들이 우리와 같이 바라보고 있을까 생각했잖소	ko	sourced game files
+젠야타	matchtalk	으레 목소리가 큰 자일수록 잃을 것도 많은 법이오	ko	sourced game files
+젠야타	matchtalk	아주 뜻깊었소. 어떻게 알게 된 사이오	ko	sourced game files
+젠야타	matchtalk	그렇소. 오로라가 올 때까지 잠들어 있었지	ko	sourced game files
+젠야타	matchtalk	진정한 힘은 자신의 나약함을 받아들인 자만이 손에 넣을 수 있소	ko	sourced game files
+젠야타	matchtalk	흥미로운 견해로구려	ko	sourced game files
+젠야타	matchtalk	배움의 길은 언제든 열려 있다오	ko	sourced game files
+젠야타	matchtalk	곧 있을 교전에 앞서 마음을 가다듬고 있소. 함께하겠소	ko	sourced game files
+젠야타	matchtalk	갈등의 시대에는 반드시 균형을 찾아야 하오	ko	sourced game files
+젠야타	matchtalk	산의 공기만큼 상쾌한 것은 없다오. 적어도 그렇게 들었소	ko	sourced game files
+젠야타	matchtalk	이해는 경험에서 오고, 경험은 시간에서 오는 것이라오	ko	sourced game files
+젠야타	matchtalk	감정의 발현. 그런 것은 처음이었소	ko	sourced game files
+젠야타	matchtalk	금은보화의 내음이 나는군. 입맛이 도는구려	ko	sourced game files
+젠야타	meleeenemykilledremark	배움을 거부하는군	ko	sourced game files
+젠야타	meleeenemykilledremark	누구도 힘만으로 살아남을 수는 없소	ko	sourced game files
+젠야타	meleeenemykilledremark	겸손을 배우시오	ko	sourced game files
+젠야타	meleeenemykilledremark	이번 대결은 나의 승리인가 보오	ko	sourced game files
+젠야타	meleeenemykilledremark	심도 있는 충격이었소	ko	sourced game files
+젠야타	meleeenemykilledremark	우리 사이에 운동 에너지가 오갔소	ko	sourced game files
+젠야타	meleeenemykilledremark	유효한 일격이오	ko	sourced game files
+젠야타	meleeenemykilledremark	지혜의 손길이오	ko	sourced game files
+젠야타	meleeenemykilledremark	운명의 손길은 거칠다오	ko	sourced game files
+젠야타	meleeenemykilledremark	인상적인 최후구려	ko	sourced game files
+젠야타	missionalmostdone	끝까지 해내야만 하오	ko	sourced game files
+젠야타	missionalmostdone	승리는 우리의 운명이나, 각자 본분을 다해야 하오	ko	sourced game files
+젠야타	missionalmostdone	승리가 우리 손안에 있소. 버티시오!	ko	sourced game files
+젠야타	multikill	고통없는 자비를 베풀었소	ko	sourced game files
+젠야타	multikill	더 많이 가져갈수록, 더 조금 갖게 되오	ko	sourced game files
+젠야타	multikill	비극 아래 많은 이들이 단결하오	ko	sourced game files
+젠야타	multikill	노력에는 언제나 결과가 뒤따르오	ko	sourced game files
+젠야타	multikill	내 너그러움이 많은 이들에게 뻗쳤소	ko	sourced game files
+젠야타	nanoboosted	누구도 날 막을 수 없소!	ko	sourced game files
+젠야타	nanoboosted	힘을 얻었소!	ko	sourced game files
+젠야타	nanoboosted	내 감각이 향상되었소!	ko	sourced game files
+젠야타	nanoboosted	내 안에 힘이 솟아나오!	ko	sourced game files
+젠야타	nanoboosted	기운을 주체할 수 없소!	ko	sourced game files
+젠야타	nanoboosted	온몸에 힘이 넘치는구려!	ko	sourced game files
+젠야타	nanoboosted	재물로 큰 힘을 얻었소!	ko	sourced game files
+젠야타	nanoboosted	재물이 무한하도다!	ko	sourced game files
+젠야타	nanoboosted	금은보화가 나를 비추오!	ko	sourced game files
+젠야타	needhealer	치유 담당이 필요하오	ko	sourced game files
+젠야타	comm	보호막이 필요하오	ko	sourced game files
+젠야타	comm	보호막이 시급하오	ko	sourced game files
+젠야타	onfire	불이 붙었소... 하지만 소화기는 필요 없소	ko	sourced game files
+젠야타	onfire	불이 붙었소	ko	sourced game files
+젠야타	onfire	어둠이 내 안에 흐르오	ko	sourced game files
+젠야타	onfire	의욕이 불타오르오!	ko	sourced game files
+젠야타	onfire	활력을 주체할 수 없소!	ko	sourced game files
+젠야타	onfire	내 영혼에 불이 붙었소!	ko	sourced game files
+젠야타	onfire	내 어둠이 환히 타오르는구려!	ko	sourced game files
+젠야타	onfire	광택이 흐르오!	ko	sourced game files
+젠야타	onmyway	가는 중이오	ko	sourced game files
+젠야타	presstheattack	강하게 밀어붙이시오	ko	sourced game files
+젠야타	comm	전진하시오	ko	sourced game files
+젠야타	respawn	고통은 훌륭한 스승이라오	ko	sourced game files
+젠야타	respawn	반복이야말로 완벽에 이르는 길이오	ko	sourced game files
+젠야타	respawn	역경은 변화의 기회요	ko	sourced game files
+젠야타	respawn	운명과는 다른 결과로군	ko	sourced game files
+젠야타	respawn	자만은 조잡한 방패라	ko	sourced game files
+젠야타	respawn	일이 잠깐 틀어졌을 뿐	ko	sourced game files
+젠야타	respawn	순환이 다시 시작되리니	ko	sourced game files
+젠야타	respawn	과거의 성공은 기억하되, 늘 더 큰 성공을 향해 정진하시오	ko	sourced game files
+젠야타	respawn	스승도 제자에게 배울 점이 있다오	ko	sourced game files
+젠야타	respawn	우리 운명은 별하늘에 쓰여 있소	ko	sourced game files
+젠야타	respawn	순환이 깨졌소	ko	sourced game files
+젠야타	respawn	인생은 호락호락하지 않다는 걸 다시 깨우쳤소	ko	sourced game files
+젠야타	respawn	배우기 위해서는 백 번을, 깨닫기 위해서는 천 번을 경험해야 하오	ko	sourced game files
+젠야타	respawn	패배를 두려워하면 이미 패배한 것이오	ko	sourced game files
+젠야타	respawn	감내하는 이들은 패배에 좌절하지 않소	ko	sourced game files
+젠야타	respawn	진정한 힘은 언제나 승리와 함께 하지는 않소	ko	sourced game files
+젠야타	respawn	도전의 순간이 왔구려	ko	sourced game files
+젠야타	respawn	실패는 용납할 수 있지만, 포기는 용납 못하오	ko	sourced game files
+젠야타	respawn	올바른 길에는 시련이 따르기 마련	ko	sourced game files
+젠야타	respawn	드디어 호적수를 만났구려	ko	sourced game files
+젠야타	respawn	아무리 저항해도 운명은 바꿀 수 없거늘	ko	sourced game files
+젠야타	respawn	다이아몬드도 압력 속에서 탄생하오	ko	sourced game files
+젠야타	respawn	보석을 세공하는 길은 마찰뿐이오	ko	sourced game files
+젠야타	respawn	비취는 부서지더라도 돌처럼 강인하오	ko	sourced game files
+젠야타	respawn	순금은 절대 녹슬지 않소	ko	sourced game files
+젠야타	respawn	징벌 후에 번영이 오리니	ko	sourced game files
+젠야타	respawn	물욕을 채우기엔 모자라오	ko	sourced game files
+젠야타	resurrected	내가 돌아왔소	ko	sourced game files
+젠야타	revenge	서로 가르침을 주고받았단 사실에 감사하오	ko	sourced game files
+젠야타	revenge	이제 서로가 교훈을 얻어가오	ko	sourced game files
+젠야타	revenge	난 용서를 구하는 이들은 벌하지 않소	ko	sourced game files
+젠야타	reward	우주가 부를 나누어 주는군	ko	sourced game files
+젠야타	reward	경험 자체가 보상이오. 하나 깜짝 선물도 좋군	ko	sourced game files
+젠야타	reward	나의 미래에 금은보화가 보이오	ko	sourced game files
+젠야타	setuphere	여기서 채비를 갖추어야 하오	ko	sourced game files
+젠야타	comm	실수는 인간과 옴닉이 하오	ko	sourced game files
+젠야타	comm	내 실수였소	ko	sourced game files
+젠야타	teamkill	적 팀이 사라졌소	ko	sourced game files
+젠야타	teamkill	적이 사라졌소... 하지만 곧 돌아올 거요	ko	sourced game files
+젠야타	teamkill	적 팀이 존재하지 않소... 지금은	ko	sourced game files
+젠야타	teamkill	우리만 남았소... 일단은	ko	sourced game files
+젠야타	teamkill	아... 드디어 평온이 찾아왔소	ko	sourced game files
+젠야타	teamkill	적이 모두 쓰러졌소	ko	sourced game files
+젠야타	teamkill	누군가의 비극은 다른 누군가의 승리요	ko	sourced game files
+젠야타	teamkill	만족은 강자의 특권이라오	ko	sourced game files
+젠야타	comm	감사드리오	ko	sourced game files
+젠야타	timerunningout	시간의 아귀에서 승리를 빼앗아야 하오	ko	sourced game files
+젠야타	timerunningout	시간은 신기루라오... 그 신기루가 사라지고 있소	ko	sourced game files
+젠야타	ult	공허를 체험하시오	ko	sourced game files
+젠야타	ult	축제를 만끽하시오	ko	sourced game files
+젠야타	ult	미지의 세계로 들어가시오	ko	sourced game files
+젠야타	ult	참고 하시오	ko	sourced game files
+젠야타	ult	이제 죽을 수 없소. 특정 조건에서만	ko	sourced game files
+젠야타	ult	그대는 무적이오. 그러니... 쏘시오!	ko	sourced game files
+젠야타	ult	번영을 체험하시오	ko	sourced game files
+젠야타	ult	요가의 정수가 그대를 축복하오	ko	sourced game files
+젠야타	comm	공격받고 있소	ko	sourced game files
+젠야타	comm	지원이 간절하오	ko	sourced game files
+젠야타	comm	그 말대로요	ko	sourced game files
+젠야타	voicelines	공이 있다고 광대 노릇을 하진 않을 거요	ko	sourced game files
+젠야타	voicelines	존재는 수수께끼라오	ko	sourced game files
+젠야타	voicelines	꿈에서 나는 나비였소	ko	sourced game files
+젠야타	voicelines	생각의 틀을 깨시오	ko	sourced game files
+젠야타	voicelines	오늘따라 죽음이 변덕스럽군	ko	sourced game files
+젠야타	voicelines	나는 생각한다, 고로 존재한다	ko	sourced game files
+젠야타	voicelines	우리는 조화를 이룬다오	ko	sourced game files
+젠야타	voicelines	깨달음의 길을 따라 걸으시오	ko	sourced game files
+젠야타	voicelines	늘 나아지려고 애써야 하오	ko	sourced game files
+젠야타	voicelines	모두에게 평화와 축복이 함께하길	ko	sourced game files
+젠야타	voicelines	행운이 내게 웃음 짓소	ko	sourced game files
+젠야타	voicelines	눈동자가 그대를 포용하오	ko	sourced game files
+젠야타	voicelines	삶이란 그저 0과 1의 조합이 아니오	ko	sourced game files
+젠야타	voicelines	반갑구나, 세상아	ko	sourced game files
+젠야타	voicelines	형체는 덧없고 영혼은 끝이 없소	ko	sourced game files
+젠야타	voicelines	내가 생각을 하느냐고 잠수함이 헤엄을 치느냐고 묻는군	ko	sourced game files
+젠야타	voicelines	눈동자 안에서... 네 약점이 보일 것이다	ko	sourced game files
+젠야타	voicelines	참으로 재미있군요	ko	sourced game files
+젠야타	voicelines	방향을 바꾸지 않으면 결국은 지금 가는 곳에 가게 된다오	ko	sourced game files
+젠야타	voicelines	수탉은 제각기 자기 우리에서 우는 법이오	ko	sourced game files
+젠야타	voicelines	제자리가 아닌 곳에 떨어지는 눈송이는 없다오	ko	sourced game files
+젠야타	voicelines	먹거리를 안 주면 장난을 치겠소	ko	sourced game files
+젠야타	voicelines	무시무시하군요	ko	sourced game files
+젠야타	voicelines	눈동자가 그대를 삼키오	ko	sourced game files
+젠야타	voicelines	모두에게 저주와 광기가 함께하리	ko	sourced game files
+젠야타	voicelines	거울을 보시오	ko	sourced game files
+젠야타	voicelines	실로... 실망스럽군요	ko	sourced game files
+젠야타	voicelines	온 세상에 기쁨이 내리기를	ko	sourced game files
+젠야타	voicelines	눈싸움 한번 하시겠소	ko	sourced game files
+젠야타	voicelines	연말연시의 축복이 그대와 함께하길	ko	sourced game files
+젠야타	voicelines	마음을 짓누르는 짐을 놓아 버리시오	ko	sourced game files
+젠야타	voicelines	그대는 배울 준비가 안 됐소	ko	sourced game files
+젠야타	voicelines	침착하시오	ko	sourced game files
+젠야타	voicelines	그것이 오늘의 교훈이오	ko	sourced game files
+젠야타	voicelines	걱정은 우리를 괴롭히는 망령이오	ko	sourced game files
+젠야타	voicelines	고통과 고집은 동전의 양면과 같소	ko	sourced game files
+젠야타	voicelines	진정한 싸움은 내면에서 벌어지오	ko	sourced game files
+젠야타	voicelines	운명과 역설은 떼놓을 수 없소	ko	sourced game files
+젠야타	voicelines	어쩌면 우리는, 이제 없는 사람들의 기억 속에만 존재할지도 모르겠소	ko	sourced game files
+젠야타	voicelines	가만있기는 쉽소. 용서하기가 어렵지	ko	sourced game files
+젠야타	voicelines	시간만으로 치유되는 것은 없소	ko	sourced game files
+젠야타	voicelines	셋보다 적다. 이게 내 마음이오	ko	sourced game files
+젠야타	voicelines	누구든 큰 선도, 큰 악도 행할 수 있다오	ko	sourced game files
+젠야타	voicelines	함께 번영합시다	ko	sourced game files
+젠야타	voicelines	대단히 긴장해야 할 거요	ko	sourced game files
+젠야타	voicelines	요가 플레임!	ko	sourced game files
+젠야타	voicelines	요가 파이어!	ko	sourced game files
+젠야타	votedepic	탁월성은 그 자체로 보상이오	ko	sourced game files
+젠야타	votedlegendary	카드 패가 나를 선택했소	ko	sourced game files
+젠야타	votedlegendary	그대들에게 인정받다니 영광이오	ko	sourced game files
+젠야타	votedlegendary	도움이 되어 기쁘오	ko	sourced game files
+젠야타	votedlegendary	역경은 곧 깨달음에 이르는 길이라오	ko	sourced game files
+젠야타	comm	할 일을 했을 뿐이오	ko	sourced game files
+젠야타	unknown	여긴 내가 지키겠소	ko	sourced game files
+젠야타	unknown	여긴 나에게 맡기시오	ko	sourced game files
+젠야타	unknown	여길 계속 지켜보겠소	ko	sourced game files
+젠야타	unknown	다음 거점에서 만나지요	ko	sourced game files
+젠야타	unknown	다음 거점으로 가야 하오	ko	sourced game files
+젠야타	unknown	다음 거점으로 갑시다	ko	sourced game files
+젠야타	unknown	어서 수송선으로 갑시다	ko	sourced game files
+젠야타	unknown	수송선으로 향해야 하오	ko	sourced game files
+젠야타	unknown	적이 여기 있소	ko	sourced game files
+젠야타	unknown	여길 주의하시오	ko	sourced game files
+젠야타	unknown	여기에 적이 있소	ko	sourced game files
+젠야타	unknown	그럼에도 위협적이오	ko	sourced game files
+젠야타	unknown	뜻깊은 협력이었소	ko	sourced game files
+젠야타	unknown	유망한 제자로군	ko	sourced game files
+젠야타	unknown	한마음 한뜻이었소	ko	sourced game files
+젠야타	unknown	자랑스럽소, 겐지	ko	sourced game files
+젠야타	unknown	타인과 같은 길을 거닐게 되다니, 기쁘지 않을 수 없소	ko	sourced game files
+젠야타	unknown	손뼉도 마주쳐야 소리가 나오	ko	sourced game files
+젠야타	unknown	우리의 마음이 일치했소	ko	sourced game files
+젠야타	unknown	아군이 곧 돌아올 것이오	ko	sourced game files
+젠야타	unknown	혼자 남은 나는 적들이 혹할 표적이오	ko	sourced game files
+젠야타	unknown	수적 열세는 조만간 사라질 것이오	ko	sourced game files
+젠야타	unknown	로봇을 움직이시오	ko	sourced game files
+젠야타	unknown	로봇을 전진시키시오	ko	sourced game files
+젠야타	unknown	로봇을 멈추시오	ko	sourced game files
+젠야타	unknown	적의 진격을 끝내야 하오	ko	sourced game files
+젠야타	unknown	수적으로 불리하니 조심하시오	ko	sourced game files
+젠야타	unknown	수적 열세에 몰렸소	ko	sourced game files
+젠야타	unknown	경계하시오	ko	sourced game files
+젠야타	unknown	여길 보시오	ko	sourced game files
+젠야타	unknown	조심하시오	ko	sourced game files
+젠야타	unknown	부조화가 적을 약화하오	ko	sourced game files
+젠야타	unknown	적이 부조화에 직면했소	ko	sourced game files
+젠야타	unknown	이자가 부조화에 신음하오	ko	sourced game files
+젠야타	unknown	눈동자를 들여다보시오	ko	sourced game files
+젠야타	unknown	평온을 받아들이시오	ko	sourced game files
+젠야타	unknown	조화의 길을 걸으시오	ko	sourced game files
+젠야타	unknown	우주와 하나가 되시오	ko	sourced game files
+젠야타	unknown	마음을 여시오	ko	sourced game files
+젠야타	unknown	제자여, 우리는 조화를 이루어 걷는다오	ko	sourced game files
+젠야타	unknown	우리는 하나요, 친구여	ko	sourced game files
+젠야타	unknown	제자여, 우리는 그림자 속을 걷는다오	ko	sourced game files
+젠야타	unknown	어둠과 하나가 되시오	ko	sourced game files
+젠야타	unknown	어둠의 길을 걸으시오	ko	sourced game files
+젠야타	unknown	망각을 받아들이시오	ko	sourced game files
+젠야타	unknown	깜박이지 않는 눈을 들여다보시오	ko	sourced game files
+젠야타	unknown	조화가 그대를 따라다니오	ko	sourced game files
+젠야타	unknown	고통에서 해방시켜 주겠소	ko	sourced game files
+젠야타	unknown	내가 곁에 있소, 친구여	ko	sourced game files
+젠야타	unknown	이제 진정될 거요	ko	sourced game files
+젠야타	unknown	내가 봐주겠소	ko	sourced game files
+젠야타	unknown	내가 도와주겠소	ko	sourced game files
+젠야타	unknown	조화는 그대 손안에 있소	ko	sourced game files
+젠야타	unknown	내 기도를 들어주시오	ko	sourced game files
+젠야타	unknown	상처가 아물 것이오	ko	sourced game files
+젠야타	unknown	그대의 어려움을 해소해 주겠소	ko	sourced game files
+젠야타	unknown	아픔이 사라질 것이오	ko	sourced game files
+젠야타	unknown	고통을 극복하시오	ko	sourced game files
+젠야타	unknown	위안을 얻으시오	ko	sourced game files
+젠야타	unknown	안심하시오. 혼자가 아니니	ko	sourced game files
+젠야타	unknown	다시 온전해질 것이오	ko	sourced game files
+젠야타	unknown	우리는 하나요, 형제여	ko	sourced game files
+젠야타	unknown	풍요의 축복을 빌겠소	ko	sourced game files
+젠야타	unknown	금은보화가 그대를 찾소	ko	sourced game files
+젠야타	unknown	빗발치는 황금을 받으시오	ko	sourced game files
+젠야타	unknown	운수대통이 함께하길	ko	sourced game files
+젠야타	unknown	보화가 그대 품안에 있소	ko	sourced game files
+젠야타	unknown	풍요가 그대를 따라다니오	ko	sourced game files
+젠야타	unknown	다시 부귀해질 것이오	ko	sourced game files
+젠야타	unknown	풍요를 찾으시길	ko	sourced game files
+젠야타	unknown	악에 대항해야 하오	ko	sourced game files
+젠야타	unknown	어둠이 내리는군	ko	sourced game files
+젠야타	unknown	그대야말로 스스로의 적이오	ko	sourced game files
+젠야타	unknown	그대 안에 혼돈이 있소	ko	sourced game files
+젠야타	unknown	그대 마음속에 번뇌가 도사리고 있소	ko	sourced game files
+젠야타	unknown	의심이 그대를 좀먹고 있소	ko	sourced game files
+젠야타	unknown	광기의 속삭임에 귀를 기울이시오	ko	sourced game files
+젠야타	unknown	어둠은 만물을 감싼다오	ko	sourced game files
+젠야타	unknown	그림자에 먹히시오	ko	sourced game files
+젠야타	unknown	칠 테면 쳐 보시오	ko	sourced game files
+젠야타	unknown	이것이 몸 쪽 꽉 찬 돌직구요!	ko	sourced game files
+젠야타	unknown	한가운데 꽂히는 공이오!	ko	sourced game files
+젠야타	unknown	가시밭길이 펼쳐졌소	ko	sourced game files
+젠야타	unknown	그대에게 좋지 않은 조짐이오	ko	sourced game files
+젠야타	unknown	무엇이 그리 고통스럽소	ko	sourced game files
+젠야타	unknown	정말 불길하군	ko	sourced game files
+젠야타	unknown	어둠이 그대를 덮쳤소	ko	sourced game files
+젠야타	unknown	혼돈이 그대의 앞길에 드리우오	ko	sourced game files
+젠야타	unknown	고통을 받아들이시오	ko	sourced game files
+젠야타	unknown	고통이 그대를 집어삼킬 거요	ko	sourced game files
+젠야타	unknown	모든 고통은 애착에서 비롯되오	ko	sourced game files
+젠야타	unknown	어찌 그리 표정이 어둡소	ko	sourced game files
+젠야타	unknown	의구심이 그대를 감싸오	ko	sourced game files
+젠야타	unknown	괴로움이 그대를 배반하오, 사티아	ko	sourced game files
+젠야타	unknown	악감정은 없소, 겐지	ko	sourced game files
+젠야타	unknown	그대는 길에서 너무 멀리 벗어났소, 형제여	ko	sourced game files
+젠야타	unknown	불운이 그대를 따라다니오	ko	sourced game files
+젠야타	unknown	그대의 재산이 흩어지오	ko	sourced game files
+젠야타	unknown	결핍이 그대를 삼키오	ko	sourced game files
+젠야타	unknown	그대의 정수를 흡수하겠소	ko	sourced game files
+젠야타	unknown	그대의 미래에 풍요란 없소	ko	sourced game files
+젠야타	unknown	그대의 길엔 악이 가득하오	ko	sourced game files
+젠야타	unknown	기대가 컸다오	ko	sourced game files
+젠야타	unknown	우리는 무너지지 않을 것이오	ko	sourced game files
+젠야타	unknown	스스로 배워서 잘 알고 있는 것들이라야 비로소 잘 가르칠 수 있소	ko	sourced game files
+젠야타	unknown	마음이 안정되어야 명료하게 볼 수 있는 법	ko	sourced game files
+젠야타	unknown	두려워할 것은 아무것도 없소	ko	sourced game files
+젠야타	unknown	안에 든 것이 없으면 나눌 것도 없소	ko	sourced game files
+젠야타	unknown	록타르, 친구여. 바라는 것이 무엇이오	ko	sourced game files
+젠야타	unknown	우리의 영혼은 승리할 것이오	ko	sourced game files
+젠야타	unknown	주의하시오	ko	sourced game files
+젠야타	unknown	여기요, 친구들이여	ko	sourced game files
+젠야타	unknown	달을 품은 웅덩이는 많아도 그곳에 비치는 달은 하나라오	ko	sourced game files
+젠야타	unknown	함께 전진합시다	ko	sourced game files
+젠야타	unknown	나아가는 것이 좋겠소만	ko	sourced game files
+젠야타	unknown	왜 주저하는 것이오	ko	sourced game files
+젠야타	unknown	길은, 우리가 가야만 의미가 있는 법이오	ko	sourced game files
+젠야타	unknown	이만 갑시다. 망설임이 두려움으로 바뀌기 전에	ko	sourced game files
+젠야타	unknown	교전에 대비하는 건 현명하나, 이미 대비는 할 만큼 했소	ko	sourced game files
+젠야타	unknown	그대가 그리울 것이오... 나는 아니지만	ko	sourced game files
+젠야타	unknown	대단한 상대도 크게 미끄러질 수 있군	ko	sourced game files
+젠야타	unknown	아래로 떨어지고 말다니. 정말 안타깝소	ko	sourced game files
+젠야타	unknown	붙잡을 때와 놓아줄 때를 잘 알아두시오	ko	sourced game files
+젠야타	unknown	주변을 잘 보면서 다녔어야 하거늘	ko	sourced game files
+젠야타	unknown	발을 헛디뎌도 일보 전진이라 할 수 있소	ko	sourced game files
+젠야타	unknown	추락이란 겸손함을 깨닫게 하는 교훈 아니겠소	ko	sourced game files
+젠야타	unknown	추락은 떠오를 기회가 다시 온다는 뜻이오... 훗날에	ko	sourced game files
+젠야타	unknown	제압자를 쓰러뜨렸소	ko	sourced game files
+젠야타	unknown	우리가 제압자를 격파했소	ko	sourced game files
+젠야타	unknown	제압자가 쓰러졌소	ko	sourced game files
+젠야타	unknown	이 계전기에 힘을 쏟으시오	ko	sourced game files
+젠야타	unknown	이 계전기를 파괴해야 하오	ko	sourced game files
+젠야타	unknown	이 계전기에 집중하는 게 좋겠소	ko	sourced game files
+젠야타	unknown	이 계전기를 파괴합시다	ko	sourced game files
+젠야타	unknown	계전기를 처리했소	ko	sourced game files
+젠야타	unknown	계전기를 제거했소	ko	sourced game files
+젠야타	unknown	계전기가 파괴됐소	ko	sourced game files
+젠야타	unknown	계전기는 이제 끝이오	ko	sourced game files
+젠야타	unknown	목표물을 전달해야 하오	ko	sourced game files
+젠야타	unknown	목표물을 전달하시오	ko	sourced game files
+젠야타	unknown	깃털처럼 가볍구려	ko	sourced game files
+젠야타	unknown	무엇도 나를 억제하지 않소	ko	sourced game files
+젠야타	ult	궁극기가 거의 준비됐소	ko	sourced game files
+젠야타	ult	궁극기가 충전되는 중이오	ko	sourced game files
+젠야타	ult	궁극기가 준비되었소	ko	sourced game files
+젠야타	ult	초월할 준비가 되었소	ko	sourced game files
+젠야타	ult	궁극기가 준비됐소. 두려워 말고 나아가시오	ko	sourced game files
+젠야타	turret	포탑이 사라졌소	ko	sourced game files
+젠야타	turret	포탑은 이제 존재하지 않소	ko	sourced game files
+젠야타	turret	포탑이 저 앞에 있소	ko	sourced game files
+젠야타	turret	앞에 포탑이 있소. 이번에는 비유가 아니오	ko	sourced game files
+젠야타	teleporter	적 순간이동기를 찾아야 하오	ko	sourced game files
+젠야타	teleporter	적이 순간이동기를 보유하고 있소	ko	sourced game files
+젠야타	teleporter	적 순간이동기가 무로 돌아갔소	ko	sourced game files
+젠야타	teleporter	여기 적 순간이동기가 있소. 파괴하시오!	ko	sourced game files
+젠야타	teammate	아군이 쓰러졌소	ko	sourced game files
+젠야타	teammate	아군을 잃었소	ko	sourced game files
+젠야타	teammate	사상자가 발생했소	ko	sourced game files
+젠야타	teammate	눈동자의 품에 안기기를	ko	sourced game files
+젠야타	teammate	다시 태어나시오	ko	sourced game files
+젠야타	teammate	윤회의 바퀴가 돌아가는군	ko	sourced game files
+젠야타	teammate	망각이 그대를 포용하오	ko	sourced game files
+젠야타	teammate	그림자 속으로 사라지시오	ko	sourced game files
+젠야타	teammate	어둠이 만물을 삼키오	ko	sourced game files
+젠야타	teammate	잘하셨소, 겐지!	ko	sourced game files
+젠야타	teammate	잘했소, 제자여	ko	sourced game files
+젠야타	teammate	저들을 망각으로 인도했군요	ko	sourced game files
+젠야타	teammate	때가 되면 만물이 망각 속으로 멀어질지니	ko	sourced game files
+젠야타	teammate	보면 볼수록 우아한 춤사위요, 사티아	ko	sourced game files
+젠야타	teammate	하나를 알려주니 열을 깨달은 모양이오	ko	sourced game files
+젠야타	teammate	마무리가 예술적이오	ko	sourced game files
+젠야타	teammate	행동에 아름다움이 담겨있구려	ko	sourced game files
+젠야타	teammate	그대의 광채는 영원무궁하리니	ko	sourced game files
+젠야타	teammate	그대는 보석처럼 빛나는구려	ko	sourced game files
+젠야타	teammate	난 여기 있소	ko	sourced game files
+젠야타	teammate	이제 내 몫이로군	ko	sourced game files
+젠야타	teammate	나는 홀로 남았으나, 동료들이 아직 나와 함께 싸운다오	ko	sourced game files
+젠야타	teammate	도움을 바란다면 도움을 받을 것이오	ko	sourced game files
+젠야타	teammate	도움을 요청하는 건 나약함이 아니오	ko	sourced game files
+젠야타	teammate	도와줄 수 있어 기쁘오	ko	sourced game files
+젠야타	teammate	세상은 위험한 곳이오	ko	sourced game files
+젠야타	teammate	이타적인 행위는 그 자체로 보상이오	ko	sourced game files
+젠야타	teammate	대안을 강구하시오	ko	sourced game files
+젠야타	teammate	우리에겐 아직 그대가 필요하오	ko	sourced game files
+젠야타	teammate	이 생이 아직 끝나지 않았소	ko	sourced game files
+젠야타	teammate	형제여, 옛 생각이 나는구려	ko	sourced game files
+젠야타	shieldgenerator	적이 보호막 생성기를 쓰고 있소	ko	sourced game files
+젠야타	shieldgenerator	적 보호막 생성기가 파괴됐소	ko	sourced game files
+젠야타	shieldgenerator	적의 보호막 생성기를 찾았소	ko	sourced game files
+젠야타	objective	목표가 이제 오래 버티지 못할 거요!	ko	sourced game files
+젠야타	objective	목표가 파괴되기 직전이오!	ko	sourced game files
+젠야타	objective	거점에 공격을 집중해야 하오	ko	sourced game files
+젠야타	objective	나는 거점에 있소, 친구들	ko	sourced game files
+젠야타	objective	거점을 확보하고 있소	ko	sourced game files
+젠야타	objective	거점에서 나와 함께하시오	ko	sourced game files
+젠야타	objective	적이 돌파하고 있소!	ko	sourced game files
+젠야타	objective	목표가 손상됐소	ko	sourced game files
+젠야타	objective	거점을 지켜야 하오	ko	sourced game files
+젠야타	objective	목표를 지키시오	ko	sourced game files
+젠야타	objective	목표를 지켜야 하오	ko	sourced game files
+젠야타	objective	목표에 공격을 집중합시다	ko	sourced game files
+젠야타	objective	목표를 파괴해야 하오	ko	sourced game files
+젠야타	objective	목표를 제거했소	ko	sourced game files
+젠야타	objective	목표가 무로 돌아갔소	ko	sourced game files
+젠야타	objective	적을 거점 밖으로 몰아내시오	ko	sourced game files
+젠야타	objective	적이 거점을 점거하고 있소!	ko	sourced game files
+젠야타	objective	저들이 거점을 차지하고 있소. 반드시 막아야 하오!	ko	sourced game files
+젠야타	objective	목표가 손상됐소. 모두 계획대로군요	ko	sourced game files
+젠야타	objective	목표를 달성하는 데 진척이 있소	ko	sourced game files
+젠야타	objective	목표를 거의 이루었소	ko	sourced game files
+젠야타	objective	목표가 거의 파괴됐소	ko	sourced game files
+젠야타	objective	함께 저 화물을 세우는 게 어떠오	ko	sourced game files
+젠야타	objective	화물을 반드시 멈춰야 하오	ko	sourced game files
+젠야타	objective	화물의 여정에 훼방을 놓아야 하오	ko	sourced game files
+젠야타	objective	승리는 우리의 운명이나, 우리는 본분을 다해야 하오	ko	sourced game files
+젠야타	objective	끝까지 버텨내시오	ko	sourced game files
+젠야타	objective	위치를 사수해내면 승리는 우리 것이오	ko	sourced game files
+젠야타	objective	시간은 우리 편이오. 버티기만 하면 되오	ko	sourced game files
+젠야타	objective	목표를 목적지로 옮깁시다	ko	sourced game files
+젠야타	objective	우리는 목표와 함께 움직이오	ko	sourced game files
+젠야타	objective	대상에 집중하시오!	ko	sourced game files
+젠야타	objective	목표로 가시오	ko	sourced game files
+젠야타	objective	모두 목표와 하나가 됩시다	ko	sourced game files
+젠야타	objective	화물이 순리대로 전진하오	ko	sourced game files
+젠야타	objective	화물이 움직이고 있소	ko	sourced game files
+젠야타	objective	나는 화물 곁에 있소	ko	sourced game files
+젠야타	objective	화물이 가만히 있소	ko	sourced game files
+젠야타	objective	화물을 옮겨야 하오	ko	sourced game files
+젠야타	objective	화물을 이동시켜야 하오	ko	sourced game files
+젠야타	objective	화물을 멈추어야 하오	ko	sourced game files
+젠야타	objective	화물이 정차했소	ko	sourced game files
+젠야타	objective	화물의 앞길을 터야 하오	ko	sourced game files
+젠야타	objective	함께 화물을 밀어보는 게 어떻겠소	ko	sourced game files
+젠야타	objective	시간이 없소. 공격!	ko	sourced game files
+젠야타	objective	한시가 급하오. 어서 공격에 나서시오!	ko	sourced game files
+젠야타	objective	끝이 다가오오. 있는 힘을 모두 쏟아부으시오	ko	sourced game files
+젠야타	objective	앞으로 나아가시오. 시간은 저들 편이오	ko	sourced game files
+젠야타	objective	목표를 점령해야 하오	ko	sourced game files
+젠야타	objective	목표를 취해야 하오	ko	sourced game files
+젠야타	match	현재에 충실하시오	ko	sourced game files
+젠야타	match	승리냐 패배냐, 우리의 운명은 미리 정해진 게 아니라오	ko	sourced game files
+젠야타	match	역경의 시기를 인내해야 하오	ko	sourced game files
+젠야타	match	결과를 뒤집을 수 있길 기도하오	ko	sourced game files
+젠야타	match	이 난관은 아직 극복할 수 있소	ko	sourced game files
+젠야타	match	아직 패배하지 않았소	ko	sourced game files
+젠야타	match	포기하고 싶다는 유혹은 승리 직전에 가장 강력하오	ko	sourced game files
+젠야타	match	절망적인 상황 속에서 절묘한 기회가 생기기 마련이오	ko	sourced game files
+젠야타	match	흔들리지 않으면, 우린 일어설 수 있소!	ko	sourced game files
+젠야타	match	모두의 노력이 우리를 승리로 이끌고 있소	ko	sourced game files
+젠야타	match	행운은 우리에게 미소 짓소	ko	sourced game files
+젠야타	match	이렇게 유능한 분들과 손을 잡다니 축복이오	ko	sourced game files
+젠야타	match	우리가 유리하단 사실에 감사하시오	ko	sourced game files
+젠야타	match	승리의 신념을 안고 전진하시오!	ko	sourced game files
