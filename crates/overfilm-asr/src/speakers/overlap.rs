@@ -21,7 +21,7 @@ use crate::{SAMPLE_RATE, Word};
 use super::cluster;
 #[cfg(feature = "qwen")]
 use super::seg;
-use super::seg::{CHUNK_SAMPLES, CLASSES, LOCAL, frame_centre};
+use super::seg::{CHUNK_SAMPLES, CLASSES, FRAME_SAMPLES, LOCAL, RECEPTIVE_SAMPLES, frame_centre};
 
 /// Tunables (measured on synthetic Korean conversations with overlaps; see `OVERFILM.md`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -39,11 +39,13 @@ pub struct OverlapParams {
     pub word_share: f32,
     /// Least cosine similarity for tying a local speaker by its voice.
     pub min_similarity: f32,
+    /// Carry ties between neighbouring chunks ([`stitch`]).
+    pub stitch: bool,
 }
 
 impl Default for OverlapParams {
     fn default() -> Self {
-        Self { step_ms: 5000, min_vote_frames: 12, vote_share: 0.6, overlap_prob: 0.3, word_share: 0.2, min_similarity: 0.2 }
+        Self { step_ms: 5000, min_vote_frames: 12, vote_share: 0.6, overlap_prob: 0.3, word_share: 0.2, min_similarity: 0.2, stitch: true }
     }
 }
 
@@ -246,6 +248,71 @@ pub fn second_speakers(words: &[Word], labels: &[Option<usize>], chunks: &[Chunk
     out
 }
 
+/// How much local talker `a` of chunk `x` and `b` of chunk `y` agree where the chunks overlap:
+/// the shared talk over the larger of the two talks (0–1).
+pub fn agreement(x: &Chunk, a: usize, y: &Chunk, b: usize) -> f32 {
+    let per_frame = FRAME_SAMPLES as f32 / (SAMPLE_RATE as f32 / 1000.0);
+    let (mut both, mut tx, mut ty) = (0f32, 0f32, 0f32);
+    for (f, tf) in x.talk.iter().enumerate() {
+        let t = frame_ms(x.start_ms, f);
+        // the frame of `y` nearest time `t`
+        let g = ((t - y.start_ms) as f32 - RECEPTIVE_SAMPLES as f32 / 32.0) / per_frame;
+        if g < 0.0 {
+            continue;
+        }
+        let Some(tg) = y.talk.get(g.round() as usize) else { continue };
+        let (p, q) = (tf.get(a).copied().unwrap_or(0.0), tg.get(b).copied().unwrap_or(0.0));
+        both += p.min(q);
+        tx += p;
+        ty += q;
+    }
+    let m = tx.max(ty);
+    if m > 0.0 { both / m } else { 0.0 }
+}
+
+/// Least [`agreement`] for carrying a tie from one chunk to the next.
+pub const STITCH_AGREEMENT: f32 = 0.5;
+
+/// Fill untied local talkers from the neighbouring chunk (start one step apart) where they are
+/// clearly the same talker, forwards then backwards.
+pub fn stitch(chunks: &mut [Chunk]) {
+    for back in [false, true] {
+        let n = chunks.len();
+        for step in 1..n {
+            let (i, j) = if back { (n - step, n - 1 - step) } else { (step - 1, step) };
+            let (Some(src), Some(dst)) = (chunks.get(i), chunks.get(j)) else { continue };
+            if (src.start_ms - dst.start_ms).abs() >= CHUNK_MS {
+                continue;
+            }
+            let mut fill: Vec<(usize, usize)> = Vec::new();
+            for b in 0..LOCAL {
+                if dst.ties.get(b).copied().flatten().is_some() {
+                    continue;
+                }
+                let best = (0..LOCAL)
+                    .filter(|&a| src.ties.get(a).copied().flatten().is_some())
+                    .map(|a| (a, agreement(src, a, dst, b)))
+                    .max_by(|x, y| x.1.total_cmp(&y.1));
+                if let Some((a, ag)) = best
+                    && ag >= STITCH_AGREEMENT
+                    && let Some(Some(k)) = src.ties.get(a)
+                    && !dst.ties.contains(&Some(*k))
+                    && !fill.iter().any(|f| f.1 == *k)
+                {
+                    fill.push((b, *k));
+                }
+            }
+            if let Some(d) = chunks.get_mut(j) {
+                for (b, k) in fill {
+                    if let Some(slot) = d.ties.get_mut(b) {
+                        *slot = Some(k);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Chunk length in ms.
 pub const CHUNK_MS: i64 = (CHUNK_SAMPLES / (SAMPLE_RATE as usize / 1000)) as i64;
 
@@ -353,11 +420,26 @@ impl super::Diarizer {
                 })
             })
             .collect();
-        // pass 2: tie the rest by voice
+        // pass 2: talkers carried over from the neighbouring chunks, then by voice, then carry
+        // the voice ties on
+        if p.stitch {
+            stitch(&mut chunks);
+        }
         for (ci, v, voices) in pending {
             if let Some(c) = chunks.get_mut(ci) {
-                c.ties = tie(&v, &voices, &cents, p);
+                let t = tie(&v, &voices, &cents, p);
+                for s in 0..LOCAL {
+                    if let (Some(None), Some(Some(k))) = (c.ties.get(s).copied(), t.get(s).copied())
+                        && !c.ties.contains(&Some(k))
+                        && let Some(slot) = c.ties.get_mut(s)
+                    {
+                        *slot = Some(k);
+                    }
+                }
             }
+        }
+        if p.stitch {
+            stitch(&mut chunks);
         }
         Ok(second_speakers(words, labels, &chunks, p))
     }
@@ -425,6 +507,30 @@ mod tests {
         let cents = vec![Some(vec![1.0, 0.0]), Some(vec![0.0, 1.0])];
         assert_eq!(tie(&vb, &[None, Some(vec![0.9, 0.436]), None], &cents, &p), [Some(0), Some(1), None]);
         assert_eq!(tie(&vb, &[None, Some(vec![-1.0, 0.0]), None], &cents, &p), [Some(0), None, None]);
+    }
+
+    #[test]
+    fn stitching_carries_a_talker_into_the_next_chunk() {
+        // local B of chunk 0 (tied to speaker 1) talks 6–9 s; in chunk 1 (from 5 s) the same
+        // talker is local A, untied
+        let a0: Vec<[bool; 3]> = (0..CHUNK_FRAMES).map(|f| [frame_ms(0, f) < 6000, (6000..9000).contains(&frame_ms(0, f)), false]).collect();
+        let a1: Vec<[bool; 3]> = (0..CHUNK_FRAMES).map(|f| [(6000..9000).contains(&frame_ms(5000, f)), false, frame_ms(5000, f) >= 9000]).collect();
+        let mut c0 = Chunk::new(0, &logp(&a0));
+        c0.ties = [Some(0), Some(1), None];
+        let mut c1 = Chunk::new(5000, &logp(&a1));
+        c1.ties = [None, None, Some(2)];
+        assert!(agreement(&c0, 1, &c1, 0) > 0.9);
+        assert!(agreement(&c0, 0, &c1, 0) < 0.1);
+        let mut chunks = vec![c0, c1];
+        stitch(&mut chunks);
+        assert_eq!(chunks[1].ties, [Some(1), None, Some(2)]);
+        // never a speaker already tied in that chunk, and far chunks are left alone
+        let mut far = chunks.clone();
+        far[1].start_ms = 20_000;
+        far[1].ties = [None, None, Some(1)];
+        stitch(&mut far);
+        assert_eq!(far[1].ties, [None, None, Some(1)]);
+        stitch(&mut []);
     }
 
     #[test]

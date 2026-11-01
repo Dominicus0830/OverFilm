@@ -96,6 +96,7 @@ fn main() {
                         op.overlap_prob = a[i + 1].parse().unwrap();
                         i += 1;
                     }
+                    "--no-stitch" => op.stitch = false,
                     "--ov-sim" => {
                         op.min_similarity = a[i + 1].parse().unwrap();
                         i += 1;

@@ -127,6 +127,15 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   | **probability ≥ 0.3 over chunks, 20 % of the word (chosen)** | **75.1 %** | **64.5 %** | **2.8 %** |
   | probability ≥ 0.2, 15 % of the word | 78.1 % | 67.1 % | 4.2 % |
   | voice ties need similarity 0.4 (not 0.2) | 75.1 % | 63.5 % | 2.8 % |
+
+  Hero set: the same generator with one speaker of every conversation replaced by a held-out
+  hero's Korean voice lines (Soldier: 76; 405 overlapped words). Ties carried between
+  neighbouring chunks (`stitch`: a talker untied in one chunk takes the tie of the talker it
+  matches, by shared talk ≥ 0.5 over the 5 s both chunks see) raised it from 72.6 % found /
+  53.3 % both right / 4.4 % false to **80.0 % / 61.5 % / 4.9 %**, the people-only set unchanged.
+  Fine-tuning the segmentation on Zeroth train (105 speakers) mixed with five other heroes'
+  lines (3000 steps, CPU) did not help: found 73.6 %, both right 50.6 % on the hero set, so the
+  published weights stay.
   | + relabel words by the segmentation's clean talkers | — | — | word error 4.8 → 5.5 %, dropped |
 
   The word's own label is right (one of the two talkers) for 97 % of overlapped words. On the
