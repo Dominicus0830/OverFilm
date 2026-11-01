@@ -93,8 +93,11 @@ pub fn review(caps: &[Caption], o: &Layout, corrector: &Corrector) -> Vec<Issue>
     out
 }
 
-/// Words the recogniser was less sure of than this are flagged (see [`unsure`]).
-pub const UNSURE_BELOW: f32 = 0.5;
+/// Words the recogniser was less sure of than this are flagged (see [`unsure`]). Measured on the
+/// aichi tier-list reference (1860 words, 11% of them wrong): below 0.7 flags 6% of the words and
+/// about half of those are really wrong (4x the base rate), catching 28% of all wrong words;
+/// 0.5 flagged only 1% and caught 6%.
+pub const UNSURE_BELOW: f32 = 0.7;
 
 /// Captions holding words the recogniser was unsure of (probability under `below`), one finding
 /// per caption listing the words, least sure first. A word counts for the caption its start falls
