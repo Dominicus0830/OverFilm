@@ -3685,3 +3685,22 @@
 	No break-screen, setup or pause template yet: import a template file, or learn one from a frame of that screen.	대기 화면·라운드 준비·퍼즈 견본이 아직 없어요. 견본 파일을 불러오거나, 그 화면이 나오는 프레임에서 견본을 등록하세요.
 	Imported {n} template(s) and {b} player bar(s)	견본 {n}개, 선수 이름판 {b}개를 불러왔어요
 	Import Screen Templates (OverFilm)…	화면 견본 불러오기(OverFilm)…
+	Drag on the picture to draw at least one green box, then OK.	그림 위를 드래그해서 초록 상자를 하나 이상 그린 뒤 확인을 누르세요.
+	Draw one green box around the team's name plates.	팀 선수 이름판 전체를 감싸는 초록 상자를 하나 그리세요.
+	No name plates learnt yet: learn each team's name plates first (Learn Screen Template, Team 1/2 name plates).	선수 이름판이 아직 없어요. 먼저 화면 견본 등록에서 1팀/2팀 선수 이름판을 등록하세요.
+	Every plate looks dark: learn them on a frame where the whole team is alive.	이름판이 모두 어두워요. 팀원이 모두 살아 있는 장면에서 등록하세요.
+	That box is one flat colour: pick a part with text or graphics.	고른 곳이 한 가지 색뿐이에요. 글자나 그림이 있는 곳을 고르세요.
+	The box is empty or outside the picture: draw it again.	상자가 비었거나 화면 밖이에요. 다시 그리세요.
+	That clip has no media (offline?).	그 클립에 연결된 파일이 없어요(오프라인?).
+	That clip has no picture.	그 클립에는 영상이 없어요.
+	Couldn't read that frame of the video.	영상의 그 프레임을 읽지 못했어요.
+	It is already running: see the progress at the bottom.	이미 실행 중이에요. 아래 진행 표시를 보세요.
+	No video to analyse: put the broadcast on V1, or select its clips.	분석할 영상이 없어요. 대회 영상을 V1에 두거나 클립을 선택하세요.
+	No clips with sound in the sequence.	시퀀스에 소리가 있는 클립이 없어요.
+	The recording is too long: cut it into parts first.	영상이 너무 길어요. 먼저 나눠 주세요.
+	This build has no OverFilm speech recognition.	이 버전에는 OverFilm 음성 인식이 들어 있지 않아요.
+	That caption track has no captions.	그 자막 트랙에 자막이 없어요.
+	The sequence has no transcript yet: make the captions first.	시퀀스에 아직 받아쓰기가 없어요. 먼저 자막을 만드세요.
+	No speech to caption (only in-game voice?).	자막으로 만들 말소리가 없어요(게임 음성만 있나요?).
+	That is the template file itself.	지금 쓰는 견본 파일 자체예요.
+	The file is not there.	파일이 없어요.
