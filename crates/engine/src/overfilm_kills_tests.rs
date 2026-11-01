@@ -114,6 +114,7 @@ fn templates_go_to_the_users_own_file_and_import_merges() {
     // unsaved project, no path: the user's file
     let r = s.execute("overfilm.screenTemplate.list", json!({})).unwrap();
     assert!(r["templates"].as_str().unwrap().ends_with("overfilm-screens.json"), "{r}");
+    assert!(r["list"].as_array().unwrap().len() >= 5 && r["bars"] == json!([1, 2]), "starts with the built-in OWCS templates: {r}");
     // someone's template file with a player bar
     let dir = std::env::temp_dir().join(format!("overfilm-import-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

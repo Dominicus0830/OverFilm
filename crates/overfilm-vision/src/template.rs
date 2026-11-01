@@ -367,4 +367,13 @@ mod tests {
         assert_eq!(set.best(&f), None);
         assert!(TemplateSet::from_json("{").is_err());
     }
+
+    #[test]
+    fn the_built_in_owcs_templates_read() {
+        let set = TemplateSet::from_json(crate::builtin::OWCS_KOREA_2026).unwrap();
+        assert!(set.templates.iter().any(|t| t.screen == Screen::Standby));
+        assert!(set.templates.iter().any(|t| t.screen == Screen::Setup));
+        assert!(set.templates.iter().any(|t| t.screen == Screen::Live));
+        assert_eq!(set.bars.iter().map(|b| b.team).collect::<Vec<_>>(), [1, 2]);
+    }
 }

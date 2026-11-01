@@ -15,6 +15,12 @@
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
+/// Template files built in (see `data/README.md`).
+pub mod builtin {
+    /// OWCS Asia Korea 2026 broadcasts (720p and up): break screen, round setup banners, game HUD,
+    /// both teams' name plates.
+    pub const OWCS_KOREA_2026: &str = include_str!("../data/owcs-korea-2026.overfilm-screens.json");
+}
 pub mod kills;
 pub mod luma;
 pub mod plan;
