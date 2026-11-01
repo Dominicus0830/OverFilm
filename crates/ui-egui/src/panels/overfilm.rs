@@ -8,7 +8,9 @@
 //!   before the start, mark or cut.
 //! - **Learn Screen Template (OverFilm)…** (`overfilm.screenTemplate.learn`): the Program frame at
 //!   the playhead; drag on it to mark the parts that always look the same on that screen (green),
-//!   switch to "ignore" to mark what changes (red: the clock, a camera).
+//!   switch to "ignore" to mark what changes (red: the clock, a camera). Choosing a team's name
+//!   plates instead learns where they are (`overfilm.playerBar.learn`, the first green rectangle
+//!   around the team's plates, on a frame where the whole team is alive), for kill detection.
 //!
 //! Automation ids: `overfilm.<dialog>.ok`, `.cancel` and `overfilm.<dialog>.<param>` for each
 //! control (`<dialog>` = captions, style, autoCut, learn); `overfilm.learn.frame` is the picture.
@@ -190,8 +192,16 @@ fn learn_body(ui: &mut egui::Ui, elems: &mut Elems, d: &mut Draft) {
                 ("setup", tl!("Round setup (PREPARE TO ATTACK…)").to_string()),
                 ("pause", tl!("Pause notice").to_string()),
                 ("live", tl!("Game HUD (in play)").to_string()),
+                ("bar1", tl!("Team 1 name plates (kills)").to_string()),
+                ("bar2", tl!("Team 2 name plates (kills)").to_string()),
             ],
         );
+        if p["screen"].as_str().is_some_and(|v| v.starts_with("bar")) {
+            if p["players"].is_null() {
+                p["players"] = json!(5);
+            }
+            number(ui, elems, format!("{pre}.players"), tl!("Players:"), &mut p["players"], 1.0..=12.0, "");
+        }
         text(ui, elems, format!("{pre}.name"), tl!("Name:"), &mut p["name"], tl!("e.g. PREPARE TO ATTACK"));
         text(ui, elems, format!("{pre}.templates"), tl!("Template file:"), &mut p["templates"], tl!("save the project first, or type a .json path"));
     });
@@ -404,10 +414,11 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
         close = true;
     }
     if apply {
-        let p = run_params(&d);
-        match app.session.execute(d.command, p) {
+        let (command, p) = learn_call(&d).unwrap_or((d.command, run_params(&d)));
+        match app.session.execute(command, p) {
             Ok(v) => {
-                app.ui.status = match d.command {
+                app.ui.status = match command {
+                    "overfilm.playerBar.learn" => tlf!("Learnt team {team}'s name plates", team = v["team"]),
                     "overfilm.screenTemplate.learn" => {
                         tlf!("Learnt \"{name}\" ({n} templates in the file)", name = v["name"].as_str().unwrap_or_default(), n = v["count"])
                     }
@@ -422,11 +433,30 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
     ctx.data_mut(|m| m.insert_temp(draft_id(), if close { None } else { Some(d) }));
 }
 
+/// Learning a team's name plates instead of a screen template: the first green rectangle is the
+/// bar around the team's plates.
+fn learn_call(d: &Draft) -> Option<(&'static str, Value)> {
+    let team = match d.params["screen"].as_str()? {
+        "bar1" => 1,
+        "bar2" => 2,
+        _ => return None,
+    };
+    let mut p = json!({"team": team, "players": d.params["players"].as_f64().unwrap_or(5.0).round().clamp(1.0, 12.0) as u64});
+    if let Some(r) = d.params["rects"].as_array().and_then(|a| a.first()) {
+        p["rect"] = r.clone();
+    }
+    if let Some(t) = d.params["templates"].as_str().filter(|t| !t.is_empty()) {
+        p["templates"] = json!(t);
+    }
+    Some(("overfilm.playerBar.learn", p))
+}
+
 /// The command's parameters from the dialog's (empty choices left out).
 fn run_params(d: &Draft) -> Value {
     let mut p = d.params.clone();
     if let Some(m) = p.as_object_mut() {
         m.remove("drawIgnore");
+        m.remove("players");
         m.retain(|_, v| !(v.is_null() || v.as_str().is_some_and(str::is_empty)));
         if m.get("numSpeakers").and_then(Value::as_f64).is_some_and(|n| n < 1.0) {
             m.remove("numSpeakers");
@@ -459,5 +489,22 @@ mod tests {
         for (a, b) in r.iter().zip([0.1, 0.9, 0.4, 0.1]) {
             assert!((a - b).abs() < 1e-5, "{r:?}");
         }
+    }
+
+    #[test]
+    fn name_plates_learn_a_player_bar() {
+        let mut d = Draft {
+            command: "overfilm.screenTemplate.learn",
+            params: json!({"screen": "bar2", "players": 4.6, "rects": [[0.7, 0.14, 0.27, 0.02], [0.1, 0.1, 0.1, 0.1]], "ignore": [], "templates": "s.json", "name": ""}),
+            info: Value::Null,
+            error: String::new(),
+            frame: None,
+            drag: None,
+        };
+        let (cmd, p) = learn_call(&d).unwrap();
+        assert_eq!(cmd, "overfilm.playerBar.learn");
+        assert_eq!(p, json!({"team": 2, "players": 5, "rect": [0.7, 0.14, 0.27, 0.02], "templates": "s.json"}));
+        d.params["screen"] = json!("setup");
+        assert!(learn_call(&d).is_none());
     }
 }

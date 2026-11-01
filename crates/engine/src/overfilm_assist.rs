@@ -12,6 +12,7 @@
 //!     hero ultimates in the game voice. Waiting time already marked or cut by Auto Cut is skipped,
 //!     and when the screen-template file has a game-HUD (`live`) template, a moment is kept only
 //!     if the game is on screen at its peak (bumpers and replays between rounds are loud too).
+//!     Deaths marked by `overfilm.kills.scan` score too ("처치 N" in the comment).
 //!
 //! Running it again replaces the earlier suggestions.
 
@@ -230,7 +231,8 @@ pub fn make(s: &mut Session, levels: &[f32], o: &AssistOptions) -> Result<Value>
     if let Some(p) = &o.highlights {
         // ask for more than needed: some fall in waiting time or off the game
         let wide = HighlightParams { count: p.count.saturating_mul(3), ..p.clone() };
-        for h in overfilm_ai::highlights(levels, &words, &wide) {
+        let kills = crate::overfilm_kills::kill_times_ms(s);
+        for h in overfilm_ai::highlights_with_kills(levels, &words, &kills, &wide) {
             if highlights.len() >= p.count {
                 break;
             }
@@ -256,7 +258,7 @@ pub fn make(s: &mut Session, levels: &[f32], o: &AssistOptions) -> Result<Value>
     let report = json!({
         "silences": silences.iter().map(|x| json!({"from": clock(x.start_ms), "to": clock(x.end_ms), "start": tick(x.start_ms).0, "end": tick(x.end_ms).0})).collect::<Vec<_>>(),
         "highlights": highlights.iter().map(|h| json!({"from": clock(h.span.start_ms), "to": clock(h.span.end_ms), "start": tick(h.span.start_ms).0, "end": tick(h.span.end_ms).0,
-            "score": h.score, "louderDb": h.louder_db, "words": h.words, "gameWords": h.game_words})).collect::<Vec<_>>(),
+            "score": h.score, "louderDb": h.louder_db, "words": h.words, "gameWords": h.game_words, "kills": h.kills})).collect::<Vec<_>>(),
         "checkedOnScreen": set.is_some(),
     });
     let do_silence = o.silence.is_some();
@@ -287,6 +289,9 @@ pub fn make(s: &mut Session, levels: &[f32], o: &AssistOptions) -> Result<Value>
             }
             if !h.words.is_empty() {
                 why.push(h.words.join(", "));
+            }
+            if h.kills > 0 {
+                why.push(format!("처치 {}", h.kills));
             }
             if h.game_words > 0 {
                 why.push(format!("게임 음성 {}단어", h.game_words));

@@ -15,12 +15,14 @@
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
+pub mod kills;
 pub mod luma;
 pub mod plan;
 pub mod template;
 
 use serde::{Deserialize, Serialize};
 
+pub use kills::{Death, DeathTracker, Fight, PlayerBar};
 pub use luma::{Luma, NRect};
 pub use plan::{Analyzer, Cut, CutParams, CutReason, Detected, Sample, Segment, plan_cuts, segments};
 pub use template::{Part, Template, TemplateSet};

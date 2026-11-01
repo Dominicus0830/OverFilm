@@ -166,13 +166,15 @@ pub struct HighlightParams {
     pub word_points: f32,
     /// Points per in-game voice word (hero ultimates, the announcer).
     pub game_points: f32,
+    /// Points per death read off the HUD (`overfilm.kills.scan`).
+    pub kill_points: f32,
     /// Smallest score suggested.
     pub min_score: f32,
 }
 
 impl Default for HighlightParams {
     fn default() -> Self {
-        Self { count: 10, length_ms: 20_000, loud_weight: 1.0, word_points: 4.0, game_points: 1.5, min_score: 8.0 }
+        Self { count: 10, length_ms: 20_000, loud_weight: 1.0, word_points: 4.0, game_points: 1.5, kill_points: 5.0, min_score: 8.0 }
     }
 }
 
@@ -189,6 +191,9 @@ pub struct Highlight {
     pub words: Vec<String>,
     /// In-game voice words in it.
     pub game_words: usize,
+    /// Deaths in it.
+    #[serde(default)]
+    pub kills: usize,
 }
 
 /// Median of a slice (0 for empty).
@@ -215,6 +220,12 @@ pub fn is_hype(word: &str) -> bool {
 /// words and in-game voice; the score is smoothed over 5 s and the highest peaks become
 /// non-overlapping highlights of `length_ms`, in time order.
 pub fn highlights(levels: &[f32], words: &[Word], p: &HighlightParams) -> Vec<Highlight> {
+    highlights_with_kills(levels, words, &[], p)
+}
+
+/// [`highlights`] with the times (ms) of deaths read off the HUD: each scores `kill_points`, so a
+/// team fight stands out even when the casters stay calm.
+pub fn highlights_with_kills(levels: &[f32], words: &[Word], kills_ms: &[i64], p: &HighlightParams) -> Vec<Highlight> {
     let secs = levels.len().div_ceil(10);
     if secs == 0 {
         return Vec::new();
@@ -254,6 +265,11 @@ pub fn highlights(levels: &[f32], words: &[Word], p: &HighlightParams) -> Vec<Hi
             }
         }
     }
+    for &k in kills_ms {
+        if let Some(s) = score.get_mut(at(k)) {
+            *s += p.kill_points;
+        }
+    }
     // smooth over 5 s
     let smooth: Vec<f32> = (0..secs).map(|i| score.get(i.saturating_sub(2)..(i + 3).min(secs)).unwrap_or(&[]).iter().sum::<f32>()).collect();
     let len_s = usize::try_from((p.length_ms / 1000).max(4)).unwrap_or(20);
@@ -285,6 +301,7 @@ pub fn highlights(levels: &[f32], words: &[Word], p: &HighlightParams) -> Vec<Hi
             louder_db: louder.get(a..b).unwrap_or(&[]).iter().copied().fold(0.0, f32::max),
             words: inside.iter().filter(|w| !w.game && is_hype(&w.text)).take(5).map(|w| w.text.clone()).collect(),
             game_words: inside.iter().filter(|w| w.game).count(),
+            kills: kills_ms.iter().filter(|&&k| k >= span.start_ms && k < span.end_ms).count(),
         });
     }
     out.sort_by_key(|h| h.span.start_ms);
@@ -359,5 +376,17 @@ mod tests {
         assert!(is_hype("말도 안 돼") || is_hype("말도안돼"));
         assert!(!is_hype("오늘은"));
         assert!(!is_hype("..."));
+    }
+
+    #[test]
+    fn deaths_make_a_quiet_team_fight_a_highlight() {
+        // two minutes at one level: nothing stands out by sound
+        let l = vec![-30.0; 1200];
+        assert!(highlights(&l, &[], &HighlightParams::default()).is_empty());
+        let kills = [70_000, 72_000, 75_000, 76_500, -5, i64::MAX];
+        let h = highlights_with_kills(&l, &[], &kills, &HighlightParams::default());
+        assert_eq!(h.len(), 1);
+        assert!(h[0].span.start_ms <= 70_000 && 76_500 < h[0].span.end_ms, "{h:?}");
+        assert_eq!(h[0].kills, 4);
     }
 }

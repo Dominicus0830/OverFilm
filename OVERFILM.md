@@ -16,7 +16,7 @@ calling the caption layout) and listed in the table at the end.
 | `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`), in-game voice lines found by text (`voicelines`) |
 | `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels, overlapped speech with pyannote segmentation-3.0); next: `filmcraft_speech::Transcriber` |
 | `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out; caption styles and motion for the editor (`styles`) |
-| `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures) and the auto-cut plan; see "Auto cut" below |
+| `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures), the auto-cut plan and deaths from the HUD's player bars; see "Auto cut" below |
 | `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the shared models folder |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L1 | M6 | analysis behind the editing suggestions: loudness, silences, highlights (`overfilm.assist.suggest` in the engine); later style learning |
@@ -309,6 +309,35 @@ keyframes and links. The moments stay in time order, overlapping markers join, a
 a short cross dissolve and crossfade where both sides have media. Delete or move the highlight
 markers first to choose which moments go in; the source sequence is not changed.
 
+## Kills and team fights
+
+Reading the kill feed itself proved unreliable on a compressed broadcast (small boxes over a moving
+game, colours washed out). The broadcast HUD's **player bars** are steadier: each player's name
+plate is in the team colour while they are alive and turns black while they wait to respawn
+(`overfilm_vision::kills`).
+
+- `overfilm.playerBar.learn {team: 1|2, rect: [x, y, w, h], players=5, time?, clip?, templates?}`
+  (or the Learn Screen Template dialog with "Team 1/2 name plates"): the rectangle around one team's
+  plates, on a frame where the whole team is alive; it is split into `players` equal plates and
+  saved in the screen-template file (`bars`), beside the templates.
+- `Sequence ▸ OverFilm ▸ Find Kills and Team Fights` (`overfilm.kills.scan {fps=2, clips?,
+  templates?, fightGap=10, minKills=3, wait}`): a background job reads the plates while the game
+  HUD (`live`) template matches. A plate reads dead when over 35 % of it is near black (the white
+  name stays bright) and must read so for half a second; samples where most plates are dark at
+  once (replays, transitions) are skipped. Each death becomes a point marker
+  "OverFilm 처치: N팀 M번" (team colour) and each run of 3+ deaths no more than 10 s apart a range
+  marker "OverFilm 교전 N" (5 s before the first death to 3 s after the last). Running it again
+  replaces them.
+- `overfilm.assist.suggest` adds 5 points per death to the highlight score ("처치 N" in the
+  comment), so a fight stands out even when the casters stay calm.
+
+Measured on the 84-minute OWCS broadcast (bars learnt at 30:58, `overfilm_kills_e2e_on_a_broadcast`,
+2 frames a second, 19 minutes on a CPU): no deaths outside play (the pre-show and breaks fail the
+HUD template), about 147 deaths and 23 team fights over the three maps. Checked against the frames:
+the fights at 31:06 and 34:30 (a team wipe) died in the order and at the times the plates show,
+and two of the four sound-only highlights (31:06, 1:15:19) fall on fights. A plate that flickers back
+mid-respawn made a few double deaths, hence no second death of a player within 8 s.
+
 ## Dialogs
 
 The Sequence ▸ OverFilm menu items open a dialog when chosen from the menu (`crates/ui-egui/src/panels/overfilm.rs`;
@@ -322,7 +351,8 @@ called with parameters, over the control channel or MCP, the command runs direct
   per second, markers or cut right away, frozen picture as pause.
 - **Learn Screen Template (OverFilm)…**: the Program frame at the playhead; drag on it to mark what
   always looks the same on that screen (green) and, switched to ignore, what changes (red: the
-  clock, a camera). OK learns it into the template file.
+  clock, a camera). OK learns it into the template file. "Team 1/2 name plates (kills)" learns a
+  player bar instead (the first green rectangle, and the number of players).
 
 The labels are in English in the code and Korean in `crates/ui-egui/src/i18n/ko.tsv` (Edit ▸
 Language ▸ 한국어).
@@ -366,12 +396,13 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `.github/workflows/overfilm.yml` | new file (OverFilm CI) |
 | `OVERFILM.md` | new file (this document) |
 | `crates/engine/Cargo.toml` | depends on `overfilm-vision`, `overfilm-captions`, `overfilm-pipeline`, `overfilm-asr`, `overfilm-ai`; feature `overfilm-qwen` |
-| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `Session::overfilm_jobs`, `overfilm_caption_jobs` and `overfilm_assist_jobs`, their `poll` in `poll_persistence` |
-| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()` and `overfilm_reel::commands()` |
+| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `mod overfilm_kills`, `Session::overfilm_jobs`, `overfilm_caption_jobs`, `overfilm_assist_jobs` and `overfilm_kill_jobs`, their `poll` in `poll_persistence` |
+| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()`, `overfilm_reel::commands()` and `overfilm_kills::commands()` |
 | `crates/engine/src/transcript.rs` | `targets` is `pub(crate)` (which clips to recognise) |
 | `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |
 | `crates/engine/src/overfilm_assist.rs` (+ `_tests.rs`) | new file: silence and highlight suggestions |
 | `crates/engine/src/overfilm_reel.rs` (+ `_tests.rs`) | new file: the highlight reel |
+| `crates/engine/src/overfilm_kills.rs` (+ `_tests.rs`) | new file: player bars, deaths and team fights |
 | `apps/filmcraft/Cargo.toml` | feature `overfilm-qwen`, on by default |
 | `crates/ui-egui/src/panels/overfilm.rs` | new file: the OverFilm dialogs |
 | `crates/ui-egui/src/panels.rs`, `menus.rs`, `panels/dialogs.rs` | `mod overfilm`, its `route` before the menu dialogs, its `show` |

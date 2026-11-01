@@ -60,6 +60,9 @@ fn default_threshold() -> f32 {
 pub struct TemplateSet {
     #[serde(default)]
     pub templates: Vec<Template>,
+    /// The HUD's player bars (deaths), one per team.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bars: Vec<crate::kills::PlayerBar>,
 }
 
 impl Part {
@@ -227,11 +230,21 @@ impl TemplateSet {
         if set.templates.len() > 256 {
             return Err(VisionError::Templates("more than 256 templates".into()));
         }
+        if set.bars.len() > 8 || set.bars.iter().any(|b| b.players > crate::kills::MAX_PLAYERS) {
+            return Err(VisionError::Templates("too many player bars or players".into()));
+        }
         Ok(set)
     }
 
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_else(|_| "{\"templates\":[]}".into())
+    }
+
+    /// Add a team's player bar, replacing that team's earlier one.
+    pub fn insert_bar(&mut self, b: crate::kills::PlayerBar) {
+        self.bars.retain(|o| o.team != b.team);
+        self.bars.push(b);
+        self.bars.sort_by_key(|b| b.team);
     }
 
     /// Add a template, replacing one of the same name.

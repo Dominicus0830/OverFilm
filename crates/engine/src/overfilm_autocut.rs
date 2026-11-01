@@ -32,7 +32,7 @@ pub const MARK: &str = "OverFilm 컷";
 const MARK_WAIT: &str = "OverFilm 컷: 대기";
 const MARK_PAUSE: &str = "OverFilm 컷: 퍼즈";
 /// Analysis frame width.
-const WIDTH: usize = 1280;
+pub(crate) const WIDTH: usize = 1280;
 /// Most samples one run decodes (10 hours at 4 per second).
 const MAX_SAMPLES: u64 = 144_000;
 
@@ -178,13 +178,52 @@ fn list(s: &mut Session, p: &Value) -> Result<Value> {
     }))
 }
 
+/// The frames to sample at `fps`: of the chosen clips (`clips`), or the lowest video track's.
+pub(crate) fn sample_plan(s: &Session, p: &Value, fps: f64) -> Result<(Vec<Work>, u64)> {
+    let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
+    let step = Tick::from_seconds_f64(1.0 / fps).max(Tick(1));
+    // the chosen clips, or the lowest video track's
+    let mut chosen: Vec<ClipId> =
+        clips_p(s, p).into_iter().filter(|c| q.find_item(*c).is_some_and(|(t, _)| q.track(t).is_some_and(|t| t.kind == TrackKind::Video))).collect();
+    if chosen.is_empty() {
+        chosen = q.tracks(TrackKind::Video).first().map(|t| t.items.iter().map(|i| i.id).collect()).unwrap_or_default();
+    }
+    let mut work = Vec::new();
+    let mut total = 0u64;
+    let mut last_end = Tick::MIN;
+    let mut items: Vec<_> = chosen.iter().filter_map(|c| q.find_item(*c).map(|(_, it)| it.clone())).collect();
+    items.sort_by_key(|it| it.start);
+    for it in items {
+        // overlapping clips (two tracks) would put samples out of order: the earlier one wins
+        let start = it.start.max(last_end);
+        if start >= it.end() {
+            continue;
+        }
+        let Some(src) = s.source(it.item) else { continue };
+        let Some(v) = src.info().video.clone() else { continue };
+        let mut times = Vec::new();
+        let mut t = start;
+        while t < it.end() && total < MAX_SAMPLES {
+            times.push((t, it.source_time_at(t)));
+            total += 1;
+            t += step;
+        }
+        last_end = it.end();
+        work.push(Work { name: it.name.clone(), src, scale: (WIDTH as f64 / v.width.max(1) as f64).min(1.0) as f32, times });
+    }
+    if work.is_empty() {
+        return Err(EngineError::Other("no video clip with media to analyse (select clips, or put the broadcast on V1)".into()));
+    }
+    Ok((work, total))
+}
+
 /// One clip to analyse.
-struct Work {
-    name: String,
-    src: filmcraft_media::SharedSource,
-    scale: f32,
+pub(crate) struct Work {
+    pub name: String,
+    pub src: filmcraft_media::SharedSource,
+    pub scale: f32,
     /// (sequence time, media time) of each sample.
-    times: Vec<(Tick, Tick)>,
+    pub times: Vec<(Tick, Tick)>,
 }
 
 /// A running analysis; its plan is applied by [`poll`] when it finishes.
@@ -224,40 +263,7 @@ fn auto_cut(s: &mut Session, p: &Value) -> Result<Value> {
     if s.overfilm_jobs.iter().any(|j| j.seq == seq_id) {
         return Err(EngineError::Other("Auto Cut is already running on this sequence".into()));
     }
-    let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
-    let step = Tick::from_seconds_f64(1.0 / fps).max(Tick(1));
-    // the chosen clips, or the lowest video track's
-    let mut chosen: Vec<ClipId> =
-        clips_p(s, p).into_iter().filter(|c| q.find_item(*c).is_some_and(|(t, _)| q.track(t).is_some_and(|t| t.kind == TrackKind::Video))).collect();
-    if chosen.is_empty() {
-        chosen = q.tracks(TrackKind::Video).first().map(|t| t.items.iter().map(|i| i.id).collect()).unwrap_or_default();
-    }
-    let mut work = Vec::new();
-    let mut total = 0u64;
-    let mut last_end = Tick::MIN;
-    let mut items: Vec<_> = chosen.iter().filter_map(|c| q.find_item(*c).map(|(_, it)| it.clone())).collect();
-    items.sort_by_key(|it| it.start);
-    for it in items {
-        // overlapping clips (two tracks) would put samples out of order: the earlier one wins
-        let start = it.start.max(last_end);
-        if start >= it.end() {
-            continue;
-        }
-        let Some(src) = s.source(it.item) else { continue };
-        let Some(v) = src.info().video.clone() else { continue };
-        let mut times = Vec::new();
-        let mut t = start;
-        while t < it.end() && total < MAX_SAMPLES {
-            times.push((t, it.source_time_at(t)));
-            total += 1;
-            t += step;
-        }
-        last_end = it.end();
-        work.push(Work { name: it.name.clone(), src, scale: (WIDTH as f64 / v.width.max(1) as f64).min(1.0) as f32, times });
-    }
-    if work.is_empty() {
-        return Err(EngineError::Other("no video clip with media to analyse (select clips, or put the broadcast on V1)".into()));
-    }
+    let (work, total) = sample_plan(s, p, fps)?;
     let id = s.jobs.iter().map(|j| j.id).max().unwrap_or(0) + 1;
     let job = crate::Job { id, label: "OverFilm Auto Cut".into(), progress: Default::default(), result: Default::default() };
     job.progress.total.store(total, std::sync::atomic::Ordering::Relaxed);
