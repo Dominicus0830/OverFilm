@@ -56,6 +56,40 @@ cargo run -p overfilm-eval -- --terms terms.txt --json refs/ hyps/
 
 `crates/overfilm-eval/samples/` has a hand-counted example; its README lists the expected numbers.
 
+## Recognition speed and piece length
+
+`overfilm_asr::transcribe` cuts the sound at quiet points into pieces of at most 60 s
+(`MAX_CHUNK_SECONDS`) and recognises them four at a time (`BATCH`):
+
+- **Side by side**: generating text is one decoder pass per token, and that pass is bound by
+  reading the 2 GB of 8-bit weights. The pieces of a group share each pass: on the CPU the 8-bit
+  product reads every weight row once for all rows (`qmm.rs`; candle's own walks the weights once
+  per row), and the prompt prefills of the group run as one product (`TextModel::prefill_seqs`);
+  on the GPU the prompt prefix stays cached at the start of the key/value cache, each piece gets
+  a region after it (`rope.wgsl`/`attn.wgsl` take a per-row position and region), and the
+  `mv` kernel reads each weight once for up to four rows (`Text::forward_seqs`). Pieces that do
+  not fit in the GPU cache side by side (8192 positions) run in turns. Greedy decoding per piece
+  is unchanged: on the GPU the same 65 s gave the same text, character for character, as the CPU.
+- **The CPU cache** grows in place (256 positions at a time) instead of being copied every step.
+- **Piece length**: the models take up to 3 minutes (the reference toolkit uses 180 s pieces
+  when it needs word times). Longer pieces give the recogniser more of the sentence around each
+  word and fewer cuts inside one. M1 aichi, CPU, same build:
+
+  | piece | CER | WER | substitutions | terms (video list) |
+  |---|---|---|---|---|
+  | 30 s | 6.60 % | 14.59 % | 120 | 99.1 % |
+  | **60 s (chosen)** | **6.25 %** | **13.16 %** | **101** | 97.3 % |
+  | 120 s | 6.20 % | 13.49 % | 102 | 96.4 % |
+
+  120 s leaves room for only one piece at a time in the GPU cache, so 60 s. Runs differ by about
+  ±0.2 % CER from rounding alone, so the term column (one or two words) is within noise. With
+  two spelling rows found on the same video (`딜라인` → `뒷라인`, `배나는` → `밴하는`): 6.18 % CER,
+  13.05 % WER, 97 substitutions (before this work: 6.56 %, 14.37 %, 120).
+- **Time** for the 12:45 aichi video on 4 CPU cores (`--speakers 1`, `target-cpu=x86-64-v3`):
+  about 38 minutes before (text generation 0.30 s per token, 68 % of the time) → 24.4 minutes
+  (0.16 s per token of each piece). Not timed on a real GPU (the build container has none); there
+  token passes are bound by memory reads, which the side-by-side pieces share.
+
 ## Speakers and game voice
 
 `overfilm_asr::speakers` labels who spoke each recognised word; `apps/overfilm-subs/src/speakers.rs`

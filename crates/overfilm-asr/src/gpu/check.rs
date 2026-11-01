@@ -234,8 +234,8 @@ fn rope_attention(c: &Ctx, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), A
     let ob = c.floats(rows * hq * dh);
     let ru = c.uniform(&[hq as u32, hkv as u32, dh as u32, cap as u32, 0, eps.to_bits(), 0, 0]);
     let au = c.uniform(&[hq as u32, hkv as u32, dh as u32, cap as u32, 0, scale.to_bits(), 0, 0]);
-    let rope = c.bind(&c.k.rope, &[&ru, &step, &qkvb, &nb, &csb, &qb, &kb, &vb]);
-    let attn = c.bind(&c.k.attn, &[&au, &step, &qb, &kb, &vb, &ob]);
+    let rope = c.bind(&c.k.rope, &[&ru, &step, &qkvb, &nb, &csb, &qb, &kb, &vb, &c.zero]);
+    let attn = c.bind(&c.k.attn, &[&au, &step, &qb, &kb, &vb, &ob, &c.zero]);
     run(c, |p| {
         dispatch(p, &c.k.rope, &rope, heads as u32, rows as u32);
         dispatch(p, &c.k.attn, &attn, hq as u32, rows as u32);
@@ -273,8 +273,8 @@ fn windowed(c: &Ctx, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), AsrErro
     let (kb, vb) = (c.storage((h * rows * dh * 2) as u64), c.storage((h * rows * dh * 2) as u64));
     let su = c.uniform(&[h as u32, h as u32, dh as u32, rows as u32, 1, 0, 0, 0]);
     let au = c.uniform(&[h as u32, h as u32, dh as u32, rows as u32, window as u32, scale.to_bits(), 0, 0]);
-    let split = c.bind(&c.k.rope, &[&su, &step, &qkvb, &c.zero, &c.zero, &qb, &kb, &vb]);
-    let attn = c.bind(&c.k.attn, &[&au, &step, &qb, &kb, &vb, &ob]);
+    let split = c.bind(&c.k.rope, &[&su, &step, &qkvb, &c.zero, &c.zero, &qb, &kb, &vb, &c.zero]);
+    let attn = c.bind(&c.k.attn, &[&au, &step, &qb, &kb, &vb, &ob, &c.zero]);
     run(c, |p| {
         dispatch(p, &c.k.rope, &split, (3 * h) as u32, rows as u32);
         dispatch(p, &c.k.attn, &attn, h as u32, rows as u32);

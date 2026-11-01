@@ -2,8 +2,9 @@
 //! candle (CPU), with the model catalogue and download, low-energy chunking and a word-timed
 //! transcript pipeline.
 //!
-//! Recognition ([`Asr`]) takes ≤ 30 s of 16 kHz mono audio, an optional context text (glossary
-//! terms; it measurably fixes hero and term names) and a forced language. Alignment
+//! Recognition ([`Asr`]) takes a piece (≤ [`MAX_CHUNK_SECONDS`]) of 16 kHz mono audio, an
+//! optional context text (glossary terms; it measurably fixes hero and term names) and a forced
+//! language. Alignment
 //! ([`Aligner`]) gives each word of that text a start and end time. [`transcribe`] runs both over
 //! a whole file's audio. See `OVERFILM.md` → "Speech recognition".
 //!
@@ -23,6 +24,8 @@ mod engine;
 pub mod gpu;
 #[cfg(feature = "qwen")]
 pub mod model;
+#[cfg(feature = "qwen")]
+pub mod qmm;
 pub mod speakers;
 pub mod text;
 pub mod tokenizer;
@@ -37,8 +40,10 @@ use serde::{Deserialize, Serialize};
 
 /// Input sample rate.
 pub const SAMPLE_RATE: u32 = 16_000;
-/// Longest audio handed to the models at once (the measured setup: 30 s windows).
-pub const MAX_CHUNK_SECONDS: f32 = 30.0;
+/// Longest audio handed to the models at once. The models take up to 3 minutes; 60 s pieces
+/// gave fewer wrong characters than 30 s ones on the M1 set (CER 6.6 → 6.25 %, 120 s: 6.20 %)
+/// and still leave room to decode three or four side by side on the GPU.
+pub const MAX_CHUNK_SECONDS: f32 = 60.0;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AsrError {

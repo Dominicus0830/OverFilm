@@ -1,6 +1,9 @@
 // Attention of each query row and head over the 16-bit key/value cache, one pass with a running
 // softmax (128 keys at a time). window 0: causal (row r at position s.pos + r sees keys
 // 0 ..= s.pos + r); else keys inside the row's block of `window` rows (audio encoder).
+// Rows of different sequences (s.pad == 1, see rope.wgsl): row r sees positions 0 ..= ri[4r],
+// the shared prefix (below ri[4r + 2]) at the start of the cache, the rest in its own region
+// from ri[4r + 1].
 
 struct P {
     hq: u32,
@@ -26,6 +29,7 @@ struct Step {
 @group(0) @binding(3) var<storage, read> kc: array<u32>;
 @group(0) @binding(4) var<storage, read> vc: array<u32>;
 @group(0) @binding(5) var<storage, read_write> o: array<f32>;
+@group(0) @binding(6) var<storage, read> ri: array<u32>;
 
 const B: u32 = 128u;
 var<workgroup> qs: array<f32, 256>;
@@ -76,6 +80,14 @@ fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wg: vec
     workgroupBarrier();
     var lo = 0u;
     var hi = s.pos + row + 1u;
+    // cache place of position k: k below `plen`, else base + k - plen
+    var plen = 0xffffffffu;
+    var base = 0u;
+    if s.pad == 1u {
+        hi = ri[row * 4u] + 1u;
+        base = ri[row * 4u + 1u];
+        plen = ri[row * 4u + 2u];
+    }
     if p.window != 0u {
         lo = (row / p.window) * p.window;
         hi = min(lo + p.window, s.rows);
@@ -88,7 +100,7 @@ fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wg: vec
         let k = blk + li;
         var sc = -3.0e38;
         if k < hi {
-            let kb = (kvh * p.cap + k) * half;
+            let kb = (kvh * p.cap + select(base + k - plen, k, k < plen)) * half;
             var d = 0.0;
             for (var i = 0u; i < half; i++) {
                 let kv = unpack2x16float(kc[kb + i]);
@@ -112,7 +124,8 @@ fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wg: vec
             if i < dh {
                 var a = acc[t] * corr;
                 for (var j = 0u; j < nk; j++) {
-                    let vv = unpack2x16float(vc[(kvh * p.cap + blk + j) * half + i / 2u]);
+                    let kj = blk + j;
+                    let vv = unpack2x16float(vc[(kvh * p.cap + select(base + kj - plen, kj, kj < plen)) * half + i / 2u]);
                     a += ps[j] * select(vv.x, vv.y, (i & 1u) == 1u);
                 }
                 acc[t] = a;
