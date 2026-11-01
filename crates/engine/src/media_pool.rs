@@ -303,6 +303,21 @@ impl MediaPool {
         self.resolve(p, item, services, self.use_proxies())
     }
 
+    /// The item's original file opened once more, uncached, with a decoder of its own (parallel
+    /// analysis): only a readable file the host streams from disk (no whole-file copy of a big
+    /// one), never a generator, an image sequence or offline media.
+    pub fn reopen(&self, p: &Project, item: ItemId, services: &dyn Services) -> Option<SharedSource> {
+        let (_, m, _) = p.resolve_media(item)?;
+        if m.offline || m.info.kind == filmcraft_media::MediaKind::ImageSequence {
+            return None;
+        }
+        let MediaRef::File { path } = &m.media else { return None };
+        let file = self.follow_media(path).ok()?;
+        let r = services.reader(&file)?.ok()?;
+        let openers = self.openers.read().unwrap_or_else(PoisonError::into_inner).clone();
+        filmcraft_media::reader::open_reader_within(&file_name(&file), r, &filmcraft_codecs::reader_openers(), &openers, PROBE_WHOLE_FILE_MAX).ok()
+    }
+
     /// Resolve the full-resolution source for an item (never a proxy).
     pub fn full_res_source(&self, p: &Project, item: ItemId, services: &dyn Services) -> Option<SharedSource> {
         self.resolve(p, item, services, false)

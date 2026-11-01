@@ -30,6 +30,15 @@ pub struct Sample {
     pub live: bool,
 }
 
+/// What the templates make of one frame (see [`TemplateSet::look`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    /// [`TemplateSet::best`].
+    pub best: Option<(Screen, usize, f32)>,
+    /// [`TemplateSet::live`].
+    pub live: bool,
+}
+
 /// Matches a stream of frames against a template set.
 pub struct Analyzer {
     set: TemplateSet,
@@ -53,11 +62,28 @@ impl Analyzer {
         if self.samples.len() >= MAX_SAMPLES || self.samples.last().is_some_and(|s| s.t >= t) {
             return None;
         }
-        let best = self.set.best(&frame);
+        let look = self.set.look(&frame);
         let still = self.prev.as_ref().map(|p| frame.still_fraction(p, self.still_tol)).unwrap_or(0.0);
-        let live = self.set.live(&frame);
-        self.samples.push(Sample { t, screen: best.map(|b| b.0), template: best.map(|b| b.1), score: best.map(|b| b.2).unwrap_or(0.0), still, live });
         self.prev = Some(frame);
+        self.push_looked(t, look, still)
+    }
+
+    /// Add a sample whose frame was looked at elsewhere (in parallel): `look` is
+    /// [`TemplateSet::look`] of the frame, `still` its [`Luma::still_fraction`] against the frame
+    /// before it (0 for the first). The same sample [`Analyzer::push`] makes of that frame.
+    pub fn push_looked(&mut self, t: Tick, look: Look, still: f32) -> Option<&Sample> {
+        if self.samples.len() >= MAX_SAMPLES || self.samples.last().is_some_and(|s| s.t >= t) {
+            return None;
+        }
+        let best = look.best;
+        self.samples.push(Sample {
+            t,
+            screen: best.map(|b| b.0),
+            template: best.map(|b| b.1),
+            score: best.map(|b| b.2).unwrap_or(0.0),
+            still,
+            live: look.live,
+        });
         self.samples.last()
     }
 

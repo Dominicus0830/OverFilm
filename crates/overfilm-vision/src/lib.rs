@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 
 pub use kills::{Death, DeathTracker, Fight, PlayerBar};
 pub use luma::{Luma, NRect};
-pub use plan::{Analyzer, Cut, CutParams, CutReason, Detected, Sample, Segment, plan_cuts, segments};
+pub use plan::{Analyzer, Cut, CutParams, CutReason, Detected, Look, Sample, Segment, plan_cuts, segments};
 pub use template::{Part, Template, TemplateSet};
 
 /// A broadcast state a template recognises.
