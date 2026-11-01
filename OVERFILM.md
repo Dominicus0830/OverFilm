@@ -301,6 +301,14 @@ editor: no highlight inside Auto Cut's waiting markers, and, when the screen-tem
 game-HUD (`live`) template, a highlight must show the game in at least two of its peak and 2 s either side.
 Silences: an esports broadcast has hardly any (3, 3 s in all); they matter for talking videos.
 
+**Highlight reel**: `Sequence ▸ OverFilm ▸ Make Highlight Reel` (`overfilm.highlights.reel {name?,
+dissolve=true, dissolveFrames?, open=true}`) copies the sequence as "<sequence> 하이라이트" and
+ripple-deletes everything outside the highlight markers on every track, captions included (locked
+and not sync-locked tracks too; their settings come back afterwards), so clips keep their effects,
+keyframes and links. The moments stay in time order, overlapping markers join, and each join gets
+a short cross dissolve and crossfade where both sides have media. Delete or move the highlight
+markers first to choose which moments go in; the source sequence is not changed.
+
 ## Dialogs
 
 The Sequence ▸ OverFilm menu items open a dialog when chosen from the menu (`crates/ui-egui/src/panels/overfilm.rs`;
@@ -358,14 +366,15 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `.github/workflows/overfilm.yml` | new file (OverFilm CI) |
 | `OVERFILM.md` | new file (this document) |
 | `crates/engine/Cargo.toml` | depends on `overfilm-vision`, `overfilm-captions`, `overfilm-pipeline`, `overfilm-asr`, `overfilm-ai`; feature `overfilm-qwen` |
-| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `Session::overfilm_jobs`, `overfilm_caption_jobs` and `overfilm_assist_jobs`, their `poll` in `poll_persistence` |
-| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()` and `overfilm_assist::commands()` |
+| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `Session::overfilm_jobs`, `overfilm_caption_jobs` and `overfilm_assist_jobs`, their `poll` in `poll_persistence` |
+| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()` and `overfilm_reel::commands()` |
 | `crates/engine/src/transcript.rs` | `targets` is `pub(crate)` (which clips to recognise) |
 | `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |
 | `crates/engine/src/overfilm_assist.rs` (+ `_tests.rs`) | new file: silence and highlight suggestions |
+| `crates/engine/src/overfilm_reel.rs` (+ `_tests.rs`) | new file: the highlight reel |
 | `apps/filmcraft/Cargo.toml` | feature `overfilm-qwen`, on by default |
 | `crates/ui-egui/src/panels/overfilm.rs` | new file: the OverFilm dialogs |
 | `crates/ui-egui/src/panels.rs`, `menus.rs`, `panels/dialogs.rs` | `mod overfilm`, its `route` before the menu dialogs, its `show` |
 | `crates/ui-egui/src/i18n/ko.tsv` | Korean labels of the OverFilm menu items and dialogs (appended) |
-| `crates/engine/src/overfilm_autocut.rs` (+ `tests.rs`) | new file: Auto Cut commands (frames in, cuts out) |
+| `crates/engine/src/overfilm_autocut.rs` (+ `tests.rs`) | new file: Auto Cut commands (frames in, cuts out); `dissolve_at` is shared with the reel |
 | `crates/engine/src/overfilm_captions.rs` | new file: styled captions and the Premiere Pro export |

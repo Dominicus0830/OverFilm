@@ -36,6 +36,7 @@ pub mod narration;
 pub mod overfilm_assist;
 pub mod overfilm_autocut;
 pub mod overfilm_captions;
+pub mod overfilm_reel;
 pub mod overfilm_transcribe;
 pub mod panels;
 pub mod paste_media;

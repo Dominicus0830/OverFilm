@@ -481,7 +481,7 @@ fn remove(s: &mut Session, cuts: &[Cut], dissolve_frames: Option<i64>) -> Result
 
 /// A centred cross dissolve (video) or constant-power crossfade (audio) on every unlocked track
 /// with two clips meeting at `t`. A join without media to overlap keeps its plain cut.
-fn dissolve_at(q: &mut Sequence, t: Tick, kind: TrackKind, dur: Tick, ctx: &mut filmcraft_edit::EditCtx) {
+pub(crate) fn dissolve_at(q: &mut Sequence, t: Tick, kind: TrackKind, dur: Tick, ctx: &mut filmcraft_edit::EditCtx) {
     let (name, ek) = match kind {
         TrackKind::Video => ("cross_dissolve", EffectKind::VideoTransition),
         _ => ("constant_power", EffectKind::AudioTransition),
