@@ -63,6 +63,10 @@ pub struct Options {
     /// Only this part of the input, `(from_ms, to_ms)`; caption times stay on the input's clock.
     #[serde(default)]
     pub range: Option<(i64, i64)>,
+    /// The input's audio track to recognise (0 = the first; OBS can record the microphone on a
+    /// track of its own).
+    #[serde(default)]
+    pub audio_track: usize,
 }
 
 fn yes() -> bool {
@@ -96,6 +100,7 @@ impl Options {
             only_voices: false,
             clean_fillers: false,
             range: None,
+            audio_track: 0,
         }
     }
 
@@ -159,11 +164,13 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
     let models = models_dir();
     ensure_models(&models, &mut |f, m| progress(0.05 * f, m))?;
     let range = o.range.map(|(a, b)| (a.max(0), b.max(a.max(0))));
-    let audio = crate::media::decode_span(&o.input, range, &mut |f| progress(0.05 + 0.05 * f, "소리 읽는 중"))?;
+    let audio = crate::media::decode_span(&o.input, o.audio_track, range, &mut |f| progress(0.05 + 0.05 * f, "소리 읽는 중"))?;
     if audio.is_empty() {
         return Err("소리가 비어 있습니다".into());
     }
-    let known = if o.speakers && (o.use_voices || o.only_voices) { crate::voices::known(&crate::voices::list()) } else { Vec::new() };
+    // one person and no "only enrolled voices": nothing to tell apart or name, so skip it (faster)
+    let one = o.num_speakers == Some(1) && !o.only_voices;
+    let known = if o.speakers && !one && (o.use_voices || o.only_voices) { crate::voices::known(&crate::voices::list()) } else { Vec::new() };
     let req = overfilm_pipeline::recognise::Request {
         mode: o.mode,
         extra_terms: o.extra_terms.clone(),
@@ -251,7 +258,9 @@ pub fn recognise_span(o: &Options, from_ms: i64, to_ms: i64, progress: Progress)
     let models = models_dir();
     ensure_models(&models, &mut |f, m| progress(0.05 * f, m))?;
     let start = from_ms.saturating_sub(REDO_PAD_MS).max(0);
-    let audio = crate::media::decode_span(&o.input, Some((start, to_ms.saturating_add(REDO_PAD_MS))), &mut |f| progress(0.05 + 0.05 * f, "소리 읽는 중"))?;
+    let audio = crate::media::decode_span(&o.input, o.audio_track, Some((start, to_ms.saturating_add(REDO_PAD_MS))), &mut |f| {
+        progress(0.05 + 0.05 * f, "소리 읽는 중")
+    })?;
     if audio.is_empty() {
         return Err("그 구간에 소리가 없습니다".into());
     }

@@ -1,8 +1,9 @@
 //! OverFilm dialogs (see `OVERFILM.md`): the Sequence ▸ OverFilm menu items open these when
 //! invoked without parameters; with parameters the engine command runs directly.
 //!
-//! - **OverFilm Captions (Korean)…** (`overfilm.captions.generate`): video kind, speakers, game
-//!   voice, line length, extra terms.
+//! - **OverFilm Captions (Korean)…** (`overfilm.captions.generate`): the audio track to caption
+//!   (all, or one of A1, A2…), video kind, the number of speakers (off, counted, or a number),
+//!   game voice, line length, extra terms.
 //! - **Styled Captions (OverFilm)…** (`overfilm.captions.stylize`): caption track, style, motion.
 //! - **Auto Cut Waiting and Pauses (OverFilm)…** (`overfilm.autoCut`): template file, time kept
 //!   before the start, mark or cut.
@@ -26,7 +27,7 @@ struct Draft {
     /// The engine command OK runs.
     command: &'static str,
     params: Value,
-    /// Captions dialog: none. Style: presets and caption tracks. Auto Cut / Learn: the template
+    /// Captions dialog: the sequence's audio tracks. Style: presets and caption tracks. Auto Cut / Learn: the template
     /// file's current list.
     info: Value,
     error: String,
@@ -64,11 +65,27 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
     let templates = s.execute("overfilm.screenTemplate.list", json!({})).ok();
     let templates_path = templates.as_ref().and_then(|t| t["templates"].as_str()).unwrap_or_default().to_string();
     let (params, info) = match command {
-        "overfilm.captions.generate" => (
-            json!({"mode": "general", "speakers": true, "numSpeakers": 0, "gameVoice": "drop", "lineChars": 16, "maxLines": 2,
-                   "cleanFillers": false, "gpu": true, "extraTerms": ""}),
-            Value::Null,
-        ),
+        "overfilm.captions.generate" => {
+            // the sequence's audio tracks, "A1 · name (n clips)"
+            let tracks: Vec<Value> = s
+                .active_sequence()
+                .map(|q| {
+                    q.audio_tracks
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| {
+                            let n = t.items.iter().filter(|c| c.enabled).count();
+                            json!({"key": (i + 1).to_string(), "label": tlf!("A{n} · {name} ({clips} clips)", n = i + 1, name = t.name, clips = n), "clips": n})
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            (
+                json!({"audioTrack": "", "mode": "general", "who": "auto", "gameVoice": "drop", "lineChars": 16, "maxLines": 2,
+                       "cleanFillers": false, "gpu": true, "extraTerms": ""}),
+                json!({"tracks": tracks}),
+            )
+        }
         "overfilm.captions.stylize" => {
             let presets = s.execute("overfilm.captions.presets", json!({})).ok().map(|v| v["presets"].clone()).unwrap_or_default();
             let tracks: Vec<Value> = s
@@ -330,6 +347,16 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
             match d.command {
                 "overfilm.captions.generate" => {
                     egui::Grid::new("overfilm-captions").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+                        let mut tracks: Vec<(String, String)> = vec![(String::new(), tl!("All audio tracks").to_string())];
+                        if let Some(a) = d.info["tracks"].as_array() {
+                            tracks.extend(
+                                a.iter()
+                                    .filter(|t| t["clips"].as_u64().unwrap_or(0) > 0)
+                                    .map(|t| (t["key"].as_str().unwrap_or_default().to_string(), t["label"].as_str().unwrap_or_default().to_string())),
+                            );
+                        }
+                        let opts: Vec<(&str, String)> = tracks.iter().map(|(k, l)| (k.as_str(), l.clone())).collect();
+                        combo(ui, &mut elems, format!("{pre}.audioTrack"), tl!("Audio track:"), &mut d.params["audioTrack"], &opts);
                         let p = &mut d.params;
                         combo(
                             ui,
@@ -354,13 +381,18 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                                 ("keep", tl!("Keep as speech").to_string()),
                             ],
                         );
-                        number(ui, &mut elems, format!("{pre}.numSpeakers"), tl!("Speakers (0 = count them):"), &mut p["numSpeakers"], 0.0..=12.0, "");
+                        let counts: Vec<String> = (1..=10).map(|n| n.to_string()).collect();
+                        let mut who: Vec<(&str, String)> = vec![("auto", tl!("Count them").to_string()), ("off", tl!("Don't tell them apart").to_string())];
+                        who.extend(counts.iter().map(|n| {
+                            let label = if n == "1" { tl!("1 person (faster)").to_string() } else { tlf!("{n} people", n = n) };
+                            (n.as_str(), label)
+                        }));
+                        combo(ui, &mut elems, format!("{pre}.who"), tl!("Speakers:"), &mut p["who"], &who);
                         number(ui, &mut elems, format!("{pre}.lineChars"), tl!("Characters per line:"), &mut p["lineChars"], 8.0..=30.0, "");
                         number(ui, &mut elems, format!("{pre}.maxLines"), tl!("Lines per caption:"), &mut p["maxLines"], 1.0..=2.0, "");
                         text(ui, &mut elems, format!("{pre}.extraTerms"), tl!("Extra names and terms:"), &mut p["extraTerms"], tl!("comma separated"));
                     });
                     let p = &mut d.params;
-                    check(ui, &mut elems, format!("{pre}.speakers"), tl!("Tell speakers apart (화자1, 화자2…)"), &mut p["speakers"]);
                     check(ui, &mut elems, format!("{pre}.cleanFillers"), tl!("Leave out fillers and stutters (어, 음…)"), &mut p["cleanFillers"]);
                     check(ui, &mut elems, format!("{pre}.gpu"), tl!("Use the GPU"), &mut p["gpu"]);
                     ui.weak(tl!("Runs in the background. The models (about 6 GB) are downloaded the first time, into the folder OverFilmSubs uses."));
@@ -510,6 +542,24 @@ fn run_params(d: &Draft) -> Value {
         if m.get("numSpeakers").and_then(Value::as_f64).is_some_and(|n| n < 1.0) {
             m.remove("numSpeakers");
         }
+        // the captions dialog's speaker choice: off, counted, or a number of people
+        if let Some(who) = m.remove("who") {
+            match who.as_str() {
+                Some("off") => {
+                    m.insert("speakers".into(), json!(false));
+                }
+                Some(n) if n.parse::<u64>().is_ok_and(|n| n >= 1) => {
+                    m.insert("speakers".into(), json!(true));
+                    m.insert("numSpeakers".into(), json!(n.parse::<u64>().unwrap_or(1)));
+                }
+                _ => {
+                    m.insert("speakers".into(), json!(true));
+                }
+            }
+        }
+        if let Some(t) = m.get("audioTrack").and_then(Value::as_str).and_then(|t| t.parse::<u64>().ok()) {
+            m.insert("audioTrack".into(), json!(t));
+        }
         for k in ["numSpeakers", "lineChars", "maxLines"] {
             if let Some(n) = m.get(k).and_then(Value::as_f64) {
                 m.insert(k.into(), json!(n.round().max(0.0) as u64));
@@ -534,6 +584,16 @@ mod tests {
             drag: None,
         };
         assert_eq!(run_params(&d), json!({"lineChars": 16, "maxLines": 2, "mode": "general"}));
+        // the captions dialog: the audio track and the speaker choice
+        let mut d = d;
+        d.params = json!({"audioTrack": "2", "who": "3", "mode": "general"});
+        assert_eq!(run_params(&d), json!({"audioTrack": 2, "speakers": true, "numSpeakers": 3, "mode": "general"}));
+        d.params = json!({"audioTrack": "", "who": "off"});
+        assert_eq!(run_params(&d), json!({"speakers": false}));
+        d.params = json!({"who": "auto"});
+        assert_eq!(run_params(&d), json!({"speakers": true}));
+        d.params = json!({"who": "1"});
+        assert_eq!(run_params(&d), json!({"speakers": true, "numSpeakers": 1}));
         let r = norm_rect(egui::pos2(0.5, 0.9), egui::pos2(0.1, 1.4));
         for (a, b) in r.iter().zip([0.1, 0.9, 0.4, 0.1]) {
             assert!((a - b).abs() < 1e-5, "{r:?}");
