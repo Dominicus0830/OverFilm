@@ -5,6 +5,9 @@
 //!   the start of a word (start of text, or after a character that is not a letter or digit), so
 //!   Korean particles may follow (`로도그가` → `로드호그가`) but a form inside another word is left
 //!   alone.
+//! - A form ending in `@픽` is a sound-alike that is also an ordinary word (`캐슬`), so it is replaced
+//!   only when a word about picking a hero follows (`캐슬 쓰게 되면` → `캣 쓰게 되면`, `캐슬을 픽하면`;
+//!   one particle may come between), and `캐슬` elsewhere is left alone.
 //! - For entries flagged `mask` (profanity) the forms are replaced anywhere, also inside a word
 //!   (`씨발아` → `ㅅㅂ아`).
 //! - At each position the longest form wins (`개씨발` → `ㄱㅅㅂ` before `씨발` → `ㅅㅂ`), so overlapping
@@ -27,6 +30,25 @@ struct Rule {
     from: Vec<char>,
     to: String,
     anywhere: bool,
+    /// Only before a hero-pick word (`@픽` forms).
+    pick: bool,
+}
+
+/// Marks a `misheard` form that is replaced only before a hero-pick word.
+const PICK_MARK: &str = "@픽";
+/// Starts of the words that follow a hero being picked or played (`쓰게`, `픽하면`, `꺼냈`).
+const PICK_WORDS: [&str; 16] = ["쓰", "써", "썼", "쓸", "픽", "고르", "골라", "골랐", "꺼내", "꺼냈", "잡", "하면", "했", "플레이", "나오", "나왔"];
+/// Particles that may come between the hero and the pick word (`캣을 쓰면`).
+const PICK_PARTICLES: [char; 9] = ['을', '를', '이', '가', '도', '만', '은', '는', '랑'];
+
+/// Whether `rest` (just after a name) is followed by a hero-pick word.
+fn before_pick(rest: &[char]) -> bool {
+    let mut i = usize::from(rest.first().is_some_and(|c| PICK_PARTICLES.contains(c)));
+    while rest.get(i).is_some_and(|c| c.is_whitespace()) {
+        i += 1;
+    }
+    let word: String = rest.iter().skip(i).take(4).collect();
+    PICK_WORDS.iter().any(|w| word.starts_with(w))
 }
 
 /// Tables whose spellings the fuzzy matcher corrects toward.
@@ -39,6 +61,19 @@ struct Name {
     spelling: String,
     syllables: usize,
     jamo: Vec<u16>,
+    /// A player's name: matched more loosely right before `선수`, `감독`, `코치` (see below).
+    person: bool,
+    /// [`jamo_with`] loose, for that looser match.
+    loose: Vec<u16>,
+}
+
+/// Words after a name that say it is a person (`베키 선수`, `러쉬 감독님`).
+const TITLES: [&str; 4] = ["선수", "감독", "코치", "단장"];
+
+/// Whether a title follows the word of `word` syllables at the start of `rest`.
+fn before_title(rest: &[char], word: usize) -> bool {
+    let after: String = rest.iter().skip(word).skip_while(|c| c.is_whitespace()).take(2).collect();
+    TITLES.iter().any(|t| after.starts_with(t))
 }
 
 /// Replacement rules built from a glossary (see the module docs).
@@ -66,6 +101,14 @@ fn is_syllable(c: char) -> bool {
 /// Jamo of Hangul syllables as small codes (initial, medial, final); a silent initial `ㅇ` is
 /// dropped. `None` if a character is not a syllable.
 fn jamo(chars: &[char]) -> Option<Vec<u16>> {
+    jamo_with(chars, false)
+}
+
+/// [`jamo`], or with `loose` closer to how names sound when said quickly: a final consonant
+/// followed by the same initial counts once (`백기` ≈ `배기`) and `ㅔ`/`ㅐ` (`ㅖ`/`ㅒ`, `ㅞ`/`ㅙ`/`ㅚ`)
+/// are one vowel. Only used for player names right before a title, where a name is expected; with
+/// it everywhere, `골라라` would be one edit from `고릴라`.
+fn jamo_with(chars: &[char], loose: bool) -> Option<Vec<u16>> {
     let mut out = Vec::with_capacity(chars.len().saturating_mul(3));
     for &c in chars {
         if !is_syllable(c) {
@@ -73,9 +116,15 @@ fn jamo(chars: &[char]) -> Option<Vec<u16>> {
         }
         let s = u32::from(c) - 0xAC00;
         let (initial, medial, fin) = (s / (21 * 28), (s / 28) % 21, s % 28);
-        if initial != 11 {
+        if initial != 11 && !(loose && out.last() == Some(&u16::try_from(initial).ok()?)) {
             out.push(u16::try_from(initial).ok()?);
         }
+        let medial = match medial {
+            5 if loose => 1,
+            7 if loose => 3,
+            15 | 11 if loose => 10,
+            m => m,
+        };
         out.push(u16::try_from(100 + medial).ok()?);
         // A final consonant compares equal to the same consonant as the next initial (젠야 = 제냐).
         let as_initial = match fin {
@@ -142,9 +191,13 @@ impl Corrector {
         for e in glossary.entries.iter().filter(|e| !e.ko.is_empty()) {
             let anywhere = e.has_flag("mask") || e.has_flag("inword");
             for m in e.misheard.iter().filter(|m| **m != e.ko) {
-                let from: Vec<char> = m.chars().collect();
+                let (form, pick) = match m.strip_suffix(PICK_MARK) {
+                    Some(f) => (f.trim(), true),
+                    None => (m.as_str(), false),
+                };
+                let from: Vec<char> = form.chars().collect();
                 if let Some(&c) = from.first() {
-                    by_first.entry(c).or_default().push(Rule { from, to: e.ko.clone(), anywhere });
+                    by_first.entry(c).or_default().push(Rule { from, to: e.ko.clone(), anywhere, pick });
                 }
             }
         }
@@ -167,8 +220,10 @@ impl Corrector {
                 if s.contains(' ') {
                     self.parts.extend(s.split_whitespace().filter(|p| !self.known.contains(*p)).map(String::from));
                 }
-                if name_table && chars.len() >= 3 && !e.has_flag("noeval") && !e.has_flag("verify") {
-                    self.names.push(Name { spelling: s.clone(), syllables: chars.len(), jamo: j });
+                let person = e.category == "players";
+                if name_table && (chars.len() >= 3 || (person && chars.len() == 2)) && !e.has_flag("noeval") && !e.has_flag("verify") {
+                    let loose = jamo_with(&chars, true).unwrap_or_default();
+                    self.names.push(Name { spelling: s.clone(), syllables: chars.len(), jamo: j, person, loose });
                 }
             }
         }
@@ -186,15 +241,23 @@ impl Corrector {
         if (1..=word).any(|n| part_alone(n) && self.parts.contains(&rest.iter().take(n).collect::<String>())) {
             return None;
         }
+        let titled = before_title(rest, word);
         let mut best: Option<(usize, usize, &Name)> = None;
         for name in &self.names {
-            let allowed = if name.syllables >= 5 { 2 } else { 1 };
+            // Two-syllable player names only right before a title (`백기 선수` → `베키 선수`), where a
+            // title also allows one more edit for longer names (`트라우드 선수`).
+            if name.syllables < 3 && !(titled && name.person) {
+                continue;
+            }
+            let base = if name.syllables >= 5 { 2 } else { 1 };
+            let allowed = if titled && name.person && name.syllables >= 3 { base + 1 } else { base };
             // Shorter windows only for long names: `자리` is a word, not a clipped `자리야`.
             let shortest = if name.syllables >= 4 { name.syllables - 1 } else { name.syllables };
             for n in shortest..=name.syllables + 1 {
                 let Some(window) = rest.get(..n).filter(|_| n >= 2 && n <= word) else { continue };
-                let Some(j) = jamo(window) else { continue };
-                let d = distance(&j, &name.jamo);
+                let loose = titled && name.person;
+                let Some(j) = jamo_with(window, loose) else { continue };
+                let d = distance(&j, if loose { &name.loose } else { &name.jamo });
                 if d > allowed {
                     continue;
                 }
@@ -255,7 +318,11 @@ impl Corrector {
         while let Some(&c) = chars.get(pos) {
             let word_start = pos == 0 || chars.get(pos - 1).is_none_or(|p| !p.is_alphanumeric());
             let rest = chars.get(pos..).unwrap_or_default();
-            let rule = self.by_first.get(&c).and_then(|rules| rules.iter().find(|r| (r.anywhere || word_start) && rest.starts_with(&r.from)));
+            let rule = self.by_first.get(&c).and_then(|rules| {
+                rules
+                    .iter()
+                    .find(|r| (r.anywhere || word_start) && rest.starts_with(&r.from) && (!r.pick || before_pick(rest.get(r.from.len()..).unwrap_or_default())))
+            });
             let hit = rule.map(|r| (r.from.len(), r.to.as_str())).or_else(|| if word_start && !self.names.is_empty() { self.fuzzy_match(rest) } else { None });
             let hit = hit.filter(|(len, to)| rest.iter().take(*len).copied().ne(to.chars()));
             match hit {
@@ -291,6 +358,29 @@ mod tests {
         let r = c.apply("로도그가 갈고리, 로도 그 궁. 빨로도그");
         assert_eq!(r.text, "로드호그가 갈고리, 로드호그 궁. 빨로도그");
         assert_eq!(r.replaced, 2);
+    }
+
+    #[test]
+    fn pick_forms_only_before_pick_words() {
+        let c = corrector("cat\t캣\t\t\t\t캐슬@픽; 캐스 @픽\ndmon\t디몬\t\t\t\t딜몬\n");
+        assert_eq!(c.apply("보통 뭐 캐슬 쓰게 되면은 딜몬도 좀 쓰고").text, "보통 뭐 캣 쓰게 되면은 디몬도 좀 쓰고");
+        assert_eq!(c.apply("캐슬을 픽하면 캐스 꺼냈다").text, "캣을 픽하면 캣 꺼냈다");
+        assert_eq!(c.apply("모래 캐슬 만들기, 캐슬이 무너졌다").text, "모래 캐슬 만들기, 캐슬이 무너졌다");
+        assert_eq!(c.apply("캐슬").text, "캐슬");
+    }
+
+    #[test]
+    fn titles_loosen_player_names() {
+        let mut g = Glossary::default();
+        g.add_table("players", "id\tko\ten\taliases\told\tmisheard\tflags\tnote\nbecky\t베키\nskewed\t스큐드\nproud\t프라우드\n").unwrap();
+        let c = Corrector::new(&g).fuzzy(&g);
+        assert_eq!(c.apply("백기 선수의 벤데타 트라우스 선수").text, "베키 선수의 벤데타 프라우드 선수");
+        // Without a title, short and far names are left alone, and so are words a sound-alike edit
+        // away only when said quickly (`골라라` / `고릴라`).
+        assert_eq!(c.apply("백기를 들었다 트라우스 클라우드").text, "백기를 들었다 트라우스 클라우드");
+        let mut h = Glossary::default();
+        h.add_table("heroes", "id\tko\ten\taliases\told\tmisheard\tflags\tnote\nwinston\t윈스턴\t\t고릴라\n").unwrap();
+        assert_eq!(Corrector::new(&h).fuzzy(&h).apply("아무를 골라라").text, "아무를 골라라");
     }
 
     #[test]

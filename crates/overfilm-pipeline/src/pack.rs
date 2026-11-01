@@ -12,6 +12,7 @@ const TABLES: &[(&str, &str)] = &[
     ("maps", include_str!("../../../packs/overwatch/ko/glossary/maps.tsv")),
     ("matchups", include_str!("../../../packs/overwatch/ko/glossary/matchups.tsv")),
     ("modes", include_str!("../../../packs/overwatch/ko/glossary/modes.tsv")),
+    ("netslang", include_str!("../../../packs/overwatch/ko/glossary/netslang.tsv")),
     ("players", include_str!("../../../packs/overwatch/ko/glossary/players.tsv")),
     ("profanity", include_str!("../../../packs/overwatch/ko/glossary/profanity.tsv")),
     ("slang", include_str!("../../../packs/overwatch/ko/glossary/slang.tsv")),
@@ -149,6 +150,24 @@ mod tests {
         assert_eq!(corrector_with(&g, false).apply("오 시즌 일 위").text, "오 시즌 일 위");
         // the spelling table is not scored as game terms
         assert!(!g.term_list().contains("강밴"));
+    }
+
+    #[test]
+    fn community_slang() {
+        let g = glossary(None, true).unwrap();
+        let c = corrector(&g);
+        assert_eq!(c.apply("알 잘 딱 깔 센 하게 킹 받네 딜러 차이").text, "알잘딱깔센 하게 킹받네 딜러차이");
+        // Slang spellings are known words, so the name fixer leaves them alone.
+        for w in ["메모위", "아키우일", "고츠", "볼토시", "네카오", "중꺾마", "레게노", "뱅온", "합방"] {
+            assert_eq!(c.apply(w).text, w);
+        }
+        // Not recognition context: on the M1 set it cost 0.15 points of CER (see the pack README).
+        assert!(!context(&g, Mode::General, "").contains("알잘딱깔센"));
+        // User report: a multi-speaker clip with the newest heroes.
+        assert_eq!(c.apply("보통 뭐 캐슬 쓰게 되면은 딜몬도 좀 쓰고").text, "보통 뭐 캣 쓰게 되면은 디몬도 좀 쓰고");
+        assert_eq!(c.apply("모래 캐슬 성").text, "모래 캐슬 성");
+        // T1 vs RØDE commentary: team, hero, map and player names.
+        assert_eq!(c.apply("티온이 동커퀸 아이언발드 백기 선수").text, "티원이 정커퀸 아이헨발데 베키 선수");
     }
 
     #[test]

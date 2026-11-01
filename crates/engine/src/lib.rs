@@ -33,6 +33,14 @@ pub mod media_watch;
 pub mod mixer;
 pub mod multicam;
 pub mod narration;
+pub mod overfilm_assist;
+pub mod overfilm_autocut;
+pub mod overfilm_captions;
+pub mod overfilm_kills;
+pub mod overfilm_reel;
+pub mod overfilm_review;
+pub mod overfilm_style;
+pub mod overfilm_transcribe;
 pub mod panels;
 pub mod paste_media;
 pub mod perf;
@@ -480,6 +488,14 @@ pub struct Session {
     pub mask_jobs: Vec<masks::PendingTrack>,
     /// Scene Edit Detection jobs whose results are applied when they finish.
     pub scene_jobs: Vec<scene_detect::PendingScene>,
+    /// OverFilm Auto Cut analyses whose plans are applied when they finish.
+    pub overfilm_jobs: Vec<overfilm_autocut::PendingAutoCut>,
+    pub overfilm_caption_jobs: Vec<overfilm_transcribe::PendingCaptions>,
+    pub overfilm_assist_jobs: Vec<overfilm_assist::PendingAssist>,
+    /// Running OverFilm kill scans.
+    pub overfilm_kill_jobs: Vec<overfilm_kills::PendingKills>,
+    /// Claude Code review (OverFilm): settings file, running reviews, pure recognition.
+    pub overfilm_review: overfilm_review::ReviewState,
     /// Effect presets (built-in + the user's, persisted in the data directory).
     pub presets: presets::PresetLibrary,
     /// Export presets (built-in + the user's, persisted in the data directory) and favourites.
@@ -585,6 +601,11 @@ impl Session {
             media_jobs: Vec::new(),
             mask_jobs: Vec::new(),
             scene_jobs: Vec::new(),
+            overfilm_jobs: Vec::new(),
+            overfilm_caption_jobs: Vec::new(),
+            overfilm_assist_jobs: Vec::new(),
+            overfilm_kill_jobs: Vec::new(),
+            overfilm_review: Default::default(),
             presets: Default::default(),
             export_presets: Default::default(),
             export_queue: Default::default(),
@@ -680,6 +701,11 @@ impl Session {
         proxies::poll(self);
         masks::poll(self);
         scene_detect::poll(self);
+        overfilm_autocut::poll(self);
+        overfilm_transcribe::poll(self);
+        overfilm_assist::poll(self);
+        overfilm_kills::poll(self);
+        overfilm_review::poll(self);
         export_tools::pump_queue(self, false);
         panels::log_jobs(self);
         let Some(p) = self.persistence.as_mut() else { return };

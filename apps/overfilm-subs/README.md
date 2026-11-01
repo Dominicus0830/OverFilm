@@ -85,6 +85,7 @@ overfilm-subs fix 자막.srt             단어집 교정 적용 (원본은 자�
 overfilm-subs relayout 경기.overfilm.json --line-chars 18   인식을 다시 하지 않고 자막만 다시 나누기
 overfilm-subs extract "합방.mp4" --speakers 3 --per-speaker     사람 3명, 사람마다 SRT도 저장
 overfilm-subs extract "방송.mp4" --game-voice label             게임 음성을 빼지 않고 (게임)으로 표시
+overfilm-subs extract "녹화.mkv" --audio-track 2 --speakers 1    오디오 트랙 2(따로 녹음한 마이크)만, 혼자 말함
 overfilm-subs relayout 합방.overfilm.json --rename 화자1=아이치 --rename 화자2=게스트   화자 이름 바꾸기
 overfilm-subs voice add 아이치 "방송.mp4" --from 1:23 --to 1:45   목소리 등록 (그 사람만 말하는 구간)
 overfilm-subs extract "방송.mp4" --only-voices                    등록한 목소리(스트리머)의 말만 자막
@@ -169,7 +170,7 @@ overfilm-subs export 방송.srt --format txt                        대본 ([00:
 - CPU만 쓸 때는 AVX2가 있는 x86-64 CPU(2013년 이후 인텔·AMD)가 필요하고 메모리는 약 4GB를 씁니다. 4코어 기준 소리 1분에 약 2분 40초 걸립니다 (모델 불러오기 포함, 2분짜리 영상 실측 5분 15초).
 
 - 목소리 구별도 그래픽카드에서 돕니다(시작할 때 CPU와 결과를 비교해 다르면 CPU로). CPU만 쓰면 소리 10분에 1~2분 더
-  걸립니다(4코어 실측: 20초에 2.3초). 끄면(`--speakers off`) 이 시간이 빠집니다.
+  걸립니다(4코어 실측: 20초에 2.3초). 끄거나(`--speakers off`) 사람 수를 1명으로 정하면(`--speakers 1`) 이 시간이 빠집니다.
   10분짜리 해설 영상 전체(인식 + 목소리 구별)를 4코어 CPU만으로 처리하는 데 32분 걸렸습니다.
 
 ## 빌드

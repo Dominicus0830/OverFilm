@@ -30,7 +30,7 @@ zest	제스트	ZEST					티원 공격, 김현우
 donghak	동학	DONGHAK	D0NGHAK		동아기		티원 돌격, 김민성
 jasm1ne	재스민	Jasm1ne	자스민				티원 돌격, 정종민
 bliss	블리스	Bliss					티원 지원, 김소명
-skewed	스큐드	skewed					티원 지원, 김민석. 발음 확인 필요
+skewed	스큐드	skewed			슈퍼드; 스큐어드		티원 지원, 김민석 (나무위키 표기)
 # Crazy Raccoon
 moon	문 감독	Moon					라쿤 감독, 문병철
 kong	콩 코치	Kong					라쿤 코치, 손준영
@@ -43,7 +43,7 @@ max	맥스	MAX					라쿤 돌격, 최수민
 ch0r0ng	초롱	CH0R0NG			크롱		라쿤 지원, 성유민. 중계에서 크롱으로 잘못 읽히곤 함
 vigilante	비질란테	vigilante					라쿤 지원, 김준
 # CHEESEBURGER
-krillin	크리링	Krillin					치벅 코치, 정영훈. 발음 확인 필요
+krillin	크리링	Krillin					치벅 코치, 정영훈 (나무위키 표기)
 k4ne	케인	K4NE					치벅 공격, 최주형
 profit	프로핏	Profit					치벅 공격, 박준영
 azent	아젠트	AZENT					치벅 공격, 장현익 (슈퍼배드 출신)
@@ -113,3 +113,79 @@ sp1nel	스피넬	Sp1nel					전 포커페이스 지원
 univ2r	유니버	UNIV2R					전 슈퍼배드 지원, 장건익. 발음 확인 필요
 petals	페탈스	PetalS					전 슈퍼배드, 최민성
 seltaret	셀타렛	SeltaRet					전 슈퍼배드 코치, 양진혁. 발음 확인 필요
+# 해외 팀의 한국 선수·코치 (owtics.gg 팀 페이지, 2026-11-01). 해외 대회(EWC, 월드 파이널, 아시아·퍼시픽) 중계용.
+# 한국어 표기는 나무위키에 문서가 없어 영어 발음대로 적었다 (발음 확인 필요). 본명은 owtics 표기.
+# Team Liquid (북미)
+attack	어택	Attack					팀 리퀴드 돌격, 김준화. 발음 확인 필요
+kivis	키비스	KIVIS					팀 리퀴드 지원, 정연우. 발음 확인 필요
+f4ze	페이즈	F4zE	프사제; 페이즈 코치				팀 리퀴드 코치, 임시현 (나무위키: 페이즈 또는 프사제)
+# Dallas Fuel (북미)
+kellan	켈란	Kellan					댈러스 퓨얼 돌격, 김민재. 발음 확인 필요
+seonjun	선준	SeonJun					댈러스 퓨얼 공격, 박선준 (한국 국가대표)
+# Twisted Minds (EMEA)
+jaewoo	재우	JaeWoo					트위스티드 마인즈 공격, 김재우
+simple	심플	Simple				noeval	트위스티드 마인즈 지원, 김지성 (한국 국가대표). 일반 단어와 겹침
+# Geekay Esports (EMEA)
+alphayi	알파이	AlphaYi					긱케이 공격, 김준. 발음 확인 필요
+finn	핀	FiNN				noeval	긱케이 지원, 오세진 (일본 국가대표 지원). 한 글자
+undine	운디네	Undine					긱케이 감독, 손영우. 발음 확인 필요
+# Virtus.pro (EMEA)
+fixa	픽사	FiXa					버투스 프로 지원, 권영훈. 발음 확인 필요
+smash	스매시	Smash	스매쉬				버투스 프로 감독, 조비원 (호주·필리핀 국가대표 감독)
+# Weibo Gaming (중국)
+leesoomin	이수민	LeeSooMin					웨이보 지원, 이수민
+maka	마카	MAKA					웨이보 지원, 오은석
+dongsu	동수	Dongsu					웨이보 감독, 신동수
+daemin	대민	Daemin					웨이보 코치, 김대민
+# JD Gaming (중국)
+prophet	프로핏	Prophet					JDG 공격, 김현빈 (나무위키 표기 프로핏)
+roxy	록시	Roxy					JDG 돌격, 박시헌
+soo	수	Soo				noeval	JDG 코치. 한 글자
+# All Gamers (중국)
+ezhan	이지한	Ezhan					올 게이머즈 공격, 이지한
+mag	매그	Mag					올 게이머즈 돌격, 김태성. 발음 확인 필요
+dreamer	드리머	Dreamer					올 게이머즈 코치, 송상록
+# 중국 리그 다른 팀
+victoria	빅토리아	Victoria					OU 게이밍 공격, 오기훈
+heesu	희수	Heesu					셩스 공격, 정희수
+gyomin	교민	Gyomin					후넝 감독, 장영훈. 발음 확인 필요
+yangjun	양준	YangJun					후넝 지원, 양준
+prot3ct	프로텍트	prot3ct					솔루스 빅토렘 돌격, 추민식
+aria	아리아	Aria					솔루스 빅토렘 코치, 정원철
+aiden	에이든	Aiden					ZONES 지원, 이승준
+ign0re	이그노어	Ign0re					ReturnZ 지원. 발음 확인 필요
+imdaon	임다온	Imdaon					ReturnZ 공격. 발음 확인 필요
+# VARREL (일본)
+topdragon	탑드래곤	TOPDRAGON	탑드				바렐 공격, 정승용
+sley	슬레이	Sley					바렐 지원, 김재환. 발음 확인 필요
+pain	페인	PAIN				noeval	바렐 코치·일본 국가대표 감독, 정유찬. 일반 단어와 겹침
+dae1	대원	Dae1					바렐 코치, 우대원
+# 일본 리그 다른 팀
+although	올도	ALTHOUGH					99DIVINE 공격, 정현욱. 발음 확인 필요
+mn3	엠엔쓰리	MN3					99DIVINE 공격, 윤재희. 발음 확인 필요
+hyunjae	현재	Hyunjae				noeval	99DIVINE 코치, 현재혁. 일반 단어와 겹침
+edison	에디슨	Edison					엔터포스36 공격, 김태훈
+fearless	피어리스	Fearless					엔터포스36 돌격, 이의석
+tydolla	타이달라	Tydolla					엔터포스36 코치·캐나다 대표 코치, 정승민. 발음 확인 필요
+peppi	페피	PEPPI					무라쉬 게이밍 돌격, 김노아. 발음 확인 필요
+viper	바이퍼	Viper					무라쉬 게이밍 공격, 이정웅
+yaho	야호	YaHo				noeval	무라쉬 게이밍 코치, 맹현호. 감탄사와 겹침
+secret	시크릿	Secret					플리즈 낫 히어로 밴 지원, 유재현
+uyou	유유	UYOU					플리즈 낫 히어로 밴 돌격, 엄호용. 발음 확인 필요
+breadturtle	빵거북	BreadTurtle	브레드터틀				레바티 공격, 이태목. 발음 확인 필요
+wimps	윔프스	WIMPS					아플롬 타이거 공격. 발음 확인 필요
+riri	리리	RiRi					하야부사 게이밍 공격
+sirius	시리우스	Sirius					하야부사 게이밍 돌격
+wax	왁스	WAX					하야부사 게이밍 공격
+# 퍼시픽·국가대표
+jongwoo	종우	JONGWOO					I Love You 지원, 박종우
+emolga	에몽가	EmolGa					멍공3 코치, 주기용. 발음 확인 필요
+strike	스트라이크	STRIKE					필리핀 국가대표 감독, 김태현
+howard	하워드	Howard					일본 국가대표 단장, 정현우
+presia	프레시아	Presia					브라질 국가대표 코치, 박중현. 발음 확인 필요
+# 한국 팀 스태프·방송
+kaiser	카이저	Kaiser					O2 블래스트 스트리머, 류상훈 (전 프로)
+ans	앤스	ANS					크레이지 라쿤 스트리머, 이선창. 발음 확인 필요
+pavane	파반	Pavane					크레이지 라쿤 단장·한국 국가대표 단장, 유현상. 발음 확인 필요
+lego	레고	LeGo					치즈버거 코치, 이도현
+rexi	렉시	Rexi					포커페이스 코치
