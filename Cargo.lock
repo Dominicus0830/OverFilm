@@ -2123,6 +2123,7 @@ dependencies = [
  "filmcraft-tts",
  "image",
  "log",
+ "overfilm-captions",
  "overfilm-vision",
  "serde",
  "serde_json",
@@ -4781,8 +4782,11 @@ name = "overfilm-captions"
 version = "0.14.0"
 dependencies = [
  "filmcraft-captions",
+ "filmcraft-geom",
+ "filmcraft-project",
  "filmcraft-time",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

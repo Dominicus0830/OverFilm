@@ -34,6 +34,7 @@ pub mod mixer;
 pub mod multicam;
 pub mod narration;
 pub mod overfilm_autocut;
+pub mod overfilm_captions;
 pub mod panels;
 pub mod paste_media;
 pub mod perf;

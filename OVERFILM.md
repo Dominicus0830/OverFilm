@@ -15,7 +15,7 @@ calling the caption layout) and listed in the table at the end.
 |---|---|---|---|
 | `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`), in-game voice lines found by text (`voicelines`) |
 | `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels, overlapped speech with pyannote segmentation-3.0); next: `filmcraft_speech::Transcriber` |
-| `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out |
+| `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out; caption styles and motion for the editor (`styles`) |
 | `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures) and the auto-cut plan; see "Auto cut" below |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L4 | M6, M7, M9 | MCP editing assistants, screen recognition, style learning |
@@ -208,6 +208,30 @@ The analysis samples 2 frames a second at 640 pixels wide in a background job. B
 `overfilm.autoCut.apply` then removes the ranges of the markers left (moved or deleted ones
 included) in one undo step. `mode: "cut"` does both at once.
 
+## Styled captions and Premiere Pro
+
+Captions from OverFilmSubs come in as an SRT (`File ▸ Import`) on a caption track. Then:
+
+- `Sequence ▸ OverFilm ▸ Styled Captions` (`overfilm.captions.stylize {preset, motionIn,
+  motionOut, track}`) makes one graphic clip per caption on a video track "OverFilm 자막 ·
+  <style>", in one undo step (styling again replaces that track). Each clip is an ordinary
+  graphic text layer, so fill, strokes, box, shadow, position and keyframes stay editable in
+  Effect Controls. The caption track stays, output off, for SRT export.
+- **Styles** (`overfilm_captions::styles`, original designs): 기본 (white, black outline),
+  박스 (white on a dark box), 예능 노랑 (yellow, black and white double outline, pop), 해설 두 사람
+  (a colour per speaker: 화자1 sky blue, 화자2 orange, 화자3 green; slides up), 강조 (big red,
+  middle of the frame, bounce), 한 글자씩 (typewriter). A leading `(화자1)` label written by
+  OverFilmSubs picks the speaker's colour and is dropped from the text.
+  `overfilm.captions.savePreset` adds the user's own (`<project>.overfilm-caption-styles.json`).
+- **Motion** in and out: fade, pop (scale 70 → 108 → 100), slide up, bounce, typewriter (Source
+  Text held per character, at most 60 ms each). Motion lasts `motion_secs` (0.2 s), at most a
+  third of the caption.
+- `File ▸ Export ▸ Export for Premiere Pro (OverFilm)` (`overfilm.premiere.export {dir}`) writes
+  `<name>.xml` (FCP7 XML of the sequence without the styled track: Premiere's File ▸ Import),
+  `<name>.srt`, `<name>-자막.mov` (the styled captions alone, ProRes 4444 with alpha, from 00:00
+  to the last caption, to lay on the top track at 00:00) and a short how-to in Korean. Adobe's
+  `.mogrt` is not written (closed format).
+
 ## Upstream updates
 
 The first commit was a snapshot of filmcraft `fed0f42` without its history. The merge commit
@@ -246,7 +270,8 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `xtask/src/main.rs` | `overfilm-*` crates in `LAYERS`; layering also checks `overfilm-*` dependencies |
 | `.github/workflows/overfilm.yml` | new file (OverFilm CI) |
 | `OVERFILM.md` | new file (this document) |
-| `crates/engine/Cargo.toml` | depends on `overfilm-vision` |
-| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `Session::overfilm_jobs`, its `poll` in `poll_persistence` |
-| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()` |
+| `crates/engine/Cargo.toml` | depends on `overfilm-vision` and `overfilm-captions` |
+| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `Session::overfilm_jobs`, its `poll` in `poll_persistence` |
+| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()` and `overfilm_captions::commands()` |
 | `crates/engine/src/overfilm_autocut.rs` (+ `tests.rs`) | new file: Auto Cut commands (frames in, cuts out) |
+| `crates/engine/src/overfilm_captions.rs` | new file: styled captions and the Premiere Pro export |
