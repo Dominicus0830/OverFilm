@@ -163,6 +163,11 @@ mod tests {
         }
         // Not recognition context: on the M1 set it cost 0.15 points of CER (see the pack README).
         assert!(!context(&g, Mode::General, "").contains("알잘딱깔센"));
+        // User report: a multi-speaker clip with the newest heroes.
+        assert_eq!(c.apply("보통 뭐 캐슬 쓰게 되면은 딜몬도 좀 쓰고").text, "보통 뭐 캣 쓰게 되면은 디몬도 좀 쓰고");
+        assert_eq!(c.apply("모래 캐슬 성").text, "모래 캐슬 성");
+        // T1 vs RØDE commentary: team, hero, map and player names.
+        assert_eq!(c.apply("티온이 동커퀸 아이언발드 백기 선수").text, "티원이 정커퀸 아이헨발데 베키 선수");
     }
 
     #[test]

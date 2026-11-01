@@ -31,6 +31,11 @@ One TSV table per category, all with the columns described in `crates/overfilm-g
   `mask` marks profanity, which the correction step replaces with `ko` even inside a word
   (`씨발아` → `ㅅㅂ아`), longest form first; `inword` makes an ordinary `misheard` form match inside
   a word too.
+- A `misheard` form ending in `@픽` is an ordinary word that sounds like a hero (`캐슬` for `캣`): it is
+  replaced only when a hero-pick word follows (`쓰`, `픽`, `꺼내`, `하면`…), so `캐슬 쓰게 되면` → `캣 쓰게 되면`
+  but `모래 캐슬` stays.
+- Before `선수`, `감독`, `코치`, player names are matched more loosely: two-syllable names too, one more
+  edit, `ㅔ`/`ㅐ` alike and a doubled consonant once (`백기 선수` → `베키 선수`).
 
 Score with the whole glossary:
 
@@ -59,6 +64,10 @@ cargo run -p overfilm-eval -- --terms packs/overwatch/ko/glossary reference.srt 
   video from 6.14% to 6.29% CER and its term score from 99.1% to 95.5% (`뒷라인` → `뒤라인`,
   `메인딜러` → `메인 딜러`), so they stay out. A video full of one slang word can take it through
   `--terms`.
+- Overseas teams and Korean players and coaches abroad (`players.tsv` bottom, `teams.tsv` bottom): owtics.gg team
+  pages (2026-11-01). Readings from 나무위키 where it gives one (페이즈/프사제, 크리링, 스큐드, 프로핏); the rest
+  are read as spelled and marked `발음 확인 필요`. Misrecognitions from the T1 vs RØDE commentary clip
+  (`티온` → `티원`, `동커퀸` → `정커퀸`, `아이언발드` → `아이헨발데`, `델로스피얼` → `댈러스 퓨얼`).
 - Team short names from the DCinside OWCS gallery: 라쿤, 제타, 팔콘, 티원, 로제, O2, 치벅/처벅/CB,
   세이지 (SEIJI ESPORTS).
 - Rosters: 나무위키 (namu.moe mirror) team and player pages, 2026 OWCS Korea Stage 3
