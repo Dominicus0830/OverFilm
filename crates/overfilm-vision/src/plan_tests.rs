@@ -10,16 +10,16 @@ fn build(runs: &[(f64, char)]) -> Vec<Sample> {
     for (len, c) in runs {
         let n = (len * FPS).round() as usize;
         for _ in 0..n {
-            let (screen, still) = match c {
-                'S' => (Some(Screen::Standby), 0.5),
-                'P' => (Some(Screen::Setup), 0.3),
-                'Z' => (Some(Screen::Pause), 1.0),
-                'F' => (None, 0.99),
-                'L' => (Some(Screen::Live), 0.2),
-                'G' => (Some(Screen::Live), 0.99),
-                _ => (None, 0.2),
+            let (screen, still, live) = match c {
+                'S' => (Some(Screen::Standby), 0.5, false),
+                'P' => (Some(Screen::Setup), 0.3, false),
+                'Z' => (Some(Screen::Pause), 1.0, false),
+                'F' => (None, 0.99, false),
+                'L' => (None, 0.2, true),
+                'G' => (None, 0.99, true),
+                _ => (None, 0.2, false),
             };
-            v.push(Sample { t: secs(t), screen, template: None, score: 0.9, still });
+            v.push(Sample { t: secs(t), screen, template: None, score: 0.9, still, live });
             t += 1.0 / FPS;
         }
     }
@@ -125,7 +125,7 @@ fn keep_before_zero_cuts_the_whole_wait() {
 #[test]
 fn hostile_samples_do_not_panic() {
     let p = CutParams { frozen_still: f32::NAN, min_cut: Tick(-5), keep_before: Tick(-100), ..CutParams::default() };
-    let s = vec![Sample { t: Tick::MAX, screen: Some(Screen::Setup), template: None, score: 1.0, still: f32::NAN }];
+    let s = vec![Sample { t: Tick::MAX, screen: Some(Screen::Setup), template: None, score: 1.0, still: f32::NAN, live: true }];
     let _ = plan_cuts(&segments(&s, &p), &p);
     assert!(segments(&[], &p).is_empty());
     let mut a = Analyzer::new(TemplateSet::default());
@@ -133,4 +133,12 @@ fn hostile_samples_do_not_panic() {
     assert!(a.push(secs(1.0), f.clone()).is_some());
     // out-of-order frames are ignored
     assert!(a.push(secs(0.5), f).is_none());
+}
+
+#[test]
+fn frozen_picture_right_before_a_setup_is_waiting_not_a_pause() {
+    let p = CutParams::default();
+    // the in-game scoreboard between halves (HUD on, frozen), then the next setup
+    let c = run(&[(30.0, 'P'), (60.0, 'L'), (8.0, 'G'), (40.0, 'P'), (20.0, 'L')], &p);
+    assert_eq!(c, vec![(-0.25, 19.75, CutReason::Waiting), (89.75, 127.75, CutReason::Waiting)]);
 }

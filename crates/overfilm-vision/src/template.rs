@@ -144,38 +144,56 @@ impl Part {
         if tsd < 1e-3 {
             return 0.0;
         }
-        let mut best = -1f32;
-        for dy in 0..=2 * sy {
-            for dx in 0..=2 * sx {
-                let (mut n, mut s, mut s2, mut st) = (0f32, 0f32, 0f32, 0f32);
-                for y in 0..self.h {
-                    let grow = (y * SUB + dy) * gw + dx;
-                    let trow = y * self.w;
-                    for x in 0..self.w {
-                        if self.mask.get(trow + x).copied().unwrap_or(0) == 0 {
-                            continue;
-                        }
-                        let f = grid.get(grow + x * SUB).copied().unwrap_or(0.0);
-                        let t = self.px.get(trow + x).copied().unwrap_or(0) as f32 - tm;
-                        n += 1.0;
-                        s += f;
-                        s2 += f * f;
-                        st += f * t;
+        // correlation at one offset (in half cells); None for a flat patch
+        let ncc = |dx: usize, dy: usize| -> Option<f32> {
+            let (mut n, mut s, mut s2, mut st) = (0f32, 0f32, 0f32, 0f32);
+            for y in 0..self.h {
+                let grow = (y * SUB + dy) * gw + dx;
+                let trow = y * self.w;
+                for x in 0..self.w {
+                    if self.mask.get(trow + x).copied().unwrap_or(0) == 0 {
+                        continue;
                     }
+                    let f = grid.get(grow + x * SUB).copied().unwrap_or(0.0);
+                    let t = self.px.get(trow + x).copied().unwrap_or(0) as f32 - tm;
+                    n += 1.0;
+                    s += f;
+                    s2 += f * f;
+                    st += f * t;
                 }
-                if n < 1.0 {
-                    continue;
+            }
+            if n < 1.0 {
+                return None;
+            }
+            let fm = s / n;
+            let fsd = (s2 / n - fm * fm).max(0.0).sqrt();
+            // a flat patch matches nothing (and must not divide by zero)
+            if fsd < MIN_STD * 0.5 {
+                return None;
+            }
+            // Σ(f−fm)(t) = Σ f·t because Σ t = 0
+            Some(st / (n * fsd * tsd))
+        };
+        // coarse: whole cells over the search range, then half cells round the best three
+        let mut coarse: Vec<(f32, usize, usize)> = Vec::new();
+        for dy in (0..=2 * sy).step_by(SUB) {
+            for dx in (0..=2 * sx).step_by(SUB) {
+                if let Some(r) = ncc(dx, dy) {
+                    coarse.push((r, dx, dy));
                 }
-                let fm = s / n;
-                let fsd = (s2 / n - fm * fm).max(0.0).sqrt();
-                // a flat patch matches nothing (and must not divide by zero)
-                if fsd < MIN_STD * 0.5 {
-                    continue;
-                }
-                // Σ(f−fm)(t) = Σ f·t because Σ t = 0
-                let r = st / (n * fsd * tsd);
-                if r > best {
-                    best = r;
+            }
+        }
+        coarse.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let mut best = coarse.first().map_or(-1.0, |c| c.0);
+        for &(_, cx, cy) in coarse.iter().take(3) {
+            for dy in cy.saturating_sub(1)..=(cy + 1).min(2 * sy) {
+                for dx in cx.saturating_sub(1)..=(cx + 1).min(2 * sx) {
+                    if (dx, dy) != (cx, cy)
+                        && let Some(r) = ncc(dx, dy)
+                        && r > best
+                    {
+                        best = r;
+                    }
                 }
             }
         }
@@ -222,17 +240,30 @@ impl TemplateSet {
         self.templates.push(t);
     }
 
-    /// The best matching template over its threshold: (screen, template index, score).
+    /// The best matching break-screen, setup or pause template over its threshold: (screen,
+    /// template index, score). HUD (`live`) templates are left out: the HUD is on screen during
+    /// setup and pauses too, see [`TemplateSet::live`].
     pub fn best(&self, frame: &Luma) -> Option<(Screen, usize, f32)> {
         let mut best: Option<(Screen, usize, f32)> = None;
-        for (i, t) in self.templates.iter().enumerate() {
+        for (i, t) in self.templates.iter().enumerate().filter(|(_, t)| t.screen != Screen::Live) {
             let s = t.score(frame);
-            let thr = if t.threshold.is_finite() { t.threshold.clamp(0.1, 1.0) } else { default_threshold() };
-            if s >= thr && best.is_none_or(|b| s > b.2) {
+            if s >= t.min_score() && best.is_none_or(|b| s > b.2) {
                 best = Some((t.screen, i, s));
             }
         }
         best
+    }
+
+    /// Whether a game-HUD (`live`) template matches.
+    pub fn live(&self, frame: &Luma) -> bool {
+        self.templates.iter().filter(|t| t.screen == Screen::Live).any(|t| t.score(frame) >= t.min_score())
+    }
+}
+
+impl Template {
+    /// The threshold, sanitised.
+    pub fn min_score(&self) -> f32 {
+        if self.threshold.is_finite() { self.threshold.clamp(0.1, 1.0) } else { default_threshold() }
     }
 }
 

@@ -2,9 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Widest analysis frame. Broadcast graphics and HUD text stay readable at this size and a frame
-/// is a few hundred kilobytes at most.
-pub const MAX_WIDTH: usize = 640;
+/// Widest analysis frame. The broadcast HUD's objective text ("PREPARE TO ATTACK") is about 8
+/// pixels tall at 720p, so frames are analysed at up to 1280 wide (under a megabyte of gray).
+pub const MAX_WIDTH: usize = 1280;
 
 /// A rectangle in frame-relative coordinates (0..1 on both axes, origin top left), so a template
 /// learnt on a 1080p frame matches the same broadcast at 720p.

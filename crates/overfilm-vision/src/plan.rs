@@ -25,6 +25,9 @@ pub struct Sample {
     pub score: f32,
     /// Share of the picture unchanged since the previous sample (1.0 = frozen).
     pub still: f32,
+    /// A game-HUD template matched.
+    #[serde(default)]
+    pub live: bool,
 }
 
 /// Matches a stream of frames against a template set.
@@ -52,7 +55,8 @@ impl Analyzer {
         }
         let best = self.set.best(&frame);
         let still = self.prev.as_ref().map(|p| frame.still_fraction(p, self.still_tol)).unwrap_or(0.0);
-        self.samples.push(Sample { t, screen: best.map(|b| b.0), template: best.map(|b| b.1), score: best.map(|b| b.2).unwrap_or(0.0), still });
+        let live = self.set.live(&frame);
+        self.samples.push(Sample { t, screen: best.map(|b| b.0), template: best.map(|b| b.1), score: best.map(|b| b.2).unwrap_or(0.0), still, live });
         self.prev = Some(frame);
         self.samples.last()
     }
@@ -203,7 +207,7 @@ pub fn segments(samples: &[Sample], p: &CutParams) -> Vec<Segment> {
     let mut lab: Vec<Lab> = samples
         .iter()
         .map(|s| match s.screen {
-            Some(Screen::Live) | None if p.frozen_pauses && s.still >= thr => Lab::Frozen { live: s.screen == Some(Screen::Live) },
+            Some(Screen::Live) | None if p.frozen_pauses && s.still >= thr => Lab::Frozen { live: s.live || s.screen == Some(Screen::Live) },
             Some(sc) => Lab::S(sc),
             None => Lab::None,
         })
@@ -275,6 +279,18 @@ pub fn segments(samples: &[Sample], p: &CutParams) -> Vec<Segment> {
                 }
             }
             _ => merged.push(s),
+        }
+    }
+    // a frozen picture running straight into a break screen or setup (the scoreboard between
+    // halves) is part of that wait, not a pause
+    for i in 0..merged.len() {
+        let next_wait = merged.get(i + 1).filter(|n| matches!(n.screen, Screen::Standby | Screen::Setup)).map(|n| n.range.start);
+        if let (Some(m), Some(start)) = (merged.get_mut(i), next_wait)
+            && m.screen == Screen::Pause
+            && m.how == Detected::Frozen
+            && start <= m.range.end() + p.join_gap
+        {
+            m.screen = Screen::Setup;
         }
     }
     merged

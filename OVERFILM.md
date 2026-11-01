@@ -193,6 +193,21 @@ time of an Overwatch tournament broadcast, by the picture only (no audio):
   crossfade. A frozen picture counts only inside a round (after a setup ended, before the next
   break screen), or, once the set has a game-HUD (`live`) template, only while the HUD is on screen.
 - **Nothing else is cut.** A frame no template matches is play; a cut shorter than 2 s is dropped.
+- A frozen picture that runs straight into a setup (the in-game scoreboard between halves) is part
+  of that wait. Game-HUD (`live`) templates never compete with the others: the HUD is on screen
+  during setups and pauses too, so they only say "the game is on screen".
+
+**Measured on a real broadcast** (OWCS Asia Korea Stage 3, LCQ day 2, first 84 minutes at 720p:
+pre-show, map 1 Nepal, map 2 Route 66, map 3 Colosseo, two breaks). Templates: the break screen's
+left panel, the objective texts PREPARE TO ATTACK / PREPARE YOUR DEFENSES / GET READY / ASSEMBLE
+YOUR HEROES, and the top bar's logo as the HUD. 7 cuts, 21:40 removed: the pre-show countdown, both
+breaks and the setups of Nepal, Route 66 and its second half (with the scoreboard before it), each
+ending 10 s before the round starts; every cut edge checked by eye, no play cut. Missed: the setup
+of a Push map (Colosseo), whose HUD shows only the countdown and "0.00m" (also shown after the round
+starts), so it has no text to learn. No pause happened in the clip, so pauses are only tested on
+generated video. The run takes about 6 minutes for 84 minutes of video (decoding bound).
+`cargo run -p overfilm-vision --release --example autocut_raw` runs templates and the plan on raw
+gray frames piped from ffmpeg (see its header).
 
 Screens are recognised by **templates** learnt from a frame of the same broadcast
 (`overfilm.screenTemplate.learn {screen: standby|setup|pause|live, rects, ignore, time}`):
@@ -203,7 +218,8 @@ correlates at 0.7 or more. The set is a JSON file beside the project
 (`<project>.overfilm-screens.json`) or given as `templates`; the repository ships none, since the
 league's graphics and the game HUD are not ours to redistribute.
 
-The analysis samples 2 frames a second at 640 pixels wide in a background job. By default
+The analysis samples 2 frames a second at up to 1280 pixels wide in a background job (the HUD's
+objective text is about 8 pixels tall at 720p). By default
 (`mode: "mark"`) each planned cut becomes a range marker "OverFilm 컷: 대기 / 퍼즈" for review;
 `overfilm.autoCut.apply` then removes the ranges of the markers left (moved or deleted ones
 included) in one undo step. `mode: "cut"` does both at once.

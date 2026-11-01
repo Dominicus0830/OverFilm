@@ -32,7 +32,7 @@ pub const MARK: &str = "OverFilm 컷";
 const MARK_WAIT: &str = "OverFilm 컷: 대기";
 const MARK_PAUSE: &str = "OverFilm 컷: 퍼즈";
 /// Analysis frame width.
-const WIDTH: usize = 640;
+const WIDTH: usize = 1280;
 /// Most samples one run decodes (10 hours at 4 per second).
 const MAX_SAMPLES: u64 = 144_000;
 
