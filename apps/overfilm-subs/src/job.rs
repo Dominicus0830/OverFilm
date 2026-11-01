@@ -57,6 +57,9 @@ pub struct Options {
     /// Captions only for enrolled voices (e.g. the streamer's own speech).
     #[serde(default)]
     pub only_voices: bool,
+    /// Leave hesitation sounds and stutters (어, 음, 그 그게) out of the captions.
+    #[serde(default)]
+    pub clean_fillers: bool,
 }
 
 fn yes() -> bool {
@@ -88,6 +91,7 @@ impl Options {
             per_speaker: false,
             use_voices: true,
             only_voices: false,
+            clean_fillers: false,
         }
     }
 
@@ -229,12 +233,13 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
     } else {
         speakers::Keep::All
     };
-    let caps = speakers::captions_keep(&transcript, o.game_voice, keep, &o.layout());
+    let caps = speakers::captions_keep(&transcript, o.game_voice, keep, &o.layout(), o.clean_fillers);
     let srt = o.srt_path();
     write_srt(&srt, &caps)?;
+    let _ = crate::history::snapshot(&srt, &caps, "처음 만듦");
     let mut speaker_srts = Vec::new();
     if o.per_speaker && speakers::people(&transcript) > 1 {
-        for (_, label, caps) in speakers::captions_per_speaker(&transcript, &o.layout()) {
+        for (_, label, caps) in speakers::captions_per_speaker(&transcript, &o.layout(), o.clean_fillers) {
             let p = per_speaker_path(&srt, &label);
             write_srt(&p, &caps)?;
             speaker_srts.push(p);

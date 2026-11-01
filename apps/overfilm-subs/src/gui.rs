@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use eframe::egui;
 use overfilm_subs::edit::{self, Opened, Preset, Recent};
-use overfilm_subs::{job, mcp, pack, review, voices};
+use overfilm_subs::{export, job, mcp, pack, review, voices};
 use serde::{Deserialize, Serialize};
 
 /// What the navigation rail shows.
@@ -58,13 +58,16 @@ struct Prefs {
     /// Seconds of work per minute of sound on the last run (for the time estimate).
     #[serde(default)]
     secs_per_audio_min: f32,
+    /// Last export settings (format, frame rate, gap).
+    #[serde(default)]
+    export: export::Export,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
         let mut options = job::Options::new(PathBuf::new());
         Preset::General.apply(&mut options);
-        Self { preset: Preset::General, options, last_device: String::new(), secs_per_audio_min: 0.0 }
+        Self { preset: Preset::General, options, last_device: String::new(), secs_per_audio_min: 0.0, export: export::Export::default() }
     }
 }
 
@@ -103,6 +106,23 @@ struct Review {
     jump: bool,
     undo: Vec<(Vec<overfilm_captions::Caption>, Option<overfilm_asr::Transcript>)>,
     summary: Option<String>,
+    /// The export dialog is open.
+    exporting: bool,
+    /// Find and replace bar.
+    find: FindBar,
+    /// Saved versions, while the history dialog is open.
+    history: Option<Vec<overfilm_subs::history::Version>>,
+}
+
+/// The find and replace bar over the caption table.
+#[derive(Default)]
+struct FindBar {
+    open: bool,
+    find: String,
+    with: String,
+    whole_word: bool,
+    /// Also add the replacement to the user glossary.
+    learn: bool,
 }
 
 struct App {
@@ -269,6 +289,9 @@ impl App {
             jump: false,
             undo: Vec::new(),
             summary: None,
+            exporting: false,
+            find: FindBar::default(),
+            history: None,
         };
         r.refresh_issues(self.prefs.options.mask_profanity);
         let entry = Recent {

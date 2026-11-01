@@ -110,8 +110,8 @@ impl Opened {
     pub fn rebuild(&mut self, o: &Options) -> Result<(), String> {
         let Some(t) = &self.transcript else { return Err("단어 시간 파일(.overfilm.json)이 없어 다시 만들 수 없습니다".into()) };
         let keep = if o.only_voices && t.speakers.iter().any(|s| s.enrolled && !s.game) { Keep::Enrolled } else { Keep::All };
-        let caps = speakers::captions_keep(t, o.game_voice, keep, &o.layout());
-        save_srt(&self.srt, &caps)?;
+        let caps = speakers::captions_keep(t, o.game_voice, keep, &o.layout(), o.clean_fillers);
+        save_srt_as(&self.srt, &caps, "자막 다시 만듦 (화자·추임새)")?;
         self.captions = caps;
         if o.per_speaker {
             self.write_per_speaker(o)?;
@@ -126,7 +126,7 @@ impl Opened {
             return Ok(Vec::new());
         }
         let mut out = Vec::new();
-        for (_, label, caps) in speakers::captions_per_speaker(t, &o.layout()) {
+        for (_, label, caps) in speakers::captions_per_speaker(t, &o.layout(), o.clean_fillers) {
             let p = job::per_speaker_path(&self.srt, &label);
             job::write_srt(&p, &caps)?;
             out.push(p);
@@ -143,7 +143,7 @@ impl Opened {
 
     /// Put back an earlier state (undo) and save it.
     pub fn restore(&mut self, captions: Vec<Caption>, transcript: Option<Transcript>) -> Result<(), String> {
-        save_srt(&self.srt, &captions)?;
+        save_srt_as(&self.srt, &captions, "되돌림")?;
         self.captions = captions;
         if transcript.is_some() {
             self.transcript = transcript;
@@ -160,7 +160,16 @@ impl Opened {
             return Err("빈 자막은 저장하지 않습니다".into());
         }
         c.lines = lines;
-        save_srt(&self.srt, &self.captions)
+        save_srt_as(&self.srt, &self.captions, &format!("글자 고침 #{}", index + 1))
+    }
+
+    /// [`replace_in`] over every caption, saved when anything changed.
+    pub fn replace_all(&mut self, find: &str, with: &str, whole_word: bool) -> Result<usize, String> {
+        let n = replace_in(&mut self.captions, find, with, whole_word);
+        if n > 0 {
+            save_srt_as(&self.srt, &self.captions, &format!("찾아 바꾸기: {find} → {with}"))?;
+        }
+        Ok(n)
     }
 
     /// Apply the glossary to every caption; returns the number of changes.
@@ -174,10 +183,69 @@ impl Opened {
             }
         }
         if n > 0 {
-            save_srt(&self.srt, &self.captions)?;
+            save_srt_as(&self.srt, &self.captions, "단어집대로 고침")?;
         }
         Ok(n)
     }
+
+    /// Put back version `id` from the history (saved as a new version, so it can be undone).
+    pub fn restore_version(&mut self, id: u32) -> Result<(), String> {
+        let caps = crate::history::load(&self.srt, id)?;
+        save_srt_as(&self.srt, &caps, &format!("기록 {id}번으로 되돌림"))?;
+        self.captions = caps;
+        Ok(())
+    }
+}
+
+/// Replace every `find` in the captions' lines with `with`; `whole_word` only where `find` is not
+/// part of a longer word. Returns the number of replacements.
+pub fn replace_in(caps: &mut [Caption], find: &str, with: &str, whole_word: bool) -> usize {
+    if find.is_empty() || find.contains('\n') {
+        return 0;
+    }
+    let mut n = 0;
+    for c in caps.iter_mut() {
+        for l in &mut c.lines {
+            let (out, k) = replace_line(l, find, with, whole_word);
+            if k > 0 {
+                *l = out;
+                n += k;
+            }
+        }
+    }
+    n
+}
+
+fn replace_line(l: &str, find: &str, with: &str, whole_word: bool) -> (String, usize) {
+    let mut out = String::with_capacity(l.len());
+    let mut n = 0;
+    let mut rest = l;
+    let mut prev: Option<char> = None;
+    while let Some(pos) = rest.find(find) {
+        let (before, after) = rest.split_at(pos);
+        let next = after.get(find.len()..).unwrap_or("");
+        let left = before.chars().last().or(prev);
+        let ok = !whole_word || (!left.is_some_and(char::is_alphanumeric) && !next.chars().next().is_some_and(char::is_alphanumeric));
+        out.push_str(before);
+        if ok {
+            out.push_str(with);
+            n += 1;
+        } else {
+            out.push_str(find);
+        }
+        prev = find.chars().last();
+        rest = next;
+    }
+    out.push_str(rest);
+    (out, n)
+}
+
+/// Captions (0-based) whose text contains `find`.
+pub fn find_in(caps: &[Caption], find: &str) -> Vec<usize> {
+    if find.is_empty() {
+        return Vec::new();
+    }
+    caps.iter().enumerate().filter(|(_, c)| c.lines.iter().any(|l| l.contains(find))).map(|(k, _)| k).collect()
 }
 
 fn read_transcript(path: &Path) -> Result<Transcript, String> {
@@ -189,13 +257,23 @@ fn read_transcript(path: &Path) -> Result<Transcript, String> {
     serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// Write `caps`, keeping the first version as `.srt.bak`.
+/// Write `caps`, keeping the first version as `.srt.bak` and every version in the history.
 pub fn save_srt(path: &Path, caps: &[Caption]) -> Result<(), String> {
+    save_srt_as(path, caps, "고침")
+}
+
+/// [`save_srt`] with what changed, as the history lists it.
+pub fn save_srt_as(path: &Path, caps: &[Caption], label: &str) -> Result<(), String> {
     let bak = path.with_extension("srt.bak");
     if !bak.exists() && path.exists() {
         std::fs::copy(path, &bak).map_err(|e| format!("백업 실패 {}: {e}", bak.display()))?;
     }
-    job::write_srt(path, caps)
+    let root = crate::history::root();
+    crate::history::keep_original_in(&root, path);
+    job::write_srt(path, caps)?;
+    // the history is a convenience: a failure there never stops a save
+    let _ = crate::history::snapshot_in(&root, path, caps, label);
+    Ok(())
 }
 
 /// Give speaker `idx` a new name. A name another speaker already has merges the two (the user
@@ -506,6 +584,24 @@ mod tests {
         let back = Opened::load(&srt).unwrap();
         assert_eq!(back.captions[0].lines, vec!["처음"]);
         assert_eq!(back.transcript.unwrap().speakers[1].label, "화자2");
+    }
+
+    #[test]
+    fn find_and_replace() {
+        let mut caps = vec![
+            Caption { start_ms: 0, end_ms: 500, lines: vec!["전국퀸 나왔다".into(), "전국퀸가 와".into()] },
+            Caption { start_ms: 500, end_ms: 900, lines: vec!["대전국퀸".into()] },
+        ];
+        assert_eq!(find_in(&caps, "전국퀸"), vec![0, 1]);
+        assert_eq!(replace_in(&mut caps.clone(), "전국퀸", "정커퀸", true), 1, "only the free-standing word");
+        assert_eq!(replace_in(&mut caps, "전국퀸", "정커퀸", false), 3);
+        assert_eq!(caps[0].lines, vec!["정커퀸 나왔다", "정커퀸가 와"]);
+        assert_eq!(caps[1].lines, vec!["대정커퀸"]);
+        assert_eq!(replace_in(&mut caps, "", "x", false), 0);
+        assert!(find_in(&caps, "").is_empty());
+        // replacing with text that contains the search term does not loop
+        assert_eq!(replace_in(&mut caps, "와", "와와", false), 1);
+        assert_eq!(caps[0].lines[1], "정커퀸가 와와");
     }
 
     #[test]

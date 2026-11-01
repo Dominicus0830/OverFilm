@@ -121,7 +121,7 @@ fn settings(app: &mut App, ui: &mut egui::Ui) {
         if o.max_lines >= 2 { "최대 두 줄" } else { "한 줄" },
         if o.mask_profanity { "욕설 초성" } else { "욕설 그대로" },
         if o.digits { "숫자로" } else { "숫자 그대로" }
-    );
+    ) + if o.clean_fillers { " · 추임새 뺌" } else { "" };
     if expander(ui, "exp_shape", "자막 모양", &shape, |_| {}) {
         setting(ui, "한 줄 글자 수", "한글 기준", true, |ui| {
             ui.add(egui::DragValue::new(&mut o.line_chars).range(8..=30).suffix("자"));
@@ -137,6 +137,9 @@ fn settings(app: &mut App, ui: &mut egui::Ui) {
         });
         setting(ui, "숫자는 숫자로", "오 시즌 → 5시즌, 사십칠 퍼센트 → 47%", true, |ui| {
             toggle(ui, &mut o.digits);
+        });
+        setting(ui, "추임새 빼기", "어, 음, 그 그게 같은 군말과 말 더듬기를 자막에서 뺍니다", true, |ui| {
+            toggle(ui, &mut o.clean_fillers);
         });
     }
 }
