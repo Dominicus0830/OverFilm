@@ -19,7 +19,7 @@ calling the caption layout) and listed in the table at the end.
 | `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures), the auto-cut plan and deaths from the HUD's player bars; see "Auto cut" below |
 | `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the shared models folder |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
-| `overfilm-ai` | L1 | M6 | analysis behind the editing suggestions: loudness, silences, highlights (`overfilm.assist.suggest` in the engine); later style learning |
+| `overfilm-ai` | L1 | M6 | analysis behind the editing suggestions: loudness, silences, highlights (`overfilm.assist.suggest` in the engine), the learnt editing style (`style`) |
 | `overfilm-subs` (`apps/`) | L6 | — | standalone subtitle extractor: window (`OverFilmSubs`), command line and MCP review server (`overfilm-subs`); see its README |
 | `packs/overwatch/ko/` | data | M2 | Overwatch Korean pack: `glossary/` (heroes, abilities, maps, modes, terms, teams, players; see its README), `voicelines.tsv` (hero ultimates and announcer as heard in the Korean client), later fillers, caption rules |
 
@@ -338,6 +338,26 @@ the fights at 31:06 and 34:30 (a team wipe) died in the order and at the times t
 and two of the four sound-only highlights (31:06, 1:15:19) fall on fights. A plate that flickers back
 mid-respawn made a few double deaths, hence no second death of a player within 8 s.
 
+## Editing style
+
+`Sequence ▸ OverFilm ▸ Learn Editing Style` (`overfilm.style.learn {sequences?, style?}`) learns
+from finished edits: select them in the Project panel (a Premiere Pro edit comes in through
+File ▸ Export ▸ Final Cut Pro XML in Premiere, then File ▸ Import here; `.prproj` is not read), or
+it takes the open sequence. Per sequence it reads (`overfilm_style::facts`): the time between video
+edit points (shots) and cuts per minute; how long one source plays on before a jump (consecutive
+clips continuing the same source count as one stretch) on the busiest video track; transitions and
+their length; added effects (not the built-in Motion / Opacity / Volume) and zooms (keyframed
+Motion scale or position); how much of the sources is kept, when their length is known; caption
+length, duration and lines. `overfilm_ai::style::learn` sums it up as quartiles and rates, saved as
+`<project>.overfilm-style.json` with a Korean summary (`overfilm.style.show` gives it back).
+
+With a saved style the suggestions follow it: highlights run as long as the upper quartile of
+the kept stretches (5–60 s) unless `seconds` is given, and the highlight reel joins moments with
+plain cuts when fewer than a fifth of the editor's cuts carry a transition, else with a dissolve
+of their usual length (unless `dissolve` / `dissolveFrames` is given). Checked by a round trip
+(the demo edit exported as FCP7 XML, imported, learnt: same cuts, shots and transitions); not yet
+on a real Premiere edit.
+
 ## Dialogs
 
 The Sequence ▸ OverFilm menu items open a dialog when chosen from the menu (`crates/ui-egui/src/panels/overfilm.rs`;
@@ -396,13 +416,14 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `.github/workflows/overfilm.yml` | new file (OverFilm CI) |
 | `OVERFILM.md` | new file (this document) |
 | `crates/engine/Cargo.toml` | depends on `overfilm-vision`, `overfilm-captions`, `overfilm-pipeline`, `overfilm-asr`, `overfilm-ai`; feature `overfilm-qwen` |
-| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `mod overfilm_kills`, `Session::overfilm_jobs`, `overfilm_caption_jobs`, `overfilm_assist_jobs` and `overfilm_kill_jobs`, their `poll` in `poll_persistence` |
-| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()`, `overfilm_reel::commands()` and `overfilm_kills::commands()` |
+| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `mod overfilm_kills`, `mod overfilm_style`, `Session::overfilm_jobs`, `overfilm_caption_jobs`, `overfilm_assist_jobs` and `overfilm_kill_jobs`, their `poll` in `poll_persistence` |
+| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()`, `overfilm_reel::commands()`, `overfilm_kills::commands()` and `overfilm_style::commands()` |
 | `crates/engine/src/transcript.rs` | `targets` is `pub(crate)` (which clips to recognise) |
 | `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |
 | `crates/engine/src/overfilm_assist.rs` (+ `_tests.rs`) | new file: silence and highlight suggestions |
 | `crates/engine/src/overfilm_reel.rs` (+ `_tests.rs`) | new file: the highlight reel |
 | `crates/engine/src/overfilm_kills.rs` (+ `_tests.rs`) | new file: player bars, deaths and team fights |
+| `crates/engine/src/overfilm_style.rs` (+ `_tests.rs`) | new file: the learnt editing style |
 | `apps/filmcraft/Cargo.toml` | feature `overfilm-qwen`, on by default |
 | `crates/ui-egui/src/panels/overfilm.rs` | new file: the OverFilm dialogs |
 | `crates/ui-egui/src/panels.rs`, `menus.rs`, `panels/dialogs.rs` | `mod overfilm`, its `route` before the menu dialogs, its `show` |

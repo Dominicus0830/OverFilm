@@ -38,6 +38,7 @@ pub mod overfilm_autocut;
 pub mod overfilm_captions;
 pub mod overfilm_kills;
 pub mod overfilm_reel;
+pub mod overfilm_style;
 pub mod overfilm_transcribe;
 pub mod panels;
 pub mod paste_media;

@@ -6,7 +6,8 @@
 //!   the highlight markers on every track, captions included, so the clips keep their effects,
 //!   keyframes, links and caption styles. The moments stay in time order; overlapping markers join.
 //!   With `dissolve`, each join gets a short cross dissolve and crossfade (the default transition
-//!   lengths, or `dissolveFrames`) where both sides have media to overlap. The source sequence is
+//!   lengths, or `dissolveFrames`) where both sides have media to overlap; with a learnt editing
+//!   style and neither given, the style decides (plain cuts, or its usual dissolve length). The source sequence is
 //!   not changed; one undo step removes the reel.
 
 use filmcraft_edit::EditCtx;
@@ -91,8 +92,16 @@ fn reel(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let drop = complement(&keep, q.duration());
     let rate = q.settings.frame_rate;
-    let frames = p.get("dissolveFrames").and_then(Value::as_i64).map(|f| f.clamp(0, 120));
-    let dissolve = bool_p(p, "dissolve").unwrap_or(true);
+    let mut frames = p.get("dissolveFrames").and_then(Value::as_i64).map(|f| f.clamp(0, 120));
+    let mut dissolve = bool_p(p, "dissolve").unwrap_or(true);
+    // no say in the call: join the moments the way the learnt style joins cuts
+    if frames.is_none()
+        && bool_p(p, "dissolve").is_none()
+        && let Some(j) = crate::overfilm_style::saved(s, p).and_then(|st| st.join_ms())
+    {
+        dissolve = j > 0;
+        frames = Some(rate.frame_at(Tick(j.saturating_mul(TICKS_PER_SECOND / 1000))).clamp(1, 120));
+    }
     let vdur = if !dissolve { Tick::ZERO } else { frames.map(|f| rate.tick_of(f)).unwrap_or_else(|| s.prefs.timeline.video_transition_duration(rate)) };
     let adur = if !dissolve { Tick::ZERO } else { frames.map(|f| rate.tick_of(f)).unwrap_or_else(|| s.prefs.timeline.audio_transition_duration(rate)) };
     let src_name = s.project.item(seq_id).map(|i| i.name.clone()).unwrap_or_default();

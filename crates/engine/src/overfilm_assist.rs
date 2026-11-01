@@ -76,7 +76,12 @@ fn suggest(s: &mut Session, p: &Value) -> Result<Value> {
     });
     let highlights = bool_p(p, "highlights").unwrap_or(true).then(|| HighlightParams {
         count: u64_p(p, "count").map(|n| n.clamp(1, 100) as usize).unwrap_or(10),
-        length_ms: f64_p(p, "seconds").filter(|v| v.is_finite()).map(|v| (v.clamp(5.0, 120.0) * 1000.0) as i64).unwrap_or(20_000),
+        // the learnt style's moment length, else 20 s
+        length_ms: f64_p(p, "seconds")
+            .filter(|v| v.is_finite())
+            .map(|v| (v.clamp(5.0, 120.0) * 1000.0) as i64)
+            .or_else(|| crate::overfilm_style::saved(s, p).and_then(|st| st.highlight_length_ms()))
+            .unwrap_or(20_000),
         ..HighlightParams::default()
     });
     if silence.is_none() && highlights.is_none() {
