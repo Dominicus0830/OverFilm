@@ -49,6 +49,9 @@ pub struct Recognised {
     pub device: String,
     /// In-game voice lines recognised.
     pub voice_lines: usize,
+    /// Pure recognition of each chunk (before the glossary correction), in the order of
+    /// `transcript.chunks`; Claude Code review shows it beside the corrected captions.
+    pub raw_texts: Vec<String>,
 }
 
 /// Progress: (fraction 0–1, message); return false to cancel.
@@ -83,7 +86,9 @@ pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) 
     let corrector = pack::corrector_with(&g, r.digits);
     let context = pack::context(&g, r.mode, &r.extra_terms);
     let corrections = std::sync::Mutex::new(Vec::new());
+    let raw_texts = std::sync::Mutex::new(Vec::new());
     let correct = |t: &str| {
+        raw_texts.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(t.to_string());
         let c = corrector.apply(t);
         corrections.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend(c.changes);
         c.text
@@ -120,5 +125,6 @@ pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) 
         format!("{}, 화자 구별 {}", transcript.device, speaker_device.split(" (").next().unwrap_or(&speaker_device))
     };
     let corrections = corrections.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
-    Ok(Recognised { transcript, corrections, device, voice_lines })
+    let raw_texts = raw_texts.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Recognised { transcript, corrections, device, voice_lines, raw_texts })
 }

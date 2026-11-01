@@ -2127,6 +2127,7 @@ dependencies = [
  "overfilm-asr",
  "overfilm-captions",
  "overfilm-pipeline",
+ "overfilm-review",
  "overfilm-vision",
  "serde",
  "serde_json",
@@ -4823,6 +4824,15 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "overfilm-review"
+version = "0.14.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

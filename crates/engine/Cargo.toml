@@ -44,6 +44,7 @@ overfilm-vision = { workspace = true }
 overfilm-captions = { workspace = true }
 overfilm-pipeline = { workspace = true }
 overfilm-ai = { workspace = true }
+overfilm-review = { workspace = true }
 overfilm-asr = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

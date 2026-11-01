@@ -473,6 +473,7 @@ fn mark(s: &mut Session, cuts: &[Cut]) -> Result<usize> {
         Ok(())
     })?;
     s.toast(format!("OverFilm Auto Cut: {n} cut(s) marked; check them, then Sequence ▸ OverFilm ▸ Apply OverFilm Cut Markers"));
+    crate::overfilm_review::after_cut_marks(s);
     Ok(n)
 }
 

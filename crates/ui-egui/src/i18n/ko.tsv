@@ -3685,3 +3685,24 @@
 	No break-screen, setup or pause template yet: import a template file, or learn one from a frame of that screen.	대기 화면·라운드 준비·퍼즈 견본이 아직 없어요. 견본 파일을 불러오거나, 그 화면이 나오는 프레임에서 견본을 등록하세요.
 	Imported {n} template(s) and {b} player bar(s)	견본 {n}개, 선수 이름판 {b}개를 불러왔어요
 	Import Screen Templates (OverFilm)…	화면 견본 불러오기(OverFilm)…
+# OverFilm: Claude Code review (OVERFILM.md, panels/overfilm_review.rs).
+	Claude Code Review Settings (OverFilm)…	Claude Code 검토 설정(OverFilm)…
+	Check Claude Code (OverFilm)	Claude Code 연결 확인(OverFilm)
+	Ask Claude Code About Unclear Cuts (OverFilm)	애매한 컷을 Claude Code에 맡기기(OverFilm)
+	Ask Claude Code About Unclear Captions (OverFilm)	판단이 필요한 자막을 Claude Code에 맡기기(OverFilm)
+	Claude Code Review (OverFilm)	Claude Code 검토(OverFilm)
+	When it is on, OverFilm asks the Claude Code on this computer about cuts and captions it is unsure of. It uses your Claude subscription (the account you signed in to Claude Code with), not an API key.	켜 두면 OverFilm이 판단이 애매한 컷과 자막을 이 컴퓨터의 Claude Code에 물어봅니다. API 키가 아니라 Claude Code에 로그인한 Claude 구독 계정을 씁니다.
+	Let Claude Code review	Claude Code에 검토 맡기기
+	Ask on its own after Auto Cut, Suggestions and OverFilm Captions	자동 컷·제안·OverFilm 자막이 끝나면 알아서 묻기
+	claude program:	claude 프로그램:
+	empty: find it (claude.exe, claude.cmd)	비워 두면 알아서 찾음(claude.exe, claude.cmd)
+	Model:	모델:
+	empty: Claude Code's default (e.g. sonnet, opus)	비워 두면 Claude Code 기본값(예: sonnet, opus)
+	Time limit per question:	질문 하나 시간 제한:
+	 s	 초
+	Items per question:	질문 하나에 넣을 개수:
+	Most items per review:	한 번 검토할 최대 개수:
+	Check Claude Code	Claude Code 연결 확인
+	Review never cuts by itself: it changes the OverFilm cut markers (cut, keep, keep part) and the captions, in one undo step.	검토는 직접 자르지 않습니다. OverFilm 컷 마커(자르기, 유지, 일부 유지)와 자막만 바꾸며, 실행 취소 한 번으로 되돌릴 수 있습니다.
+	Claude Code review is on	Claude Code 검토를 켰습니다
+	Claude Code review is off	Claude Code 검토를 껐습니다
