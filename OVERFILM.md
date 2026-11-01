@@ -16,6 +16,7 @@ calling the caption layout) and listed in the table at the end.
 | `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`), in-game voice lines found by text (`voicelines`) |
 | `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels, overlapped speech with pyannote segmentation-3.0); next: `filmcraft_speech::Transcriber` |
 | `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out |
+| `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures) and the auto-cut plan; see "Auto cut" below |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L4 | M6, M7, M9 | MCP editing assistants, screen recognition, style learning |
 | `overfilm-subs` (`apps/`) | L6 | — | standalone subtitle extractor: window (`OverFilmSubs`), command line and MCP review server (`overfilm-subs`); see its README |
@@ -179,6 +180,34 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   by default (`--game-voice label|keep` to show it). Recognising game audio by sound rather than
   text (hero voices, effects, music) is not done yet.
 
+## Auto cut (esports broadcasts)
+
+`Sequence ▸ OverFilm ▸ Auto Cut Waiting and Pauses` (`overfilm.autoCut`) removes the waiting
+time of an Overwatch tournament broadcast, by the picture only (no audio):
+
+- **Break / standby screens** (big countdown, sponsor panel) and **round setup** ("PREPARE TO
+  ATTACK/DEFEND" with its timer) are cut up to `keepBefore` (10 s) before they end, i.e. before
+  the match or round starts. A break screen running straight into a setup (gap ≤ 3 s) is one wait.
+- **Pauses** (a pause notice, or a frozen picture: ≥ 97 % of 8×8 blocks unchanged by more than
+  one gray level for 4 s or more) are cut whole; the join gets a dissolve and an audio
+  crossfade. A frozen picture counts only inside a round (after a setup ended, before the next
+  break screen), or, once the set has a game-HUD (`live`) template, only while the HUD is on screen.
+- **Nothing else is cut.** A frame no template matches is play; a cut shorter than 2 s is dropped.
+
+Screens are recognised by **templates** learnt from a frame of the same broadcast
+(`overfilm.screenTemplate.learn {screen: standby|setup|pause|live, rects, ignore, time}`):
+each rectangle (frame-relative, 0..1) is kept as a gray grid of at most 128 cells and found again
+by normalised cross-correlation (half-cell steps, ±1 % of the frame width); `ignore` leaves out
+what changes (the running clock, a camera feed). A template matches when its worst rectangle
+correlates at 0.7 or more. The set is a JSON file beside the project
+(`<project>.overfilm-screens.json`) or given as `templates`; the repository ships none, since the
+league's graphics and the game HUD are not ours to redistribute.
+
+The analysis samples 2 frames a second at 640 pixels wide in a background job. By default
+(`mode: "mark"`) each planned cut becomes a range marker "OverFilm 컷: 대기 / 퍼즈" for review;
+`overfilm.autoCut.apply` then removes the ranges of the markers left (moved or deleted ones
+included) in one undo step. `mode: "cut"` does both at once.
+
 ## Upstream updates
 
 The first commit was a snapshot of filmcraft `fed0f42` without its history. The merge commit
@@ -217,3 +246,7 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `xtask/src/main.rs` | `overfilm-*` crates in `LAYERS`; layering also checks `overfilm-*` dependencies |
 | `.github/workflows/overfilm.yml` | new file (OverFilm CI) |
 | `OVERFILM.md` | new file (this document) |
+| `crates/engine/Cargo.toml` | depends on `overfilm-vision` |
+| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `Session::overfilm_jobs`, its `poll` in `poll_persistence` |
+| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()` |
+| `crates/engine/src/overfilm_autocut.rs` (+ `tests.rs`) | new file: Auto Cut commands (frames in, cuts out) |

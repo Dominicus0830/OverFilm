@@ -2123,6 +2123,7 @@ dependencies = [
  "filmcraft-tts",
  "image",
  "log",
+ "overfilm-vision",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4820,6 +4821,16 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "overfilm-vision"
+version = "0.14.0"
+dependencies = [
+ "filmcraft-time",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
