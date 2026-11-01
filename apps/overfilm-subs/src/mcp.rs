@@ -92,7 +92,7 @@ fn tools() -> Value {
         {"name": "cancel_job", "description": "진행 중인 자막 추출을 멈춥니다.", "inputSchema": {"type": "object", "properties": {}}},
         {"name": "read_subtitles", "description": "SRT 자막을 번호·시간·글자로 읽습니다.",
          "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": path, "from": index, "count": {"type": "integer", "minimum": 1, "maximum": MAX_ITEMS}}}},
-        {"name": "review_subtitles", "description": "검토할 곳을 찾습니다: 단어집과 다른 표기(오인식·욕설, 고칠 글자 제안 포함), 읽기 속도, 줄 길이·줄 수, 너무 짧음, 겹침, 반복, 빈 자막.",
+        {"name": "review_subtitles", "description": "검토할 곳을 찾습니다: 단어집과 다른 표기(오인식·욕설, 고칠 글자 제안 포함), 인식이 자신 없던 단어(unsure, .overfilm.json이 있을 때), 읽기 속도, 줄 길이·줄 수, 너무 짧음, 겹침, 반복, 빈 자막.",
          "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": path, "kinds": {"type": "array", "items": {"type": "string", "enum": ["glossary", "fast", "width", "lines", "short", "overlap", "repeat", "empty"]}}}}},
         {"name": "find_silences", "description": "자막 사이 말이 없는 구간(무음)을 찾습니다. 편집할 때 자를 후보로 표시만 하고 지우지는 않습니다.",
          "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": path, "min_ms": {"type": "integer", "minimum": 200, "description": "이보다 긴 빈 구간 (기본 2000)"}}}},
@@ -252,6 +252,7 @@ impl Server {
         let mut caps = job::read_srt(&p)?;
         let i = index_arg(a, &caps)?;
         let c = caps.get_mut(i).ok_or("자막 번호가 없습니다")?;
+        let before = c.text();
         if let Some(t) = s(a, "text") {
             c.lines = t.replace("\\n", "\n").lines().map(str::to_string).collect();
         }
@@ -264,8 +265,16 @@ impl Server {
         if c.end_ms <= c.start_ms {
             return Err("끝 시간이 시작보다 빠릅니다".into());
         }
-        let out = cap_json(i, c);
+        let mut out = cap_json(i, c);
+        let after = c.text();
         save(&p, &caps)?;
+        let ready = crate::learn::record(&before, &after);
+        if let (Some(l), Some(o)) = (ready.first(), out.as_object_mut()) {
+            o.insert(
+                "glossary_suggestion".into(),
+                json!({"misheard": l.from, "ko": l.to, "times": l.count, "message": "같은 고침을 여러 번 했습니다. 사용자에게 물어보고 add_glossary_term으로 단어집에 넣으면 다음 자막부터 자동으로 고칩니다."}),
+            );
+        }
         Ok(out)
     }
 
@@ -370,10 +379,12 @@ impl Server {
                 let caps = job::read_srt(&path_arg(a)?)?;
                 let kinds: Vec<&str> = a.get("kinds").and_then(Value::as_array).map(|v| v.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
                 let g = glossary()?;
-                let issues: Vec<review::Issue> = review::review(&caps, &overfilm_captions::Layout::default(), &pack::corrector(&g))
-                    .into_iter()
-                    .filter(|i| kinds.is_empty() || kinds.contains(&i.kind))
-                    .collect();
+                let mut all = review::review(&caps, &overfilm_captions::Layout::default(), &pack::corrector(&g));
+                if let Ok((_, t)) = load_transcript(&path_arg(a)?) {
+                    all.extend(review::unsure(&caps, &t, review::UNSURE_BELOW));
+                    all.sort_by_key(|i| i.index);
+                }
+                let issues: Vec<review::Issue> = all.into_iter().filter(|i| kinds.is_empty() || kinds.contains(&i.kind)).collect();
                 let mut counts = std::collections::BTreeMap::new();
                 for i in &issues {
                     *counts.entry(i.kind).or_insert(0usize) += 1;

@@ -76,6 +76,10 @@ pub struct Word {
     /// Another speaker talking at the same time (overlapped speech).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub also: Option<usize>,
+    /// How sure the recogniser was of this word: the lowest probability of the tokens it was
+    /// written with (0–1). `None` for words the correction step wrote or old transcripts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conf: Option<f32>,
 }
 
 /// A whole input's transcript, chunk by chunk: the text as recognised (and corrected) and its

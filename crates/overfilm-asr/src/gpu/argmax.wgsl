@@ -1,4 +1,5 @@
-// Index of the largest value of each row (the first on ties).
+// Index of the largest value of each row (the first on ties). With a single row (the next token
+// while decoding), also its probability under softmax, as f32 bits in out[1].
 
 struct P {
     n: u32,
@@ -21,6 +22,7 @@ struct Step {
 
 var<workgroup> bv: array<f32, 256>;
 var<workgroup> bi: array<u32, 256>;
+var<workgroup> top: f32;
 
 @compute @workgroup_size(256)
 fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wg: vec3<u32>) {
@@ -54,5 +56,27 @@ fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wg: vec
     }
     if li == 0u {
         out[row] = select(bi[0], 0u, bi[0] == 0xffffffffu);
+        top = bv[0];
+    }
+    if nrows != 1u {
+        return;
+    }
+    // softmax probability of the best class: 1 / sum(exp(v - best))
+    workgroupBarrier();
+    let m = top;
+    var sum = 0.0;
+    for (var i = li; i < p.n; i += 256u) {
+        sum += exp(x[i] - m);
+    }
+    bv[li] = sum;
+    workgroupBarrier();
+    for (var st = 128u; st > 0u; st >>= 1u) {
+        if li < st {
+            bv[li] += bv[li + st];
+        }
+        workgroupBarrier();
+    }
+    if li == 0u {
+        out[1] = bitcast<u32>(select(1.0 / bv[0], 0.0, bv[0] < 1.0));
     }
 }

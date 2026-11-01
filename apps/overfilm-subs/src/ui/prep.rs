@@ -108,6 +108,20 @@ fn settings(app: &mut App, ui: &mut egui::Ui) {
             });
         });
     }
+    let after = &mut app.prefs.after_done;
+    let notify = &mut app.prefs.notify_done;
+    setting(ui, "끝나면", if *notify { "알림을 띄웁니다" } else { "알림 없이" }, false, |ui| {
+        craft_ui::ComboBox::from_id_salt("after_done").selected_text(after.label()).width(140.0).show_ui(ui, |ui| {
+            for a in [overfilm_subs::notify::After::Nothing, overfilm_subs::notify::After::Sleep] {
+                ui.selectable_value(after, a, a.label());
+            }
+        });
+        ui.checkbox(notify, "알림");
+    });
+    if *after == overfilm_subs::notify::After::Sleep {
+        caption(ui, "다 만들면 1분 동안 취소할 수 있게 기다린 뒤 컴퓨터를 절전 모드로 바꿉니다. 결과 파일은 그 전에 저장됩니다.");
+    }
+    let o = &mut app.prefs.options;
     setting(ui, "게임 음성", "영웅 대사, 아나운서", false, |ui| {
         craft_ui::ComboBox::from_id_salt("game_voice").selected_text(o.game_voice.label()).width(160.0).show_ui(ui, |ui| {
             for g in [GameVoice::Drop, GameVoice::Label, GameVoice::Keep] {

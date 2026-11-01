@@ -448,7 +448,7 @@ mod tests {
     use overfilm_asr::{ChunkText, Speaker, Word};
 
     fn w(text: &str, start: i64, end: i64, sp: usize) -> Word {
-        Word { text: text.into(), start_ms: start, end_ms: end, speaker: Some(sp), game: false, also: None }
+        Word { text: text.into(), start_ms: start, end_ms: end, speaker: Some(sp), game: false, also: None, conf: None }
     }
 
     fn transcript(words: Vec<Word>, labels: &[&str]) -> Transcript {

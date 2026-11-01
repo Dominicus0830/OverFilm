@@ -103,12 +103,29 @@ impl Net {
 
     /// Run `x` (t, hidden); the argmax class of the last row or of every row.
     fn forward(&mut self, x: &Tensor, cached: bool, last_only: bool) -> Result<Vec<u32>, AsrError> {
+        Ok(self.forward_p(x, cached, last_only)?.0)
+    }
+
+    /// [`Net::forward`], and the softmax probability of the last row's class (how sure the model
+    /// is of the next token; 1.0 when not computed).
+    fn forward_p(&mut self, x: &Tensor, cached: bool, last_only: bool) -> Result<(Vec<u32>, f32), AsrError> {
         match self {
             Net::Cpu(th) => {
-                let logits = th.text.forward(&x.unsqueeze(0)?, cached, last_only)?.squeeze(0)?;
-                Ok(logits.to_dtype(DType::F32)?.argmax(D::Minus1)?.to_vec1::<u32>()?)
+                let logits = th.text.forward(&x.unsqueeze(0)?, cached, last_only)?.squeeze(0)?.to_dtype(DType::F32)?;
+                let ids = logits.argmax(D::Minus1)?.to_vec1::<u32>()?;
+                let p = if last_only {
+                    let rows = logits.dim(0)?;
+                    let last = logits.get(rows.saturating_sub(1))?.to_vec1::<f32>()?;
+                    top_probability(&last)
+                } else {
+                    1.0
+                };
+                Ok((ids, p))
             }
-            Net::Gpu(g) => g.text.forward(&x.flatten_all()?.to_vec1::<f32>()?, cached, last_only),
+            Net::Gpu(g) => {
+                let ids = g.text.forward(&x.flatten_all()?.to_vec1::<f32>()?, cached, last_only)?;
+                Ok((ids, if last_only { g.text.last_p } else { 1.0 }))
+            }
         }
     }
 
@@ -267,6 +284,83 @@ fn special(tok: &Tokenizer, s: &str) -> Result<u32, AsrError> {
     tok.special(s).ok_or_else(|| AsrError::Model(format!("tokenizer has no {s}")))
 }
 
+/// Softmax probability of the largest score (what the GPU's argmax kernel computes too).
+fn top_probability(scores: &[f32]) -> f32 {
+    let best = scores.iter().copied().filter(|v| v.is_finite()).fold(f32::MIN, f32::max);
+    let sum: f32 = scores.iter().filter(|v| v.is_finite()).map(|v| (v - best).exp()).sum();
+    if sum >= 1.0 { 1.0 / sum } else { 0.0 }
+}
+
+/// Recognised text with how sure the model was of each word.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Scored {
+    pub text: String,
+    /// The model's raw output split at spaces, each with its lowest token probability.
+    pub words: Vec<(String, f32)>,
+}
+
+/// Words of scored characters: split at whitespace, each word scored by its least sure character.
+fn scored_words(chars: &[(char, f32)]) -> Vec<(String, f32)> {
+    let mut out: Vec<(String, f32)> = Vec::new();
+    let mut cur: Option<(String, f32)> = None;
+    for &(c, p) in chars {
+        if c.is_whitespace() {
+            out.extend(cur.take());
+            continue;
+        }
+        let e = cur.get_or_insert_with(|| (String::new(), 1.0));
+        e.0.push(c);
+        e.1 = e.1.min(p);
+    }
+    out.extend(cur);
+    out
+}
+
+/// The core of a word for matching: letters and digits only.
+fn word_key(w: &str) -> String {
+    w.chars().filter(|c| c.is_alphanumeric()).collect()
+}
+
+/// Give `words` (the corrected, timed words) the scores of the recogniser's own words they match
+/// in order (longest common subsequence on letters). Words the correction step changed keep no
+/// score.
+pub(crate) fn attach_conf(words: &mut [crate::Word], raw: &[(String, f32)]) {
+    let a: Vec<String> = words.iter().map(|w| word_key(&w.text)).collect();
+    let b: Vec<String> = raw.iter().map(|(w, _)| word_key(w)).collect();
+    let (n, m) = (a.len(), b.len());
+    if n == 0 || m == 0 || n.saturating_mul(m) > 4_000_000 {
+        return;
+    }
+    let at = |i: usize, j: usize| i * (m + 1) + j;
+    let mut l = vec![0u32; (n + 1) * (m + 1)];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            let v = if a.get(i).is_some_and(|x| !x.is_empty()) && a.get(i) == b.get(j) {
+                l.get(at(i + 1, j + 1)).copied().unwrap_or(0) + 1
+            } else {
+                l.get(at(i + 1, j)).copied().unwrap_or(0).max(l.get(at(i, j + 1)).copied().unwrap_or(0))
+            };
+            if let Some(x) = l.get_mut(at(i, j)) {
+                *x = v;
+            }
+        }
+    }
+    let (mut i, mut j) = (0, 0);
+    while i < n && j < m {
+        if a.get(i).is_some_and(|x| !x.is_empty()) && a.get(i) == b.get(j) {
+            if let (Some(w), Some((_, p))) = (words.get_mut(i), raw.get(j)) {
+                w.conf = Some(*p);
+            }
+            i += 1;
+            j += 1;
+        } else if l.get(at(i + 1, j)) >= l.get(at(i, j + 1)) {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+}
+
 /// Qwen3-ASR.
 pub struct Asr {
     m: Loaded,
@@ -297,6 +391,11 @@ impl Asr {
     /// Transcribe ≤ 30 s of 16 kHz mono audio. `context`: text the model may lean on (term
     /// lists); `language`: forced language name ("Korean"), None to detect.
     pub fn transcribe(&mut self, audio: &[f32], context: &str, language: Option<&str>, cancel: &mut dyn FnMut() -> bool) -> Result<String, AsrError> {
+        Ok(self.transcribe_scored(audio, context, language, cancel)?.text)
+    }
+
+    /// [`Asr::transcribe`] with how sure the model was of each word.
+    pub fn transcribe_scored(&mut self, audio: &[f32], context: &str, language: Option<&str>, cancel: &mut dyn FnMut() -> bool) -> Result<Scored, AsrError> {
         let net = &mut self.m.net;
         let t0 = std::time::Instant::now();
         let feats = net.encode(audio)?;
@@ -324,26 +423,33 @@ impl Asr {
             self.prefix = Some((context.to_string(), net.save()));
         }
         let x = net.inputs(&[], &feats, &after)?;
-        let mut next = net.forward(&x, true, true)?.first().copied().unwrap_or(self.eos[0]);
+        let (first, mut p) = net.forward_p(&x, true, true)?;
+        let mut next = first.first().copied().unwrap_or(self.eos[0]);
         if trace {
             eprintln!("prefill {} tokens {:?}", x.dim(0)?, t1.elapsed());
         }
         let t2 = std::time::Instant::now();
         let mut out = Vec::new();
+        let mut probs = Vec::new();
         for _ in 0..MAX_NEW_TOKENS {
             if self.eos.contains(&next) || cancel() {
                 break;
             }
             out.push(next);
+            probs.push(p);
             let e = net.embed(&[next])?;
-            next = net.forward(&e, true, true)?.first().copied().unwrap_or(self.eos[0]);
+            let (ids, np) = net.forward_p(&e, true, true)?;
+            next = ids.first().copied().unwrap_or(self.eos[0]);
+            p = np;
         }
         net.clear();
         if trace {
             eprintln!("decode {} tokens {:?}", out.len(), t2.elapsed());
         }
         let raw = tok.decode(&out, false);
-        Ok(if language.is_some() { text::fix_repetitions(raw.trim()).trim().to_string() } else { text::parse_output(&raw) })
+        let words = scored_words(&tok.decode_scored(&out, &probs));
+        let text = if language.is_some() { text::fix_repetitions(raw.trim()).trim().to_string() } else { text::parse_output(&raw) };
+        Ok(Scored { text, words })
     }
 }
 
@@ -455,11 +561,12 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
     }
     let mut asr = load_any(&mut gpu, progress, |g| Asr::load_on(s.asr_dir, s.quantize, g))?;
     let mut chunks = Vec::with_capacity(spans.len());
+    let mut scores: Vec<Vec<(String, f32)>> = Vec::with_capacity(spans.len());
     let n = spans.len().max(1) as f32;
     let mut cancelled = false;
     for (i, &(a, b)) in spans.iter().enumerate() {
         let piece = audio.get(a..b).unwrap_or(&[]);
-        let r = asr.transcribe(piece, s.context, s.language, &mut || cancelled);
+        let r = asr.transcribe_scored(piece, s.context, s.language, &mut || cancelled);
         let raw = match r {
             Err(e) if asr.on_gpu() && !matches!(e, AsrError::Cancelled) => {
                 gpu = None;
@@ -468,11 +575,12 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
                 }
                 drop(asr);
                 asr = Asr::load_on(s.asr_dir, s.quantize, None)?;
-                asr.transcribe(piece, s.context, s.language, &mut || cancelled)?
+                asr.transcribe_scored(piece, s.context, s.language, &mut || cancelled)?
             }
             r => r?,
         };
-        let text = (s.correct)(&raw);
+        let text = (s.correct)(&raw.text);
+        scores.push(raw.words);
         let preview: String = text.chars().take(40).collect();
         chunks.push(ChunkText { start_ms: ms_of_sample(a), end_ms: ms_of_sample(b), text, words: Vec::new() });
         cancelled = !progress(0.8 * (i + 1) as f32 / n, &format!("인식 {}/{}: {preview}", i + 1, spans.len()));
@@ -502,6 +610,9 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
             r => r?,
         };
         c.words = timed_words(&c.text, &times, c.start_ms);
+        if let Some(sc) = scores.get(i) {
+            attach_conf(&mut c.words, sc);
+        }
         if !progress(0.8 + 0.2 * (i + 1) as f32 / n, &format!("시간 맞추는 중 {}/{}", i + 1, spans.len())) {
             return Err(AsrError::Cancelled);
         }
@@ -552,4 +663,24 @@ pub fn gpu_model_check(dir: &Path, quantize: bool, ctx: &Arc<Ctx>) -> Result<Vec
         Report { name: "model prefill best token".into(), err: if argmax(&got.1) == argmax(&want.1) { 0.0 } else { 1.0 }, tol: 0.0 },
         Report { name: "model step scores".into(), err: max_rel(&got.2, &want.2), tol: 5e-2 },
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probabilities_and_word_scores() {
+        assert!((top_probability(&[0.0, 0.0]) - 0.5).abs() < 1e-6);
+        assert!(top_probability(&[10.0, 0.0, 0.0]) > 0.99);
+        assert_eq!(top_probability(&[]), 0.0);
+        assert!(top_probability(&[f32::NAN, 1.0]) > 0.99, "non-finite scores are ignored");
+        let chars: Vec<(char, f32)> = "겐지 왔다".chars().zip([0.9, 0.4, 1.0, 0.8, 0.7]).collect();
+        assert_eq!(scored_words(&chars), vec![("겐지".to_string(), 0.4), ("왔다".to_string(), 0.7)]);
+        // the corrected text changed one word: it keeps no score, the others match in order
+        let mut words: Vec<crate::Word> = ["정커퀸이", "왔다,", "진짜"].iter().map(|t| crate::Word { text: (*t).into(), ..Default::default() }).collect();
+        attach_conf(&mut words, &[("전국퀸이".into(), 0.3), ("왔다".into(), 0.95), ("진짜".into(), 0.6)]);
+        assert_eq!(words.iter().map(|w| w.conf).collect::<Vec<_>>(), vec![None, Some(0.95), Some(0.6)]);
+        attach_conf(&mut [], &[]);
+    }
 }

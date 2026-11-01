@@ -604,6 +604,8 @@ pub struct Text {
     _keep: Vec<wgpu::Buffer>,
     /// tokens in the key/value cache
     pub pos: usize,
+    /// Softmax probability of the class returned by the last `last_only` forward.
+    pub last_p: f32,
 }
 
 impl Text {
@@ -692,7 +694,7 @@ impl Text {
         let all = ((MAX_ROWS * d.head_rows * 4) as u64 <= c.max_bind).then(|| head(MAX_ROWS, false));
         keep.push(normw);
         let read = c.staging(MAX_ROWS as u64 * 4);
-        Ok(Self { ctx: ctx.clone(), d, step, h, layers, last, all, read, _keep: keep, pos: 0 })
+        Ok(Self { ctx: ctx.clone(), d, step, h, layers, last, all, read, _keep: keep, pos: 0, last_p: 1.0 })
     }
 
     /// Run `x` (`t × hidden`, row-major) after the cached tokens (`cached`) or from position 0;
@@ -746,6 +748,13 @@ impl Text {
                 }
             }
             match head {
+                Some((hd, n)) if last_only => {
+                    // the class and, after it, its probability (see argmax.wgsl)
+                    let b = c.finish_read(enc, &hd.ids, &self.read, 8)?;
+                    ids.extend(b.get(..4).map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]])));
+                    self.last_p = b.get(4..8).map_or(1.0, |w| f32::from_le_bytes([w[0], w[1], w[2], w[3]]));
+                    let _ = n;
+                }
                 Some((hd, n)) => {
                     let b = c.finish_read(enc, &hd.ids, &self.read, n as u64 * 4)?;
                     ids.extend(b.chunks_exact(4).map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]])));

@@ -423,6 +423,20 @@ fn argmax(c: &Ctx, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), AsrError>
     run(c, |p| dispatch(p, &c.k.argmax, &bg, rows as u32, 1))?;
     let got: Vec<u32> = read(c, &ids, rows)?.chunks_exact(4).map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]])).collect();
     out.push(Report { name: "argmax".into(), err: if got == want { 0.0 } else { 1.0 }, tol: 0.0 });
+    // one row: the best class and its softmax probability
+    let row = x.get(..n).unwrap_or_default();
+    let best = row.iter().copied().fold(f32::MIN, f32::max);
+    let want_p = 1.0 / row.iter().map(|v| (v - best).exp()).sum::<f32>();
+    let step1 = c.uniform(&[1, 0, 0, 0]);
+    let u1 = c.uniform(&[n as u32, 1, 0, 0]);
+    let ids1 = c.storage(16);
+    let bg1 = c.bind(&c.k.argmax, &[&u1, &step1, &xb, &ids1]);
+    run(c, |p| dispatch(p, &c.k.argmax, &bg1, 1, 1))?;
+    let b = read(c, &ids1, 2)?;
+    let got_i = b.get(..4).map_or(u32::MAX, |w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]));
+    let got_p = b.get(4..8).map_or(f32::NAN, |w| f32::from_le_bytes([w[0], w[1], w[2], w[3]]));
+    let err = if got_i == want.first().copied().unwrap_or(0) { (got_p - want_p).abs() / want_p.max(1e-12) } else { 1.0 };
+    out.push(Report { name: "argmax probability".into(), err, tol: 1e-3 });
     Ok(())
 }
 

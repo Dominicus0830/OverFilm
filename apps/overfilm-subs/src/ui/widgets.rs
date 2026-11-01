@@ -243,6 +243,7 @@ pub enum Icon {
     Add,
     Clock,
     Mic,
+    Book,
     Gear,
 }
 
@@ -271,6 +272,28 @@ pub fn icon(ui: &Ui, rect: Rect, which: Icon, color: Color32) {
                 .collect();
             painter.add(egui::Shape::line(arc, s));
             painter.line_segment([pos2(c.x, c.y + 5.5), pos2(c.x, c.y + 7.5)], s);
+        }
+        Icon::Book => {
+            // an open book: two pages meeting at the spine
+            let l = [
+                pos2(c.x, c.y - 4.5),
+                pos2(c.x - 3.5, c.y - 6.0),
+                pos2(c.x - 7.0, c.y - 5.0),
+                pos2(c.x - 7.0, c.y + 5.0),
+                pos2(c.x - 3.5, c.y + 4.0),
+                pos2(c.x, c.y + 5.5),
+            ];
+            let r = [
+                pos2(c.x, c.y - 4.5),
+                pos2(c.x + 3.5, c.y - 6.0),
+                pos2(c.x + 7.0, c.y - 5.0),
+                pos2(c.x + 7.0, c.y + 5.0),
+                pos2(c.x + 3.5, c.y + 4.0),
+                pos2(c.x, c.y + 5.5),
+            ];
+            painter.add(egui::Shape::line(l.to_vec(), s));
+            painter.add(egui::Shape::line(r.to_vec(), s));
+            painter.line_segment([pos2(c.x, c.y - 4.5), pos2(c.x, c.y + 5.5)], s);
         }
         Icon::Gear => {
             painter.circle_stroke(c, 2.5, s);

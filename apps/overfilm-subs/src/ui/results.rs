@@ -14,6 +14,7 @@ const ROW_H: f32 = 30.0;
 fn kind_label(kind: &str) -> &'static str {
     match kind {
         "glossary" => "단어집·맞춤법",
+        "unsure" => "자신 없는 단어",
         "fast" => "읽기 빠름",
         "short" => "너무 짧음",
         "speech_overlap" => "겹친 말",
@@ -26,7 +27,7 @@ fn kind_label(kind: &str) -> &'static str {
     }
 }
 
-const KIND_ORDER: [&str; 9] = ["glossary", "fast", "short", "speech_overlap", "overlap", "width", "lines", "repeat", "empty"];
+const KIND_ORDER: [&str; 10] = ["glossary", "unsure", "fast", "short", "speech_overlap", "overlap", "width", "lines", "repeat", "empty"];
 
 enum Action {
     Undo,
@@ -49,6 +50,7 @@ enum Action {
     FindNext,
     ReplaceAll,
     RestoreVersion(u32),
+    Learn(bool),
 }
 
 pub fn page(app: &mut App, ui: &mut egui::Ui, _ctx: &egui::Context) {
@@ -81,6 +83,26 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, _ctx: &egui::Context) {
             }
             if close {
                 r.summary = None;
+            }
+            if let Some(l) = r.learned.first() {
+                let mut act = None;
+                widgets::info_bar(
+                    ui,
+                    Severity::Info,
+                    &format!("'{}'을(를) '{}'(으)로 {}번 고쳤습니다.", l.from, l.to, l.count),
+                    "단어집에 넣으면 다음 자막부터 자동으로 고칩니다.",
+                    |ui| {
+                        if subtle_button(ui, "묻지 않기").clicked() {
+                            act = Some(false);
+                        }
+                        if accent_button(ui, "단어집에 넣기").clicked() {
+                            act = Some(true);
+                        }
+                    },
+                );
+                if let Some(a) = act {
+                    actions.push(Action::Learn(a));
+                }
             }
             match &app.status {
                 Some(Err(e)) => widgets::info_bar(ui, Severity::Error, "문제가 생겼습니다.", e, |_| {}),
@@ -271,6 +293,7 @@ fn issues_pane(r: &Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         }
         let desc = match kind {
             "glossary" => "이름 표기, 띄어쓰기",
+            "unsure" => "잘못 들었을 수 있는 곳",
             "fast" => "초당 글자가 많음",
             "short" => "너무 빨리 사라짐",
             "speech_overlap" => "두 사람이 동시에 말함",
@@ -623,10 +646,26 @@ fn run(app: &mut App, a: Action) {
             Some(k) => {
                 r.remember();
                 let d = r.draft.clone();
-                r.opened.set_text(k, &d).map(|()| None)
+                let before = r.opened.captions.get(k).map(|c| c.text()).unwrap_or_default();
+                let res = r.opened.set_text(k, &d);
+                if res.is_ok() {
+                    r.learned.extend(overfilm_subs::learn::record(&before, &d));
+                }
+                res.map(|()| None)
             }
             None => Ok(None),
         },
+        Action::Learn(add) => {
+            if r.learned.is_empty() {
+                return;
+            }
+            let l = r.learned.remove(0);
+            if add {
+                overfilm_subs::learn::accept(&l).map(|()| Some(format!("'{}' → '{}'를 단어집에 넣었습니다.", l.from, l.to)))
+            } else {
+                overfilm_subs::learn::resolve(&l.from, &l.to, false).map(|()| None)
+            }
+        }
         Action::Rename(k, name) => {
             r.renaming = None;
             r.remember();

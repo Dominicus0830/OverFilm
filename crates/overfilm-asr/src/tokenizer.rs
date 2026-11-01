@@ -165,6 +165,42 @@ impl Tokenizer {
     }
 
     /// Decode ids to text, dropping added tokens when `skip_added`.
+    /// [`Tokenizer::decode`] (added tokens kept) with a score per character: the lowest score
+    /// of the tokens its bytes came from (a Hangul syllable often spans two byte tokens).
+    pub fn decode_scored(&self, ids: &[u32], scores: &[f32]) -> Vec<(char, f32)> {
+        let mut bytes: Vec<(u8, f32)> = Vec::new();
+        for (k, id) in ids.iter().enumerate() {
+            let p = scores.get(k).copied().unwrap_or(1.0);
+            if let Some(s) = self.added_rev.get(id) {
+                bytes.extend(s.bytes().map(|b| (b, p)));
+            } else if let Some(tok) = self.rev.get(id) {
+                bytes.extend(tok.chars().filter_map(|c| self.byte_dec.get(&c).map(|b| (*b, p))));
+            }
+        }
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while let Some(&(b0, _)) = bytes.get(i) {
+            let len = match b0 {
+                0xC0..=0xDF => 2,
+                0xE0..=0xEF => 3,
+                0xF0..=0xF7 => 4,
+                _ => 1,
+            };
+            if let Some(chunk) = bytes.get(i..i + len) {
+                let raw: Vec<u8> = chunk.iter().map(|x| x.0).collect();
+                if let Some(c) = std::str::from_utf8(&raw).ok().and_then(|s| s.chars().next()) {
+                    out.push((c, chunk.iter().map(|x| x.1).fold(1.0_f32, f32::min)));
+                    i += len;
+                    continue;
+                }
+            }
+            // not valid UTF-8 here (a cut-off character): skip the byte, as decode's lossy
+            // replacement would hide it anyway
+            i += 1;
+        }
+        out
+    }
+
     pub fn decode(&self, ids: &[u32], skip_added: bool) -> String {
         let mut bytes = Vec::new();
         for id in ids {
@@ -201,6 +237,12 @@ mod tests {
         assert_eq!(t.decode(&[2, 10, 4], false), "ab<|im_end|> a");
         assert_eq!(t.decode(&[2, 10, 4], true), "ab a");
         assert_eq!(t.special("<x>"), Some(11));
+        let scored = t.decode_scored(&[2, 10, 4], &[0.9, 0.5]);
+        let text: String = scored.iter().map(|x| x.0).collect();
+        assert_eq!(text, "ab<|im_end|> a");
+        assert_eq!(scored[0].1, 0.9);
+        assert_eq!(scored[2].1, 0.5);
+        assert_eq!(scored.last().map(|x| x.1), Some(1.0), "a missing score counts as sure");
     }
 
     #[test]
