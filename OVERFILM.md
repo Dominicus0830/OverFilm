@@ -17,6 +17,7 @@ calling the caption layout) and listed in the table at the end.
 | `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels, overlapped speech with pyannote segmentation-3.0); next: `filmcraft_speech::Transcriber` |
 | `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out; caption styles and motion for the editor (`styles`) |
 | `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures) and the auto-cut plan; see "Auto cut" below |
+| `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the shared models folder |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L4 | M6, M7, M9 | MCP editing assistants, screen recognition, style learning |
 | `overfilm-subs` (`apps/`) | L6 | — | standalone subtitle extractor: window (`OverFilmSubs`), command line and MCP review server (`overfilm-subs`); see its README |
@@ -224,9 +225,35 @@ objective text is about 8 pixels tall at 720p). By default
 `overfilm.autoCut.apply` then removes the ranges of the markers left (moved or deleted ones
 included) in one undo step. `mode: "cut"` does both at once.
 
+## Korean captions in the editor
+
+`Sequence ▸ OverFilm ▸ OverFilm Captions (Korean)` (`overfilm.captions.generate`) makes the
+captions inside the editor with the same pipeline as OverFilmSubs (`overfilm-pipeline`): Qwen3-ASR
+with the Overwatch glossary as context, word times, glossary correction (profanity as initials,
+spelling, digits), speaker labels (enrolled voices named) and in-game voice told apart. It runs in a
+background job on the media of the sequence's audio clips (or `items`); the models are downloaded
+on first use into the folder OverFilmSubs uses (`%LOCALAPPDATA%\OverFilm\models`), and the user
+glossary (`…\OverFilm\glossary`) applies too. Options: `mode` (general / commentary: team and
+player names as context), `speakers`, `numSpeakers`, `extraTerms`, `gpu`, `gameVoice` (drop /
+label / keep), `lineChars`, `maxLines`, `cleanFillers`. The editor app builds with it by default
+(`apps/filmcraft` feature `overfilm-qwen`).
+
+- Each clip's transcript is stored like any other (Text panel ▸ Transcript): media-time words,
+  speakers 화자1, 화자2…, in-game voice as the speaker "게임 음성". Text-based editing, search and
+  `transcript.*` commands work on it.
+- The captions go on the caption track "OverFilm 자막" (`overfilm.captions.fromTranscript`, which
+  also works alone on any transcript, Whisper or imported): at most two lines with the Korean
+  breaks, one turn per speaker, `(화자1)` labels when two or more people talk, game voice left out
+  by default. Making them again replaces that track. Because the words are taken through the clips
+  as they are now, running it after an Auto Cut or any edit gives captions that fit the cut.
+- Then `Styled Captions` and `Export for Premiere Pro` below take that track.
+- Overlapped speech (`화자1·화자2` turns) is not carried into the project transcript, which has one
+  speaker per word; OverFilmSubs still writes those.
+
 ## Styled captions and Premiere Pro
 
-Captions from OverFilmSubs come in as an SRT (`File ▸ Import`) on a caption track. Then:
+Captions made in the editor (above), or an SRT from OverFilmSubs (`File ▸ Import`), sit on a caption
+track. Then:
 
 - `Sequence ▸ OverFilm ▸ Styled Captions` (`overfilm.captions.stylize {preset, motionIn,
   motionOut, track}`) makes one graphic clip per caption on a video track "OverFilm 자막 ·
@@ -286,8 +313,11 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `xtask/src/main.rs` | `overfilm-*` crates in `LAYERS`; layering also checks `overfilm-*` dependencies |
 | `.github/workflows/overfilm.yml` | new file (OverFilm CI) |
 | `OVERFILM.md` | new file (this document) |
-| `crates/engine/Cargo.toml` | depends on `overfilm-vision` and `overfilm-captions` |
-| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `Session::overfilm_jobs`, its `poll` in `poll_persistence` |
-| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()` and `overfilm_captions::commands()` |
+| `crates/engine/Cargo.toml` | depends on `overfilm-vision`, `overfilm-captions`, `overfilm-pipeline`, `overfilm-asr`; feature `overfilm-qwen` |
+| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `Session::overfilm_jobs` and `overfilm_caption_jobs`, their `poll` in `poll_persistence` |
+| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()` and `overfilm_transcribe::commands()` |
+| `crates/engine/src/transcript.rs` | `targets` is `pub(crate)` (which clips to recognise) |
+| `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |
+| `apps/filmcraft/Cargo.toml` | feature `overfilm-qwen`, on by default |
 | `crates/engine/src/overfilm_autocut.rs` (+ `tests.rs`) | new file: Auto Cut commands (frames in, cuts out) |
 | `crates/engine/src/overfilm_captions.rs` | new file: styled captions and the Premiere Pro export |

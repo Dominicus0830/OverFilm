@@ -86,7 +86,7 @@ fn ids_p(p: &Value, k: &str) -> Option<Vec<ItemId>> {
 
 /// Items to transcribe: `items` / `item`, else the Project panel selection, else the media of the
 /// active sequence's enabled audio clips. Subclips resolve to their media; duplicates are removed.
-fn targets(s: &Session, p: &Value) -> Vec<ItemId> {
+pub(crate) fn targets(s: &Session, p: &Value) -> Vec<ItemId> {
     let mut raw = ids_p(p, "items").or_else(|| u64_p(p, "item").map(|i| vec![ItemId(i)])).unwrap_or_default();
     if raw.is_empty() {
         raw = s.state.project_selection.clone();

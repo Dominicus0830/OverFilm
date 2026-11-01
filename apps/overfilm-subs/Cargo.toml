@@ -24,6 +24,7 @@ path = "src/cli.rs"
 overfilm-asr = { workspace = true, features = ["qwen", "download"] }
 overfilm-captions = { workspace = true }
 overfilm-glossary = { workspace = true }
+overfilm-pipeline = { workspace = true, features = ["qwen"] }
 filmcraft-media = { workspace = true }
 filmcraft-codecs = { workspace = true }
 filmcraft-text = { workspace = true }

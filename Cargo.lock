@@ -2123,7 +2123,9 @@ dependencies = [
  "filmcraft-tts",
  "image",
  "log",
+ "overfilm-asr",
  "overfilm-captions",
+ "overfilm-pipeline",
  "overfilm-vision",
  "serde",
  "serde_json",
@@ -4808,6 +4810,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "overfilm-pipeline"
+version = "0.14.0"
+dependencies = [
+ "overfilm-asr",
+ "overfilm-captions",
+ "overfilm-glossary",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "overfilm-subs"
 version = "0.14.0"
 dependencies = [
@@ -4821,6 +4835,7 @@ dependencies = [
  "overfilm-asr",
  "overfilm-captions",
  "overfilm-glossary",
+ "overfilm-pipeline",
  "rfd",
  "serde",
  "serde_json",
