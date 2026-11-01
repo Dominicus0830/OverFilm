@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use eframe::egui;
 use overfilm_subs::edit::{self, Opened, Preset, Recent};
-use overfilm_subs::{job, mcp, pack, review, voices};
+use overfilm_subs::{export, job, mcp, notify, pack, review, voices};
 use serde::{Deserialize, Serialize};
 
 /// What the navigation rail shows.
@@ -24,6 +24,7 @@ enum Page {
     New,
     Recent,
     Voices,
+    Glossary,
     Settings,
 }
 
@@ -58,13 +59,34 @@ struct Prefs {
     /// Seconds of work per minute of sound on the last run (for the time estimate).
     #[serde(default)]
     secs_per_audio_min: f32,
+    /// Last export settings (format, frame rate, gap).
+    #[serde(default)]
+    export: export::Export,
+    /// Desktop notification when captions are done.
+    #[serde(default = "yes")]
+    notify_done: bool,
+    /// Sleep afterwards, or nothing.
+    #[serde(default)]
+    after_done: notify::After,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for Prefs {
     fn default() -> Self {
         let mut options = job::Options::new(PathBuf::new());
         Preset::General.apply(&mut options);
-        Self { preset: Preset::General, options, last_device: String::new(), secs_per_audio_min: 0.0 }
+        Self {
+            preset: Preset::General,
+            options,
+            last_device: String::new(),
+            secs_per_audio_min: 0.0,
+            export: export::Export::default(),
+            notify_done: true,
+            after_done: notify::After::Nothing,
+        }
     }
 }
 
@@ -103,6 +125,80 @@ struct Review {
     jump: bool,
     undo: Vec<(Vec<overfilm_captions::Caption>, Option<overfilm_asr::Transcript>)>,
     summary: Option<String>,
+    /// The export dialog is open.
+    exporting: bool,
+    /// Find and replace bar.
+    find: FindBar,
+    /// Saved versions, while the history dialog is open.
+    history: Option<Vec<overfilm_subs::history::Version>>,
+    /// Fixes made often enough to offer for the glossary.
+    learned: Vec<overfilm_subs::learn::Pair>,
+    /// Other end of a shift-click selection (with `selected`).
+    sel_end: Option<usize>,
+    /// Extra names for recognising a part again.
+    redo_terms: String,
+    /// A part being recognised again in the background.
+    redo: Option<RedoJob>,
+}
+
+/// Recognising a part again: the span, progress, and the words when done.
+struct RedoJob {
+    from_ms: i64,
+    to_ms: i64,
+    state: Arc<Mutex<(f32, String, Option<Result<Vec<overfilm_asr::Word>, String>>)>>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Review {
+    /// The selected captions as a range of indices (one caption, or a shift-click span).
+    fn selection(&self) -> Option<std::ops::RangeInclusive<usize>> {
+        let a = self.selected?;
+        let b = self.sel_end.unwrap_or(a);
+        Some(a.min(b)..=a.max(b))
+    }
+
+    /// Start recognising the selected captions' time again, on `input`.
+    fn start_redo(&mut self, input: PathBuf, ctx: &egui::Context) {
+        let Some(sel) = self.selection() else { return };
+        let (Some(first), Some(last)) = (self.opened.captions.get(*sel.start()), self.opened.captions.get(*sel.end())) else { return };
+        let (from_ms, to_ms) = (first.start_ms, last.end_ms);
+        let mut o = self.options.clone();
+        o.input = input;
+        let extra = self.redo_terms.trim();
+        if !extra.is_empty() {
+            o.extra_terms = if o.extra_terms.trim().is_empty() { extra.to_string() } else { format!("{}, {extra}", o.extra_terms) };
+        }
+        let d = mcp::user_glossary_dir();
+        o.glossary_dir = d.is_dir().then_some(d);
+        let state: Arc<Mutex<(f32, String, Option<Result<Vec<overfilm_asr::Word>, String>>)>> = Arc::new(Mutex::new((0.0, "시작".into(), None)));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (st, cn, ctx) = (state.clone(), cancel.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let r = job::guarded(|| {
+                job::recognise_span(&o, from_ms, to_ms, &mut |f, m| {
+                    let mut s = st.lock().unwrap_or_else(PoisonError::into_inner);
+                    s.0 = f;
+                    s.1 = m.to_string();
+                    ctx.request_repaint();
+                    !cn.load(Ordering::Relaxed)
+                })
+            });
+            st.lock().unwrap_or_else(PoisonError::into_inner).2 = Some(r);
+            ctx.request_repaint();
+        });
+        self.redo = Some(RedoJob { from_ms, to_ms, state, cancel });
+    }
+}
+
+/// The find and replace bar over the caption table.
+#[derive(Default)]
+struct FindBar {
+    open: bool,
+    find: String,
+    with: String,
+    whole_word: bool,
+    /// Also add the replacement to the user glossary.
+    learn: bool,
 }
 
 struct App {
@@ -129,6 +225,25 @@ struct App {
     models_dl: Arc<Mutex<Option<(f32, String, Option<Result<(), String>>)>>>,
     /// Message for the bottom of the current page (success or error).
     status: Option<Result<String, String>>,
+    /// The 단어집 page.
+    gloss: GlossPage,
+    /// When the computer goes to sleep (after a finished run, if asked).
+    sleep_at: Option<Instant>,
+}
+
+/// State of the 단어집 page: the user table as last read, the add form and the search.
+#[derive(Default)]
+struct GlossPage {
+    entries: Option<Vec<overfilm_glossary::Entry>>,
+    ko: String,
+    misheard: String,
+    note: String,
+    search: String,
+    /// Entry being edited: (id, ko, misheard, note).
+    editing: Option<(String, String, String, String)>,
+    builtin: Option<overfilm_glossary::Glossary>,
+    /// Learned fixes waiting (read with the entries).
+    pending: Vec<overfilm_subs::learn::Pair>,
 }
 
 impl App {
@@ -156,6 +271,8 @@ impl App {
             models_ready: overfilm_asr::catalogue::all().iter().all(|m| m.installed(&dir)),
             models_dl: Arc::default(),
             status: None,
+            gloss: GlossPage::default(),
+            sleep_at: None,
         }
     }
 
@@ -269,6 +386,13 @@ impl App {
             jump: false,
             undo: Vec::new(),
             summary: None,
+            exporting: false,
+            find: FindBar::default(),
+            history: None,
+            learned: Vec::new(),
+            sel_end: None,
+            redo_terms: String::new(),
+            redo: None,
         };
         r.refresh_issues(self.prefs.options.mask_profanity);
         let entry = Recent {
@@ -335,13 +459,34 @@ impl App {
         });
     }
 
+    /// A run ended: tell the user (notification, taskbar flash) and start the sleep countdown
+    /// when asked. A cancelled run does neither: the user is at the desk.
+    fn announce(&mut self, ctx: &egui::Context, ok: bool, text: &str) {
+        let name = self.input.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if self.prefs.notify_done {
+            let title = if ok { "자막을 다 만들었습니다" } else { "자막을 만들지 못했습니다" };
+            let _ = notify::notify(title, &format!("{name}\n{text}"));
+            ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+        }
+        if self.prefs.after_done == notify::After::Sleep {
+            self.sleep_at = Some(Instant::now() + std::time::Duration::from_secs(notify::SLEEP_COUNTDOWN_SECS));
+        }
+    }
+
     /// Collect finished background work.
-    fn poll(&mut self) {
+    fn poll(&mut self, ctx: &egui::Context) {
         let result = self.shared.lock().unwrap_or_else(PoisonError::into_inner).result.take();
         match result {
-            Some(Ok(done)) => self.finished(done),
+            Some(Ok(done)) => {
+                let text = format!("자막 {}개", done.captions);
+                self.finished(done);
+                self.announce(ctx, true, &text);
+            }
             Some(Err(e)) => {
                 self.step = if self.input.is_some() { Step::Prep } else { Step::Empty };
+                if !self.cancel.load(Ordering::Relaxed) {
+                    self.announce(ctx, false, &e);
+                }
                 self.status = Some(Err(e));
             }
             None => {}
@@ -381,6 +526,10 @@ impl Review {
                 });
             }
         }
+        if let Some(t) = &self.opened.transcript {
+            issues.extend(review::unsure(caps, t, review::UNSURE_BELOW));
+        }
+        issues.sort_by_key(|i| i.index);
         self.issues = issues;
     }
 
@@ -399,7 +548,7 @@ impl Review {
 impl eframe::App for App {
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = root.ctx().clone();
-        self.poll();
+        self.poll(&ctx);
         let running = self.shared.lock().unwrap_or_else(PoisonError::into_inner).running;
         if !running && let Some(p) = ctx.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf())) {
             self.choose_file(p);

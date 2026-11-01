@@ -3,6 +3,7 @@
 pub mod theme;
 pub mod widgets;
 
+mod glossary;
 mod prep;
 mod results;
 mod run;
@@ -17,6 +18,36 @@ use widgets::{Icon, nav_item, pal};
 
 pub fn shell(app: &mut App, root: &mut egui::Ui, ctx: &egui::Context) {
     let p = pal(root);
+    if let Some(at) = app.sleep_at {
+        let left = at.saturating_duration_since(std::time::Instant::now()).as_secs();
+        let mut choice = None;
+        egui::Panel::top("sleep").frame(egui::Frame::new().fill(p.base).inner_margin(Margin::symmetric(12, 6))).show(root, |ui| {
+            widgets::info_bar(
+                ui,
+                widgets::Severity::Info,
+                &format!("{left}초 뒤 절전 모드로 들어갑니다."),
+                "자막을 다 만들어서 설정대로 컴퓨터를 재웁니다.",
+                |ui| {
+                    if widgets::subtle_button(ui, "지금 절전").clicked() {
+                        choice = Some(true);
+                    }
+                    if widgets::button(ui, "취소").clicked() {
+                        choice = Some(false);
+                    }
+                },
+            );
+        });
+        if left == 0 || choice == Some(true) {
+            app.sleep_at = None;
+            if let Err(e) = overfilm_subs::notify::sleep() {
+                app.status = Some(Err(e));
+            }
+        } else if choice == Some(false) {
+            app.sleep_at = None;
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
+    }
     // Review needs the width: the rail folds to icons there.
     let compact = app.page == Page::New && app.step == Step::Review;
     egui::Panel::left("nav")
@@ -27,7 +58,12 @@ pub fn shell(app: &mut App, root: &mut egui::Ui, ctx: &egui::Context) {
         .show(root, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
             let mut go = None;
-            for (page, icon, label) in [(Page::New, Icon::Add, "새 자막"), (Page::Recent, Icon::Clock, "최근"), (Page::Voices, Icon::Mic, "목소리")] {
+            for (page, icon, label) in [
+                (Page::New, Icon::Add, "새 자막"),
+                (Page::Recent, Icon::Clock, "최근"),
+                (Page::Voices, Icon::Mic, "목소리"),
+                (Page::Glossary, Icon::Book, "단어집"),
+            ] {
                 if nav_item(ui, icon, label, app.page == page, compact) {
                     go = Some(page);
                 }
@@ -60,6 +96,7 @@ pub fn shell(app: &mut App, root: &mut egui::Ui, ctx: &egui::Context) {
             },
             Page::Recent => start::recent_page(app, ui),
             Page::Voices => voices::page(app, ui, ctx),
+            Page::Glossary => glossary::page(app, ui),
             Page::Settings => settings::page(app, ui),
         });
 }

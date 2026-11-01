@@ -48,6 +48,9 @@ struct JobState {
     result: Option<job::Done>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// Result of a part recognised again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    redo: Option<Value>,
 }
 
 #[derive(Default)]
@@ -74,7 +77,12 @@ fn tools() -> Value {
             "game_voice": {"type": "string", "enum": ["drop", "label", "keep"], "description": "영웅 대사·아나운서 같은 게임 음성: drop 자막에서 빼기(기본), label (게임) 표시, keep 그대로"},
             "per_speaker": {"type": "boolean", "description": "사람마다 SRT를 따로 저장 (이름.화자1.srt …, 기본 false)"},
             "only_voices": {"type": "boolean", "description": "등록한 목소리(add_voice)의 말만 자막으로, 예: 스트리머 말만 (기본 false)"},
-            "use_voices": {"type": "boolean", "description": "등록한 목소리와 같은 사람이면 그 이름을 붙임 (기본 true)"}}}},
+            "use_voices": {"type": "boolean", "description": "등록한 목소리와 같은 사람이면 그 이름을 붙임 (기본 true)"},
+            "clean_fillers": {"type": "boolean", "description": "추임새(어, 음)와 말 더듬기(그 그게)를 자막에서 뺌 (기본 false, 단어 시간 파일에는 남음)"},
+            "from": {"type": "string", "description": "이 시간부터만 인식 (예: 00:01:23,000)"}, "to": {"type": "string", "description": "이 시간까지만 인식"}}}},
+        {"name": "rerecognize_range", "description": "자막의 한 구간만 소리를 다시 인식해 바꿉니다 (다른 곳에서 고친 글자는 그대로). extra_terms로 그 구간에 나오는 이름을 알려 주면 더 정확합니다. 백그라운드로 돌고 job_status로 확인합니다.",
+         "inputSchema": {"type": "object", "required": ["path", "from", "to"], "properties": {"path": path, "from": {"type": "string", "description": "시작 (예: 00:01:23,000)"}, "to": {"type": "string", "description": "끝"},
+            "input": {"type": "string", "description": "원본 영상 (기본: SRT와 같은 이름의 영상)"}, "extra_terms": {"type": "string"}, "gpu": {"type": "boolean"}, "clean_fillers": {"type": "boolean"}}}},
         {"name": "add_voice", "description": "한 사람만 말하는 구간(10~30초 권장)으로 목소리를 등록합니다. 이후 추출에서 그 사람은 화자1 대신 이 이름으로 나오고, only_voices로 그 사람 말만 자막으로 만들 수 있습니다.",
          "inputSchema": {"type": "object", "required": ["name", "file"], "properties": {"name": {"type": "string"}, "file": {"type": "string", "description": "영상 또는 오디오 파일"},
             "start": {"type": "string", "description": "시작 (예: 1:23, 생략하면 처음)"}, "end": {"type": "string", "description": "끝 (예: 1:45, 생략하면 끝, 최대 2분)"}}}},
@@ -91,7 +99,7 @@ fn tools() -> Value {
         {"name": "cancel_job", "description": "진행 중인 자막 추출을 멈춥니다.", "inputSchema": {"type": "object", "properties": {}}},
         {"name": "read_subtitles", "description": "SRT 자막을 번호·시간·글자로 읽습니다.",
          "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": path, "from": index, "count": {"type": "integer", "minimum": 1, "maximum": MAX_ITEMS}}}},
-        {"name": "review_subtitles", "description": "검토할 곳을 찾습니다: 단어집과 다른 표기(오인식·욕설, 고칠 글자 제안 포함), 읽기 속도, 줄 길이·줄 수, 너무 짧음, 겹침, 반복, 빈 자막.",
+        {"name": "review_subtitles", "description": "검토할 곳을 찾습니다: 단어집과 다른 표기(오인식·욕설, 고칠 글자 제안 포함), 인식이 자신 없던 단어(unsure, .overfilm.json이 있을 때), 읽기 속도, 줄 길이·줄 수, 너무 짧음, 겹침, 반복, 빈 자막.",
          "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": path, "kinds": {"type": "array", "items": {"type": "string", "enum": ["glossary", "fast", "width", "lines", "short", "overlap", "repeat", "empty"]}}}}},
         {"name": "find_silences", "description": "자막 사이 말이 없는 구간(무음)을 찾습니다. 편집할 때 자를 후보로 표시만 하고 지우지는 않습니다.",
          "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": path, "min_ms": {"type": "integer", "minimum": 200, "description": "이보다 긴 빈 구간 (기본 2000)"}}}},
@@ -108,6 +116,15 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": path, "indices": {"type": "array", "items": {"type": "integer"}}}}},
         {"name": "relayout_subtitles", "description": "각 자막의 줄바꿈을 다시 합니다 (최대 두 줄, 한 줄 line_chars자).",
          "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": path, "line_chars": {"type": "integer", "minimum": 4, "maximum": 60}}}},
+        {"name": "export_subtitles", "description": "SRT를 다른 형식으로 내보냅니다: srt, vtt(유튜브), ass(화자마다 색), txt(시간·화자 대본). fps를 주면 시간을 프레임에 맞추고 gap_frames만큼 자막 사이를 비웁니다.",
+         "inputSchema": {"type": "object", "required": ["path", "format"], "properties": {"path": path, "format": {"type": "string", "enum": ["srt", "vtt", "ass", "txt"]},
+            "output": {"type": "string", "description": "저장 경로 (기본: 같은 이름에 확장자만 바꿈)"},
+            "fps": {"type": "string", "enum": ["23.976", "24", "25", "29.97", "30", "50", "59.94", "60"]}, "gap_frames": {"type": "integer", "minimum": 0, "maximum": 30}}}},
+        {"name": "list_glossary_terms", "description": "사용자 단어집(내가 더한 표기) 목록.", "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "remove_glossary_term", "description": "사용자 단어집에서 하나를 지웁니다.", "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}}}},
+        {"name": "list_history", "description": "자막 파일이 저장될 때마다 남긴 기록(언제, 무엇을 고쳤는지). 최근 것이 먼저.", "inputSchema": {"type": "object", "required": ["path"], "properties": {"path": path}}},
+        {"name": "restore_version", "description": "기록의 한 시점으로 자막을 되돌립니다 (되돌린 것도 새 기록으로 남아 다시 되돌릴 수 있음).",
+         "inputSchema": {"type": "object", "required": ["path", "id"], "properties": {"path": path, "id": {"type": "integer"}}}},
         {"name": "add_glossary_term", "description": "자주 틀리는 표기를 사용자 단어집에 더합니다 (다음 추출과 apply_glossary부터 적용). 예: ko=정커퀸, misheard=[전국퀸].",
          "inputSchema": {"type": "object", "required": ["ko"], "properties": {"ko": {"type": "string"}, "misheard": {"type": "array", "items": {"type": "string"}}, "note": {"type": "string"}}}}
     ])
@@ -134,13 +151,9 @@ fn cap_json(i: usize, c: &Caption) -> Value {
     json!({"index": i + 1, "start": review::clock(c.start_ms), "end": review::clock(c.end_ms), "text": c.text(), "cps": review::cps(c)})
 }
 
-/// Save with a one-time `.srt.bak` of the original.
+/// Save with a one-time `.srt.bak` of the original and a version in the history.
 fn save(path: &Path, caps: &[Caption]) -> Result<(), String> {
-    let bak = PathBuf::from(format!("{}.bak", path.display()));
-    if !bak.exists() && path.exists() {
-        std::fs::copy(path, &bak).map_err(|e| format!("백업 실패 {}: {e}", bak.display()))?;
-    }
-    job::write_srt(path, caps)
+    crate::edit::save_srt_as(path, caps, "Claude에서 고침")
 }
 
 /// The user glossary folder (`glossary/` beside the models), created on first use.
@@ -207,6 +220,13 @@ impl Server {
         o.per_speaker = a.get("per_speaker").and_then(Value::as_bool).unwrap_or(false);
         o.only_voices = a.get("only_voices").and_then(Value::as_bool).unwrap_or(false);
         o.use_voices = a.get("use_voices").and_then(Value::as_bool).unwrap_or(true);
+        o.clean_fillers = a.get("clean_fillers").and_then(Value::as_bool).unwrap_or(false);
+        let t = |k: &str| s(a, k).map(|v| review::parse_clock(v).ok_or_else(|| format!("{k}: 시간 형식 (예: 00:01:23,000)"))).transpose();
+        if let (from, to) = (t("from")?, t("to")?)
+            && (from.is_some() || to.is_some())
+        {
+            o.range = Some((from.unwrap_or(0), to.unwrap_or(i64::MAX / 4)));
+        }
         let d = user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         if !o.input.is_file() {
@@ -240,11 +260,64 @@ impl Server {
         Ok(json!({"job": id, "message": "자막 추출을 시작했습니다. job_status로 확인하세요."}))
     }
 
+    /// Recognise one part of a result again in the background (`job_status` reports it).
+    fn redo(&self, a: &Value) -> Result<Value, String> {
+        let srt = path_arg(a)?;
+        let from = s(a, "from").and_then(review::parse_clock).ok_or("from이 필요합니다 (예: 00:01:23,000)")?;
+        let to = s(a, "to").and_then(review::parse_clock).ok_or("to가 필요합니다")?;
+        let input = match s(a, "input") {
+            Some(i) => PathBuf::from(i),
+            None => {
+                crate::MEDIA_EXTENSIONS.iter().map(|e| srt.with_extension(e)).find(|p| p.is_file()).ok_or("원본 영상을 찾지 못했습니다. input을 주세요.")?
+            }
+        };
+        if !srt.is_file() || !input.is_file() {
+            return Err("자막 또는 영상 파일이 없습니다".into());
+        }
+        let mut o = Options::new(input);
+        o.extra_terms = s(a, "extra_terms").unwrap_or_default().to_string();
+        o.gpu = a.get("gpu").and_then(Value::as_bool).unwrap_or(true);
+        o.clean_fillers = a.get("clean_fillers").and_then(Value::as_bool).unwrap_or(false);
+        let d = user_glossary_dir();
+        o.glossary_dir = d.is_dir().then_some(d);
+        let mut st = self.job.lock().unwrap_or_else(PoisonError::into_inner);
+        if st.running {
+            return Err(format!("이미 작업 중입니다: {} ({:.0}%)", st.input, st.progress * 100.0));
+        }
+        let id = st.id + 1;
+        *st = JobState { id, input: srt.display().to_string(), running: true, message: "다시 인식 시작".into(), ..JobState::default() };
+        drop(st);
+        self.cancel.store(false, std::sync::atomic::Ordering::Relaxed);
+        let (job_state, cancel) = (self.job.clone(), self.cancel.clone());
+        std::thread::spawn(move || {
+            let r = job::guarded(|| {
+                let words = job::recognise_span(&o, from, to, &mut |f, m| {
+                    let mut st = job_state.lock().unwrap_or_else(PoisonError::into_inner);
+                    st.progress = f;
+                    st.message = m.to_string();
+                    !cancel.load(std::sync::atomic::Ordering::Relaxed)
+                })?;
+                let found = words.len();
+                let mut opened = crate::edit::Opened::load(&srt)?;
+                let n = opened.apply_redo(&o, from, to, words)?;
+                Ok(json!({"srt": srt, "from": review::clock(from), "to": review::clock(to), "words": found, "captions": n}))
+            });
+            let mut st = job_state.lock().unwrap_or_else(PoisonError::into_inner);
+            st.running = false;
+            match r {
+                Ok(v) => st.redo = Some(v),
+                Err(e) => st.error = Some(e),
+            }
+        });
+        Ok(json!({"job": id, "message": "그 구간을 다시 인식합니다. job_status로 확인하세요."}))
+    }
+
     fn edit(&self, a: &Value) -> Result<Value, String> {
         let p = path_arg(a)?;
         let mut caps = job::read_srt(&p)?;
         let i = index_arg(a, &caps)?;
         let c = caps.get_mut(i).ok_or("자막 번호가 없습니다")?;
+        let before = c.text();
         if let Some(t) = s(a, "text") {
             c.lines = t.replace("\\n", "\n").lines().map(str::to_string).collect();
         }
@@ -257,8 +330,16 @@ impl Server {
         if c.end_ms <= c.start_ms {
             return Err("끝 시간이 시작보다 빠릅니다".into());
         }
-        let out = cap_json(i, c);
+        let mut out = cap_json(i, c);
+        let after = c.text();
         save(&p, &caps)?;
+        let ready = crate::learn::record(&before, &after);
+        if let (Some(l), Some(o)) = (ready.first(), out.as_object_mut()) {
+            o.insert(
+                "glossary_suggestion".into(),
+                json!({"misheard": l.from, "ko": l.to, "times": l.count, "message": "같은 고침을 여러 번 했습니다. 사용자에게 물어보고 add_glossary_term으로 단어집에 넣으면 다음 자막부터 자동으로 고칩니다."}),
+            );
+        }
         Ok(out)
     }
 
@@ -293,6 +374,7 @@ impl Server {
     fn call(&self, name: &str, a: &Value) -> Result<Value, String> {
         match name {
             "extract_subtitles" => self.extract(a),
+            "rerecognize_range" => self.redo(a),
             "add_voice" => {
                 let name = s(a, "name").ok_or("name이 필요합니다")?;
                 let file = s(a, "file").map(PathBuf::from).ok_or("file이 필요합니다")?;
@@ -363,10 +445,12 @@ impl Server {
                 let caps = job::read_srt(&path_arg(a)?)?;
                 let kinds: Vec<&str> = a.get("kinds").and_then(Value::as_array).map(|v| v.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
                 let g = glossary()?;
-                let issues: Vec<review::Issue> = review::review(&caps, &overfilm_captions::Layout::default(), &pack::corrector(&g))
-                    .into_iter()
-                    .filter(|i| kinds.is_empty() || kinds.contains(&i.kind))
-                    .collect();
+                let mut all = review::review(&caps, &overfilm_captions::Layout::default(), &pack::corrector(&g));
+                if let Ok((_, t)) = load_transcript(&path_arg(a)?) {
+                    all.extend(review::unsure(&caps, &t, review::UNSURE_BELOW));
+                    all.sort_by_key(|i| i.index);
+                }
+                let issues: Vec<review::Issue> = all.into_iter().filter(|i| kinds.is_empty() || kinds.contains(&i.kind)).collect();
                 let mut counts = std::collections::BTreeMap::new();
                 for i in &issues {
                     *counts.entry(i.kind).or_insert(0usize) += 1;
@@ -426,6 +510,45 @@ impl Server {
                 Ok(json!({"captions": caps.len()}))
             }
             "add_glossary_term" => add_term(a),
+            "list_history" => {
+                let p = path_arg(a)?;
+                let l: Vec<Value> = crate::history::list(&p)
+                    .iter()
+                    .take(MAX_ITEMS)
+                    .map(|v| json!({"id": v.id, "when": v.when(), "label": v.label, "captions": v.captions}))
+                    .collect();
+                Ok(json!({"versions": l}))
+            }
+            "restore_version" => {
+                let p = path_arg(a)?;
+                let id = a.get("id").and_then(Value::as_u64).and_then(|i| u32::try_from(i).ok()).ok_or("id가 필요합니다 (list_history에서)")?;
+                let caps = crate::history::load(&p, id)?;
+                crate::edit::save_srt_as(&p, &caps, &format!("기록 {id}번으로 되돌림"))?;
+                Ok(json!({"restored": id, "captions": caps.len()}))
+            }
+            "list_glossary_terms" => {
+                let l: Vec<Value> = crate::usergloss::load()?.iter().map(|e| json!({"id": e.id, "ko": e.ko, "misheard": e.misheard, "note": e.note})).collect();
+                Ok(json!({"file": crate::usergloss::file(), "terms": l}))
+            }
+            "remove_glossary_term" => {
+                let id = s(a, "id").ok_or("id가 필요합니다 (list_glossary_terms에서)")?;
+                crate::usergloss::remove_from(&crate::usergloss::file(), id)?;
+                Ok(json!({"removed": id}))
+            }
+            "export_subtitles" => {
+                let p = path_arg(a)?;
+                let format = s(a, "format").and_then(crate::export::Format::parse).ok_or("format은 srt, vtt, ass 또는 txt")?;
+                let fps = s(a, "fps").map(|f| crate::export::parse_fps(f).ok_or_else(|| format!("모르는 fps: {f}"))).transpose()?;
+                let gap_frames = a.get("gap_frames").and_then(Value::as_u64).unwrap_or(0).min(30) as u32;
+                let e = crate::export::Export { format, fps, gap_frames: if fps.is_some() { gap_frames } else { 0 } };
+                let caps = job::read_srt(&p)?;
+                let out = s(a, "output").map(PathBuf::from).unwrap_or_else(|| p.with_extension(format.extension()));
+                if out == p {
+                    return Err("원본과 같은 파일에는 내보내지 않습니다. output을 주세요.".into());
+                }
+                crate::export::write(&out, &caps, &e)?;
+                Ok(json!({"saved": out, "captions": caps.len()}))
+            }
             _ => Err(format!("모르는 도구: {name}")),
         }
     }
@@ -460,23 +583,10 @@ impl Server {
 
 fn add_term(a: &Value) -> Result<Value, String> {
     let ko = s(a, "ko").map(str::trim).filter(|k| !k.is_empty()).ok_or("ko가 필요합니다")?;
-    let clean = |x: &str| x.replace(['\t', '\n', '\r', ';'], " ").trim().to_string();
-    let misheard: Vec<String> = a
-        .get("misheard")
-        .and_then(Value::as_array)
-        .map(|v| v.iter().filter_map(Value::as_str).map(clean).filter(|m| !m.is_empty()).collect())
-        .unwrap_or_default();
-    let dir = user_glossary_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let file = dir.join("user.tsv");
-    let mut text = std::fs::read_to_string(&file).unwrap_or_else(|_| "id\tko\ten\taliases\told\tmisheard\tflags\tnote\n".to_string());
-    let n = text.lines().count();
-    let row = format!("user{n}\t{}\t\t\t\t{}\t\t{}\n", clean(ko), misheard.join("; "), clean(s(a, "note").unwrap_or_default()));
-    text.push_str(&row);
-    // check the table still parses before saving it
-    overfilm_glossary::Glossary::default().add_table("user", &text).map_err(|e| e.to_string())?;
-    std::fs::write(&file, text).map_err(|e| format!("{}: {e}", file.display()))?;
-    Ok(json!({"saved": file, "ko": ko, "misheard": misheard}))
+    let misheard: Vec<String> =
+        a.get("misheard").and_then(Value::as_array).map(|v| v.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
+    let e = crate::usergloss::add(ko, &misheard, s(a, "note").unwrap_or_default())?;
+    Ok(json!({"saved": crate::usergloss::file(), "id": e.id, "ko": e.ko, "misheard": e.misheard}))
 }
 
 /// Serve on stdin/stdout until stdin closes.

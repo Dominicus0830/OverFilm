@@ -57,6 +57,12 @@ pub struct Options {
     /// Captions only for enrolled voices (e.g. the streamer's own speech).
     #[serde(default)]
     pub only_voices: bool,
+    /// Leave hesitation sounds and stutters (어, 음, 그 그게) out of the captions.
+    #[serde(default)]
+    pub clean_fillers: bool,
+    /// Only this part of the input, `(from_ms, to_ms)`; caption times stay on the input's clock.
+    #[serde(default)]
+    pub range: Option<(i64, i64)>,
 }
 
 fn yes() -> bool {
@@ -88,6 +94,8 @@ impl Options {
             per_speaker: false,
             use_voices: true,
             only_voices: false,
+            clean_fillers: false,
+            range: None,
         }
     }
 
@@ -178,7 +186,8 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
     let t0 = std::time::Instant::now();
     let models = models_dir();
     ensure_models(&models, &mut |f, m| progress(0.05 * f, m))?;
-    let audio = crate::media::decode(&o.input, &mut |f| progress(0.05 + 0.05 * f, "소리 읽는 중"))?;
+    let range = o.range.map(|(a, b)| (a.max(0), b.max(a.max(0))));
+    let audio = crate::media::decode_span(&o.input, range, &mut |f| progress(0.05 + 0.05 * f, "소리 읽는 중"))?;
     if audio.is_empty() {
         return Err("소리가 비어 있습니다".into());
     }
@@ -218,6 +227,10 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         speaker_device = r?;
     }
     let voice_lines = speakers::mark_game_voice(&mut transcript, &pack::voicelines());
+    if let Some((from, _)) = range {
+        // the words were timed on the cut-out sound: put them on the input's clock
+        shift(&mut transcript, from);
+    }
     let mut note = String::new();
     let keep = if o.only_voices {
         if transcript.speakers.iter().any(|s| s.enrolled && !s.game) {
@@ -229,12 +242,13 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
     } else {
         speakers::Keep::All
     };
-    let caps = speakers::captions_keep(&transcript, o.game_voice, keep, &o.layout());
+    let caps = speakers::captions_keep(&transcript, o.game_voice, keep, &o.layout(), o.clean_fillers);
     let srt = o.srt_path();
     write_srt(&srt, &caps)?;
+    let _ = crate::history::snapshot(&srt, &caps, "처음 만듦");
     let mut speaker_srts = Vec::new();
     if o.per_speaker && speakers::people(&transcript) > 1 {
-        for (_, label, caps) in speakers::captions_per_speaker(&transcript, &o.layout()) {
+        for (_, label, caps) in speakers::captions_per_speaker(&transcript, &o.layout(), o.clean_fillers) {
             let p = per_speaker_path(&srt, &label);
             write_srt(&p, &caps)?;
             speaker_srts.push(p);
@@ -262,6 +276,83 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         speaker_srts,
         note,
     })
+}
+
+/// Move every time in `t` by `ms`.
+pub fn shift(t: &mut overfilm_asr::Transcript, ms: i64) {
+    for c in &mut t.chunks {
+        c.start_ms = c.start_ms.saturating_add(ms);
+        c.end_ms = c.end_ms.saturating_add(ms);
+        for w in &mut c.words {
+            w.start_ms = w.start_ms.saturating_add(ms);
+            w.end_ms = w.end_ms.saturating_add(ms);
+        }
+    }
+}
+
+/// Sound kept around a part recognised again, so its first and last words are heard whole (ms).
+const REDO_PAD_MS: i64 = 400;
+
+/// Recognise `[from_ms, to_ms)` of `o.input` again (with `o.extra_terms` as extra context) and
+/// return its words on the input's clock, corrected like a normal run. Words that start in the
+/// padding around the part are left out. No speakers: [`splice`] takes them from the old words.
+pub fn recognise_span(o: &Options, from_ms: i64, to_ms: i64, progress: Progress) -> Result<Vec<overfilm_asr::Word>, String> {
+    if to_ms <= from_ms {
+        return Err("구간이 비어 있습니다".into());
+    }
+    if to_ms - from_ms > 30 * 60_000 {
+        return Err("다시 인식은 30분까지만 됩니다. 더 길면 새로 만드세요.".into());
+    }
+    let models = models_dir();
+    ensure_models(&models, &mut |f, m| progress(0.05 * f, m))?;
+    let start = from_ms.saturating_sub(REDO_PAD_MS).max(0);
+    let audio = crate::media::decode_span(&o.input, Some((start, to_ms.saturating_add(REDO_PAD_MS))), &mut |f| progress(0.05 + 0.05 * f, "소리 읽는 중"))?;
+    if audio.is_empty() {
+        return Err("그 구간에 소리가 없습니다".into());
+    }
+    let g = pack::glossary(o.glossary_dir.as_deref(), o.mask_profanity)?;
+    let corrector = pack::corrector_with(&g, o.digits);
+    let context = pack::context(&g, o.mode, &o.extra_terms);
+    let correct = |t: &str| corrector.apply(t).text;
+    let settings = overfilm_asr::Settings {
+        asr_dir: &overfilm_asr::catalogue::ASR.dir(&models),
+        aligner_dir: &overfilm_asr::catalogue::ALIGNER.dir(&models),
+        quantize: true,
+        context: &context,
+        language: Some("Korean"),
+        correct: &correct,
+        gpu: o.gpu,
+    };
+    let mut t = overfilm_asr::transcribe(&audio, &settings, &mut |f, m| progress(0.1 + 0.9 * f, m)).map_err(|e| e.to_string())?;
+    shift(&mut t, start);
+    Ok(t.chunks.into_iter().flat_map(|c| c.words).filter(|w| w.start_ms >= from_ms && w.start_ms < to_ms).collect())
+}
+
+/// Put `new` words in place of the words of `t` that start in `[from_ms, to_ms)`. Each new word
+/// takes the speaker (and game-voice mark) of the nearest old word in time.
+pub fn splice(t: &mut overfilm_asr::Transcript, from_ms: i64, to_ms: i64, mut new: Vec<overfilm_asr::Word>) {
+    let inside = |w: &overfilm_asr::Word| w.start_ms >= from_ms && w.start_ms < to_ms;
+    let old: Vec<overfilm_asr::Word> = t.words().filter(|w| inside(w)).cloned().collect();
+    let around: Vec<overfilm_asr::Word> = if old.is_empty() { t.words().cloned().collect() } else { old };
+    for w in &mut new {
+        if let Some(n) = around.iter().min_by_key(|o| (o.start_ms - w.start_ms).abs()) {
+            w.speaker = n.speaker;
+            w.game = n.game;
+            w.also = None;
+        }
+    }
+    for c in &mut t.chunks {
+        c.words.retain(|w| !inside(w));
+    }
+    // into the chunk the part starts in (or the last one starting before it)
+    let k = t.chunks.iter().rposition(|c| c.start_ms <= from_ms).unwrap_or(0);
+    match t.chunks.get_mut(k) {
+        Some(c) => {
+            c.words.extend(new);
+            c.words.sort_by_key(|w| w.start_ms);
+        }
+        None => t.chunks.push(overfilm_asr::ChunkText { start_ms: from_ms, end_ms: to_ms, text: String::new(), words: new }),
+    }
 }
 
 /// `경기.srt` → `경기.화자1.srt` (characters a file name cannot hold become `_`).
@@ -347,6 +438,32 @@ mod tests {
         assert!(o.mask_profanity);
         assert_eq!(o.srt_path(), PathBuf::from("v.srt"));
         assert_eq!(o.layout().max_line, 32);
+    }
+
+    #[test]
+    fn splice_replaces_words_and_keeps_speakers() {
+        use overfilm_asr::{ChunkText, Transcript, Word};
+        let w = |t: &str, s: i64, sp: usize| Word { text: t.into(), start_ms: s, end_ms: s + 300, speaker: Some(sp), ..Word::default() };
+        let mut t = Transcript {
+            chunks: vec![
+                ChunkText { start_ms: 0, end_ms: 5000, text: String::new(), words: vec![w("앞", 100, 0), w("전국퀸", 1000, 1), w("나왔다", 1500, 1)] },
+                ChunkText { start_ms: 5000, end_ms: 9000, text: String::new(), words: vec![w("뒤", 6000, 0)] },
+            ],
+            ..Transcript::default()
+        };
+        let new = vec![
+            Word { text: "정커퀸이".into(), start_ms: 1010, end_ms: 1400, ..Word::default() },
+            Word { text: "나왔다".into(), start_ms: 1450, end_ms: 1800, ..Word::default() },
+        ];
+        splice(&mut t, 900, 2000, new);
+        let words: Vec<(&str, Option<usize>)> = t.words().map(|w| (w.text.as_str(), w.speaker)).collect();
+        assert_eq!(words, vec![("앞", Some(0)), ("정커퀸이", Some(1)), ("나왔다", Some(1)), ("뒤", Some(0))]);
+        // nothing new: the part is just emptied
+        splice(&mut t, 5500, 7000, Vec::new());
+        assert_eq!(t.words().count(), 3);
+        let mut empty = Transcript::default();
+        splice(&mut empty, 0, 10, vec![Word { text: "가".into(), start_ms: 1, end_ms: 5, ..Word::default() }]);
+        assert_eq!(empty.words().count(), 1);
     }
 
     #[test]

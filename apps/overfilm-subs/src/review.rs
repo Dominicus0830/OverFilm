@@ -93,6 +93,45 @@ pub fn review(caps: &[Caption], o: &Layout, corrector: &Corrector) -> Vec<Issue>
     out
 }
 
+/// Words the recogniser was less sure of than this are flagged (see [`unsure`]). Measured on the
+/// aichi tier-list reference (1860 words, 11% of them wrong): below 0.7 flags 6% of the words and
+/// about half of those are really wrong (4x the base rate), catching 28% of all wrong words;
+/// 0.5 flagged only 1% and caught 6%.
+pub const UNSURE_BELOW: f32 = 0.7;
+
+/// Captions holding words the recogniser was unsure of (probability under `below`), one finding
+/// per caption listing the words, least sure first. A word counts for the caption its start falls
+/// in, and only while the caption still contains it (a hand fix clears the finding).
+pub fn unsure(caps: &[Caption], t: &overfilm_asr::Transcript, below: f32) -> Vec<Issue> {
+    let mut per: Vec<Vec<(String, f32)>> = vec![Vec::new(); caps.len()];
+    for w in t.words() {
+        let Some(p) = w.conf.filter(|p| *p < below) else { continue };
+        let core: String = w.text.chars().filter(|c| c.is_alphanumeric()).collect();
+        if core.is_empty() {
+            continue;
+        }
+        // captions are sorted by time: the last one starting at or before the word
+        let k = caps.partition_point(|c| c.start_ms <= w.start_ms);
+        let Some(k) = k.checked_sub(1) else { continue };
+        if let (Some(c), Some(list)) = (caps.get(k), per.get_mut(k))
+            && w.start_ms < c.end_ms
+            && c.text().contains(&core)
+            && !list.iter().any(|(x, _)| *x == core)
+        {
+            list.push((core, p));
+        }
+    }
+    per.into_iter()
+        .enumerate()
+        .filter(|(_, l)| !l.is_empty())
+        .map(|(k, mut l)| {
+            l.sort_by(|a, b| a.1.total_cmp(&b.1));
+            let words: Vec<String> = l.iter().map(|(w, p)| format!("{w} ({:.0}%)", p * 100.0)).collect();
+            Issue { index: k + 1, kind: "unsure", message: format!("인식이 자신 없던 단어: {}", words.join(", ")), suggestion: None }
+        })
+        .collect()
+}
+
 /// A gap between captions (no speech captioned).
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Silence {
@@ -161,6 +200,36 @@ mod tests {
         for k in [(2, "short"), (2, "fast"), (2, "overlap"), (3, "glossary"), (4, "repeat"), (5, "lines")] {
             assert!(kinds.contains(&k), "{k:?} missing in {kinds:?}");
         }
+    }
+
+    #[test]
+    fn unsure_words_point_at_their_captions() {
+        use overfilm_asr::{ChunkText, Transcript, Word};
+        let w = |t: &str, s: i64, p: Option<f32>| Word { text: t.into(), start_ms: s, end_ms: s + 300, conf: p, ..Word::default() };
+        let t = Transcript {
+            chunks: vec![ChunkText {
+                start_ms: 0,
+                end_ms: 9000,
+                text: String::new(),
+                words: vec![
+                    w("전국퀸이", 100, Some(0.2)),
+                    w("왔다.", 500, Some(0.9)),
+                    w("키리코", 3100, Some(0.4)),
+                    w("궁", 3500, Some(0.1)),
+                    w("빠짐", 8000, Some(0.1)),
+                ],
+            }],
+            ..Transcript::default()
+        };
+        let caps = vec![cap(0, 1000, "전국퀸이 왔다."), cap(3000, 4000, "키리코 궁"), cap(5000, 6000, "다른 말")];
+        let u = unsure(&caps, &t, UNSURE_BELOW);
+        assert_eq!(u.len(), 2, "{u:?}");
+        assert_eq!(u[0].index, 1);
+        assert!(u[1].message.starts_with("인식이 자신 없던 단어: 궁 (10%), 키리코 (40%)"), "{}", u[1].message);
+        // fixed by hand: the word is gone, so is the finding
+        let fixed = vec![cap(0, 1000, "정커퀸이 왔다."), cap(3000, 4000, "키리코 궁")];
+        assert_eq!(unsure(&fixed, &t, UNSURE_BELOW).len(), 1);
+        assert!(unsure(&[], &t, UNSURE_BELOW).is_empty());
     }
 
     #[test]

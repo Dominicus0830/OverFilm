@@ -4806,6 +4806,7 @@ dependencies = [
 name = "overfilm-subs"
 version = "0.14.0"
 dependencies = [
+ "chrono",
  "craft-ui",
  "eframe",
  "egui",

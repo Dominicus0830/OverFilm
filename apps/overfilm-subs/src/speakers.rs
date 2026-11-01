@@ -251,21 +251,29 @@ pub fn steady_overlaps(t: &Transcript) -> Vec<Option<usize>> {
 
 /// Captions of a transcript.
 pub fn captions(t: &Transcript, game: GameVoice, layout: &Layout) -> Vec<Caption> {
-    captions_keep(t, game, Keep::All, layout)
+    captions_keep(t, game, Keep::All, layout, false)
 }
 
-/// Captions of the speakers `keep` selects.
-pub fn captions_keep(t: &Transcript, game: GameVoice, keep: Keep, layout: &Layout) -> Vec<Caption> {
-    overfilm_captions::layout_turns(&turns(t, game, keep), layout)
+/// Turns with fillers and stutters taken out (see [`crate::clean`]) when `clean` is set.
+fn cleaned(turns: Vec<(Option<String>, Vec<TimedWord>)>, clean: bool) -> Vec<(Option<String>, Vec<TimedWord>)> {
+    if !clean {
+        return turns;
+    }
+    turns.into_iter().map(|(l, w)| (l, crate::clean::clean(&w))).filter(|(_, w)| !w.is_empty()).collect()
+}
+
+/// Captions of the speakers `keep` selects; `clean` drops fillers and stutters.
+pub fn captions_keep(t: &Transcript, game: GameVoice, keep: Keep, layout: &Layout, clean: bool) -> Vec<Caption> {
+    overfilm_captions::layout_turns(&cleaned(turns(t, game, keep), clean), layout)
 }
 
 /// One caption list per person (speaker index, label, captions).
-pub fn captions_per_speaker(t: &Transcript, layout: &Layout) -> Vec<(usize, String, Vec<Caption>)> {
+pub fn captions_per_speaker(t: &Transcript, layout: &Layout, clean: bool) -> Vec<(usize, String, Vec<Caption>)> {
     t.speakers
         .iter()
         .enumerate()
         .filter(|(_, s)| !s.game)
-        .map(|(i, s)| (i, s.label.clone(), overfilm_captions::layout_turns(&turns(t, GameVoice::Drop, Keep::One(i)), layout)))
+        .map(|(i, s)| (i, s.label.clone(), overfilm_captions::layout_turns(&cleaned(turns(t, GameVoice::Drop, Keep::One(i)), clean), layout)))
         .collect()
 }
 
@@ -341,11 +349,11 @@ mod tests {
         let text: Vec<String> = caps.iter().map(|c| c.lines.join(" ")).collect();
         assert_eq!(text, ["(화자1) 자 들어가요", "(스트리머) 네 좋아요"]);
         // only the enrolled voice, without a label
-        let mine = captions_keep(&t, GameVoice::Drop, Keep::Enrolled, &lay);
+        let mine = captions_keep(&t, GameVoice::Drop, Keep::Enrolled, &lay, false);
         assert_eq!(mine.iter().map(|c| c.lines.join(" ")).collect::<Vec<_>>(), ["네 좋아요"]);
         let shown = captions(&t, GameVoice::Label, &lay);
         assert!(shown.iter().any(|c| c.lines.join(" ") == "(게임) 석양이 진다"));
-        let per = captions_per_speaker(&t, &lay);
+        let per = captions_per_speaker(&t, &lay, false);
         assert_eq!(per.len(), 3);
         assert_eq!(per[1].2.len(), 1);
         assert_eq!(per[1].2[0].lines.join(" "), "네 좋아요");
@@ -378,7 +386,7 @@ mod tests {
         let text: Vec<String> = captions(&t, GameVoice::Drop, &Layout::default()).iter().map(|c| c.lines.join(" ")).collect();
         assert_eq!(text, ["(화자1) 자 들어가", "(화자1·화자2) 아니 잠깐 만요", "(화자2) 네"]);
         // speaker 2's own file keeps the words said over speaker 1
-        let per = captions_per_speaker(&t, &Layout::default());
+        let per = captions_per_speaker(&t, &Layout::default(), false);
         assert_eq!(per[1].2.iter().map(|c| c.lines.join(" ")).collect::<Vec<_>>().join(" "), "아니 잠깐 만요 네");
         // a one-word blip of cross-talk changes nothing
         let mut blip = transcript(&[("자", 0, Some(0)), ("들어가", 500, Some(0)), ("네", 3000, Some(1))]);

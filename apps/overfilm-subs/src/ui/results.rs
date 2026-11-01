@@ -3,7 +3,7 @@
 //! caption's text box underneath, as in subtitle editors.
 
 use eframe::egui::{self, Align, Align2, Color32, CornerRadius, FontId, Key, Layout, Margin, RichText, Sense, Stroke, vec2};
-use overfilm_subs::{edit, review};
+use overfilm_subs::{edit, export, review};
 
 use super::widgets::{self, Severity, accent_button, button, caption, pal, subtle_button};
 use crate::{App, Page, Review, Step};
@@ -14,6 +14,7 @@ const ROW_H: f32 = 30.0;
 fn kind_label(kind: &str) -> &'static str {
     match kind {
         "glossary" => "단어집·맞춤법",
+        "unsure" => "자신 없는 단어",
         "fast" => "읽기 빠름",
         "short" => "너무 짧음",
         "speech_overlap" => "겹친 말",
@@ -26,7 +27,7 @@ fn kind_label(kind: &str) -> &'static str {
     }
 }
 
-const KIND_ORDER: [&str; 9] = ["glossary", "fast", "short", "speech_overlap", "overlap", "width", "lines", "repeat", "empty"];
+const KIND_ORDER: [&str; 10] = ["glossary", "unsure", "fast", "short", "speech_overlap", "overlap", "width", "lines", "repeat", "empty"];
 
 enum Action {
     Undo,
@@ -44,15 +45,32 @@ enum Action {
     Game(usize, bool),
     Enroll(usize),
     NextIssue,
+    Fillers(bool),
+    Export,
+    FindNext,
+    ReplaceAll,
+    RestoreVersion(u32),
+    Learn(bool),
+    Extend(usize),
+    Redo,
+    CancelRedo,
+    RedoDone(Result<Vec<overfilm_asr::Word>, String>),
 }
 
-pub fn page(app: &mut App, ui: &mut egui::Ui, _ctx: &egui::Context) {
+pub fn page(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
+    let ctx = ctx.clone();
     let Some(r) = app.review.as_mut() else {
         app.step = Step::Empty;
         return;
     };
     let p = pal(ui);
     let mut actions = Vec::new();
+    if let Some(job) = &r.redo {
+        let done = job.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).2.take();
+        if let Some(res) = done {
+            actions.push(Action::RedoDone(res));
+        }
+    }
     egui::Panel::top("cmd").frame(egui::Frame::new().fill(p.layer).inner_margin(Margin::symmetric(12, 6))).show(ui, |ui| {
         command_bar(r, ui, &mut actions);
     });
@@ -77,6 +95,26 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, _ctx: &egui::Context) {
             if close {
                 r.summary = None;
             }
+            if let Some(l) = r.learned.first() {
+                let mut act = None;
+                widgets::info_bar(
+                    ui,
+                    Severity::Info,
+                    &format!("'{}'을(를) '{}'(으)로 {}번 고쳤습니다.", l.from, l.to, l.count),
+                    "단어집에 넣으면 다음 자막부터 자동으로 고칩니다.",
+                    |ui| {
+                        if subtle_button(ui, "묻지 않기").clicked() {
+                            act = Some(false);
+                        }
+                        if accent_button(ui, "단어집에 넣기").clicked() {
+                            act = Some(true);
+                        }
+                    },
+                );
+                if let Some(a) = act {
+                    actions.push(Action::Learn(a));
+                }
+            }
             match &app.status {
                 Some(Err(e)) => widgets::info_bar(ui, Severity::Error, "문제가 생겼습니다.", e, |_| {}),
                 Some(Ok(m)) => widgets::info_bar(ui, Severity::Ok, m, "", |_| {}),
@@ -85,6 +123,21 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, _ctx: &egui::Context) {
             ui.add_space(6.0);
         },
     );
+    // Ctrl+F / Ctrl+H, by the key's place too (a Korean layout may not report the letter)
+    let find_key = ui.ctx().input(|i| {
+        i.events.iter().any(|e| {
+            matches!(e, egui::Event::Key { key, physical_key, pressed: true, modifiers, .. }
+                if modifiers.command && (matches!(key, Key::F | Key::H) || matches!(physical_key, Some(Key::F | Key::H))))
+        })
+    });
+    if find_key {
+        r.find.open = true;
+    }
+    if r.find.open {
+        egui::Panel::top("find").frame(egui::Frame::new().fill(p.card).inner_margin(Margin::symmetric(12, 8))).show(ui, |ui| {
+            find_bar(r, ui, &mut actions);
+        });
+    }
     egui::Panel::left("speakers").exact_size(196.0).resizable(false).frame(egui::Frame::new().inner_margin(Margin::same(10))).show(ui, |ui| {
         speakers_pane(r, ui, &mut actions);
     });
@@ -102,22 +155,41 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, _ctx: &egui::Context) {
     if ui.ctx().input(|i| i.key_pressed(Key::F8)) {
         actions.push(Action::NextIssue);
     }
+    if r.history.is_some() {
+        history_dialog(r, ui.ctx(), &mut actions);
+    }
+    if r.exporting {
+        export_dialog(r, &mut app.prefs.export, ui.ctx(), &mut actions);
+    }
     for a in actions {
-        run(app, a);
+        run(app, a, &ctx);
     }
 }
 
-fn command_bar(r: &Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+fn command_bar(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if ui.add_enabled(!r.undo.is_empty(), egui::Button::new("실행 취소").frame(false).min_size(vec2(0.0, 32.0))).clicked() {
             actions.push(Action::Undo);
+        }
+        if subtle_button(ui, "기록").on_hover_text("저장할 때마다 남긴 기록에서 되돌리기").clicked() {
+            r.history = Some(overfilm_subs::history::list(&r.opened.srt));
         }
         ui.separator();
         let glossary = r.issues.iter().filter(|i| i.kind == "glossary" && !r.ignored.contains(&(i.index, i.kind))).count();
         if ui.add_enabled(glossary > 0, egui::Button::new(format!("단어집대로 모두 고치기 ({glossary})")).frame(false).min_size(vec2(0.0, 32.0))).clicked()
         {
             actions.push(Action::FixAll);
+        }
+        if r.opened.transcript.is_some() {
+            let mut clean = r.options.clean_fillers;
+            if ui
+                .checkbox(&mut clean, "추임새 빼기")
+                .on_hover_text("어, 음, 그 그게 같은 군말과 말 더듬기를 자막에서 뺍니다. 단어 시간 파일로 자막을 다시 만들므로 손으로 고친 글자는 사라집니다.")
+                .changed()
+            {
+                actions.push(Action::Fillers(clean));
+            }
         }
         let people = r.opened.transcript.as_ref().map_or(0, overfilm_subs::speakers::people);
         if people > 1 && subtle_button(ui, "사람마다 SRT 저장").clicked() {
@@ -129,6 +201,12 @@ fn command_bar(r: &Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
             }
             if subtle_button(ui, "폴더 열기").clicked() {
                 actions.push(Action::Reveal);
+            }
+            if subtle_button(ui, "찾아 바꾸기").on_hover_text("Ctrl+H").clicked() {
+                r.find.open = !r.find.open;
+            }
+            if subtle_button(ui, "내보내기").on_hover_text("VTT, ASS, 대본 TXT, 프레임에 맞춘 SRT").clicked() {
+                r.exporting = true;
             }
         });
     });
@@ -233,6 +311,7 @@ fn issues_pane(r: &Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         }
         let desc = match kind {
             "glossary" => "이름 표기, 띄어쓰기",
+            "unsure" => "잘못 들었을 수 있는 곳",
             "fast" => "초당 글자가 많음",
             "short" => "너무 빨리 사라짐",
             "speech_overlap" => "두 사람이 동시에 말함",
@@ -320,7 +399,7 @@ fn table(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         for &k in shown.get(range).unwrap_or_default() {
             let Some(c) = r.opened.captions.get(k) else { continue };
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
-            let selected = r.selected == Some(k);
+            let selected = r.selection().is_some_and(|s| s.contains(&k));
             if selected {
                 ui.painter().rect_filled(rect, 0.0, p.accent_soft);
             } else if resp.hovered() {
@@ -369,7 +448,11 @@ fn table(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
                 ui.painter().text(egui::pos2(rect.right() - 10.0, y), Align2::RIGHT_CENTER, tag, FontId::proportional(12.0), p.warn);
             }
             if resp.clicked() {
-                actions.push(Action::Select(k));
+                if ui.input(|i| i.modifiers.shift) && r.selected.is_some() {
+                    actions.push(Action::Extend(k));
+                } else {
+                    actions.push(Action::Select(k));
+                }
             }
         }
     });
@@ -382,8 +465,44 @@ fn short_clock(ms: i64) -> String {
     if h > 0 { format!("{h}:{m:02}:{s:02}.{f:03}") } else { format!("{m:02}:{s:02}.{f:03}") }
 }
 
+/// "Recognise this part again": extra names, the button, or the progress while it runs.
+fn redo_row(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+    let Some(sel) = r.selection() else { return };
+    let n = sel.end() - sel.start() + 1;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        if let Some(job) = &r.redo {
+            let (f, m) = {
+                let s = job.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                (s.0, s.1.clone())
+            };
+            ui.spinner();
+            ui.add(egui::ProgressBar::new(f.clamp(0.0, 1.0)).desired_width(160.0));
+            ui.add(egui::Label::new(RichText::new(m).small()).truncate());
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if button(ui, "멈추기").clicked() {
+                    actions.push(Action::CancelRedo);
+                }
+            });
+            return;
+        }
+        let label = if n > 1 { format!("선택한 자막 {n}개 다시 인식") } else { "이 부분 다시 인식".to_string() };
+        if button(ui, &label)
+            .on_hover_text("이 구간의 소리만 다시 인식합니다. 다른 곳에서 고친 글자는 그대로 둡니다. Shift+클릭으로 여러 줄을 고를 수 있습니다.")
+            .clicked()
+        {
+            actions.push(Action::Redo);
+        }
+        ui.add(egui::TextEdit::singleline(&mut r.redo_terms).hint_text("도움이 될 이름·용어 (선택)").desired_width(220.0));
+        if n == 1 {
+            caption(ui, "Shift+클릭으로 여러 줄 선택");
+        }
+    });
+}
+
 fn editor(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
     let p = pal(ui);
+    redo_row(r, ui, actions);
     let Some(k) = r.selected else { return };
     let Some(c) = r.opened.captions.get(k).cloned() else { return };
     let issues: Vec<review::Issue> = r.issues.iter().filter(|i| i.index == k + 1 && !r.ignored.contains(&(i.index, i.kind))).cloned().collect();
@@ -423,6 +542,113 @@ fn editor(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
     });
 }
 
+fn find_bar(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+    let hits = edit::find_in(&r.opened.captions, &r.find.find).len();
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        let f = ui.add(egui::TextEdit::singleline(&mut r.find.find).hint_text("찾을 글자").desired_width(180.0));
+        if f.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+            actions.push(Action::FindNext);
+            f.request_focus();
+        }
+        ui.add(egui::TextEdit::singleline(&mut r.find.with).hint_text("바꿀 글자").desired_width(180.0));
+        ui.checkbox(&mut r.find.whole_word, "단어 단위");
+        ui.checkbox(&mut r.find.learn, "단어집에도 넣기").on_hover_text("다음 자막부터 자동으로 고쳐지도록 사용자 단어집에 '틀린 표기 → 맞는 표기'로 넣습니다");
+        if ui.add_enabled(hits > 0, egui::Button::new("다음 찾기")).clicked() {
+            actions.push(Action::FindNext);
+        }
+        if ui.add_enabled(hits > 0, egui::Button::new(format!("모두 바꾸기 ({hits})"))).clicked() {
+            actions.push(Action::ReplaceAll);
+        }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if subtle_button(ui, "닫기").clicked() {
+                r.find.open = false;
+            }
+        });
+    });
+}
+
+/// Saved versions, newest first, each with a button to bring it back.
+fn history_dialog(r: &mut Review, ctx: &egui::Context, actions: &mut Vec<Action>) {
+    let Some(list) = r.history.as_ref() else { return };
+    let mut close = false;
+    let resp = egui::Modal::new(egui::Id::unique("history")).show(ctx, |ui| {
+        ui.set_width(480.0);
+        ui.label(RichText::new("기록").text_style(super::theme::subtitle()).strong());
+        caption(ui, "저장할 때마다 남긴 상태입니다. 되돌려도 지금 상태가 기록에 남으므로 언제든 다시 돌아올 수 있습니다.");
+        ui.add_space(6.0);
+        if list.is_empty() {
+            caption(ui, "아직 기록이 없습니다. 이 파일을 한 번 고치면 그때부터 남습니다.");
+        }
+        egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+            for (k, v) in list.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(v.when()).monospace().size(12.5));
+                    ui.label(&v.label);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if k == 0 {
+                            caption(ui, "지금");
+                        } else if button(ui, "되돌리기").clicked() {
+                            actions.push(Action::RestoreVersion(v.id));
+                        }
+                        caption(ui, format!("자막 {}개", v.captions));
+                    });
+                });
+            }
+        });
+        ui.add_space(8.0);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if button(ui, "닫기").clicked() {
+                close = true;
+            }
+        });
+    });
+    if close || resp.should_close() {
+        r.history = None;
+    }
+}
+
+/// Format, frame rate and gap, then a save dialog.
+fn export_dialog(r: &mut Review, e: &mut export::Export, ctx: &egui::Context, actions: &mut Vec<Action>) {
+    let resp = egui::Modal::new(egui::Id::unique("export")).show(ctx, |ui| {
+        ui.set_width(420.0);
+        ui.label(RichText::new("내보내기").text_style(super::theme::subtitle()).strong());
+        ui.add_space(8.0);
+        caption(ui, "형식");
+        for f in export::Format::ALL {
+            ui.radio_value(&mut e.format, f, f.label());
+        }
+        ui.add_space(8.0);
+        caption(ui, "프레임에 맞추기");
+        let label = e.fps.map_or("맞추지 않음".to_string(), export::fps_label);
+        craft_ui::ComboBox::from_id_salt("export_fps").selected_text(label).width(200.0).show_ui(ui, |ui| {
+            ui.selectable_value(&mut e.fps, None, "맞추지 않음");
+            for f in export::FRAME_RATES {
+                ui.selectable_value(&mut e.fps, Some(f), export::fps_label(f));
+            }
+        });
+        ui.add_enabled_ui(e.fps.is_some(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label("자막 사이 빈 프레임");
+                ui.add(egui::DragValue::new(&mut e.gap_frames).range(0..=10).suffix("프레임"));
+            });
+        });
+        caption(ui, "영상과 같은 프레임 수를 고르면 자막이 프레임 경계에서 바뀝니다. 빈 프레임은 자막이 붙어서 깜빡이는 것을 막습니다.");
+        ui.add_space(10.0);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if accent_button(ui, "저장할 곳 고르기…").clicked() {
+                actions.push(Action::Export);
+            }
+            if button(ui, "닫기").clicked() {
+                r.exporting = false;
+            }
+        });
+    });
+    if resp.should_close() {
+        r.exporting = false;
+    }
+}
+
 fn rebuild(r: &mut Review) -> Result<(), String> {
     let o = r.options.clone();
     r.opened.rebuild(&o)?;
@@ -431,7 +657,7 @@ fn rebuild(r: &mut Review) -> Result<(), String> {
     Ok(())
 }
 
-fn run(app: &mut App, a: Action) {
+fn run(app: &mut App, a: Action, ctx: &egui::Context) {
     let mask = app.prefs.options.mask_profanity;
     let Some(r) = app.review.as_mut() else { return };
     let result: Result<Option<String>, String> = match a {
@@ -454,7 +680,54 @@ fn run(app: &mut App, a: Action) {
             app.status = None;
             return;
         }
+        Action::Extend(k) => {
+            r.sel_end = Some(k);
+            return;
+        }
+        Action::Redo => {
+            let input = match r.input.clone().filter(|p| p.is_file()) {
+                Some(p) => p,
+                None => match rfd::FileDialog::new()
+                    .set_title("이 자막을 만든 영상이나 오디오")
+                    .add_filter("영상·오디오", overfilm_subs::MEDIA_EXTENSIONS)
+                    .pick_file()
+                {
+                    Some(p) => {
+                        r.input = Some(p.clone());
+                        p
+                    }
+                    None => return,
+                },
+            };
+            r.start_redo(input, ctx);
+            return;
+        }
+        Action::CancelRedo => {
+            if let Some(j) = &r.redo {
+                j.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            return;
+        }
+        Action::RedoDone(res) => {
+            let Some(job) = r.redo.take() else { return };
+            match res {
+                Ok(words) => {
+                    r.remember();
+                    let o = r.options.clone();
+                    let found = words.len();
+                    r.selected = None;
+                    r.sel_end = None;
+                    r.opened.apply_redo(&o, job.from_ms, job.to_ms, words).map(|n| Some(format!("다시 인식했습니다: 단어 {found}개, 자막 {n}개.")))
+                }
+                Err(e) if job.cancel.load(std::sync::atomic::Ordering::Relaxed) => {
+                    let _ = e;
+                    Ok(Some("다시 인식을 멈췄습니다.".to_string()))
+                }
+                Err(e) => Err(e),
+            }
+        }
         Action::Select(k) => {
+            r.sel_end = None;
             r.selected = Some(k);
             r.draft = r.opened.captions.get(k).map(|c| c.text()).unwrap_or_default();
             return;
@@ -462,6 +735,7 @@ fn run(app: &mut App, a: Action) {
         Action::Filter(f) => {
             r.filter = f;
             r.selected = None;
+            r.sel_end = None;
             return;
         }
         Action::Apply(k, text) => {
@@ -478,10 +752,26 @@ fn run(app: &mut App, a: Action) {
             Some(k) => {
                 r.remember();
                 let d = r.draft.clone();
-                r.opened.set_text(k, &d).map(|()| None)
+                let before = r.opened.captions.get(k).map(|c| c.text()).unwrap_or_default();
+                let res = r.opened.set_text(k, &d);
+                if res.is_ok() {
+                    r.learned.extend(overfilm_subs::learn::record(&before, &d));
+                }
+                res.map(|()| None)
             }
             None => Ok(None),
         },
+        Action::Learn(add) => {
+            if r.learned.is_empty() {
+                return;
+            }
+            let l = r.learned.remove(0);
+            if add {
+                overfilm_subs::learn::accept(&l).map(|()| Some(format!("'{}' → '{}'를 단어집에 넣었습니다.", l.from, l.to)))
+            } else {
+                overfilm_subs::learn::resolve(&l.from, &l.to, false).map(|()| None)
+            }
+        }
         Action::Rename(k, name) => {
             r.renaming = None;
             r.remember();
@@ -525,6 +815,73 @@ fn run(app: &mut App, a: Action) {
             }
             app.page = Page::Voices;
             return;
+        }
+        Action::Fillers(on) => {
+            r.remember();
+            r.options.clean_fillers = on;
+            app.prefs.options.clean_fillers = on;
+            rebuild(r).map(|()| Some(if on { "추임새를 뺐습니다.".to_string() } else { "추임새를 다시 넣었습니다.".to_string() }))
+        }
+        Action::Export => {
+            let e = app.prefs.export.clone();
+            let stem = r.opened.srt.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            let suggested = if e.format == export::Format::Srt && e.fps.is_some() {
+                format!("{stem}.{}.srt", export::fps_label(e.fps.unwrap_or((30, 1))))
+            } else {
+                format!("{stem}.{}", e.format.extension())
+            };
+            let mut dlg = rfd::FileDialog::new().add_filter(e.format.extension().to_uppercase(), &[e.format.extension()]).set_file_name(suggested);
+            if let Some(d) = r.opened.srt.parent() {
+                dlg = dlg.set_directory(d);
+            }
+            match dlg.save_file() {
+                Some(p) if p == r.opened.srt => Err("검토 중인 원본 SRT에는 덮어쓰지 않습니다. 다른 이름을 고르세요.".into()),
+                Some(p) => {
+                    r.exporting = false;
+                    export::write(&p, &r.opened.captions, &e).map(|()| Some(format!("{}로 내보냈습니다.", p.display())))
+                }
+                None => return,
+            }
+        }
+        Action::RestoreVersion(id) => {
+            r.remember();
+            r.history = None;
+            r.selected = None;
+            r.opened.restore_version(id).map(|()| Some(format!("기록 {id}번으로 되돌렸습니다.")))
+        }
+        Action::FindNext => {
+            let hits = edit::find_in(&r.opened.captions, &r.find.find);
+            let next = match r.selected {
+                Some(s) => hits.iter().copied().find(|&k| k > s).or_else(|| hits.first().copied()),
+                None => hits.first().copied(),
+            };
+            if let Some(k) = next {
+                r.filter = None;
+                r.selected = Some(k);
+                r.jump = true;
+                r.draft = r.opened.captions.get(k).map(|c| c.text()).unwrap_or_default();
+            }
+            return;
+        }
+        Action::ReplaceAll => {
+            r.remember();
+            let (find, with) = (r.find.find.clone(), r.find.with.clone());
+            match r.opened.replace_all(&find, &with, r.find.whole_word) {
+                Ok(n) => {
+                    if let Some(k) = r.selected {
+                        r.draft = r.opened.captions.get(k).map(|c| c.text()).unwrap_or_default();
+                    }
+                    let learned = if r.find.learn && n > 0 && !with.trim().is_empty() {
+                        overfilm_subs::usergloss::add(with.trim(), &[find.trim().to_string()], "찾아 바꾸기에서")
+                            .map(|_| " 단어집에도 넣었습니다.")
+                            .unwrap_or(" 단어집에는 넣지 못했습니다.")
+                    } else {
+                        ""
+                    };
+                    Ok(Some(format!("{n}곳을 바꿨습니다.{learned}")))
+                }
+                Err(e) => Err(e),
+            }
         }
         Action::NextIssue => {
             let shown = rows(r);
