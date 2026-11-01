@@ -136,6 +136,25 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   Fine-tuning the segmentation on Zeroth train (105 speakers) mixed with five other heroes'
   lines (3000 steps, CPU) did not help: found 73.6 %, both right 50.6 % on the hero set, so the
   published weights stay.
+  Clean pooling (`OverlapParams::clean_pool`, `Diarizer::run_with_overlaps`): the chunks are
+  segmented before the speaker vectors, and 80 ms frames whose two-talker probability reaches
+  0.7 are left out of each window's vector (a window keeping under half its frames, or under
+  0.4 s, gets none), so one voice is not pooled with another. Word error / overlap found / both
+  right / clean-word error, before → after:
+
+  | set | before | clean pool 0.7 | clean pool 0.5 |
+  |---|---|---|---|
+  | people (12, overlaps) | 8.9 / 75.1 / 64.5 / 5.2 % | **8.4 / 78.7 / 68.1 / 4.8 %** | 8.3 / 78.7 / 68.1 / 4.7 % |
+  | Soldier (12) | 10.6 / 80.0 / 61.5 / 5.7 % | **9.3 / 79.3 / 63.0 / 4.8 %** | 9.9 / 73.8 / 56.8 / 5.5 % |
+  | 12 other heroes, one per case | 9.6 / 56.0 / 49.0 / 5.1 % | **9.1 / 54.5 / 48.0 / 4.9 %** | 12.4 / 53.0 / 43.0 / 8.2 % |
+
+  On the 24 people-only conversations (no planned overlaps) word error goes 2.5 → 2.2 % and
+  the right speaker count 22 → 23 of 24.
+
+  Tried and dropped: keeping a small speaker whose centroid is far (cosine ≥ 0.75–0.9) from
+  every other (no gain on Soldier, 10 → 7 right counts on the other heroes), and leaving the
+  hero's words out of the vectors even with the true spans (people word error 5.2 → 5.0 %: the
+  hero lines barely disturb the people's voices; they are found by `voicelines.tsv` instead).
   | + relabel words by the segmentation's clean talkers | — | — | word error 4.8 → 5.5 %, dropped |
 
   The word's own label is right (one of the two talkers) for 97 % of overlapped words. On the

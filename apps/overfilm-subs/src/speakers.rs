@@ -303,19 +303,23 @@ pub fn label(
     if gpu {
         d.use_gpu();
     }
-    let mut labels = d.run(audio, &words, p, &mut |f| progress(0.75 * f)).map_err(|e| e.to_string())?;
-    // overlapped speech when its model is there (models/<segment id> next to the speaker model);
-    // without it, or if it fails, the labels stand as they are
+    // with the overlap model (models/<segment id> next to the speaker model) the overlapped
+    // frames stay out of the voices and each word learns who else talks; without it, or if that
+    // fails, plain labels
     let seg = &overfilm_asr::catalogue::SEGMENT;
-    if let Some(models) = model_dir.parent().filter(|m| seg.installed(m))
-        && let Ok(net) = overfilm_asr::speakers::seg::SegNet::load(&seg.dir(models).join("model.onnx"))
-    {
-        match d.overlaps(&net, audio, &words, &labels.words, &OverlapParams::default(), &mut |f| progress(0.75 + 0.25 * f)) {
-            Ok(also) => labels.also = also,
+    let net = model_dir.parent().filter(|m| seg.installed(m)).and_then(|m| overfilm_asr::speakers::seg::SegNet::load(&seg.dir(m).join("model.onnx")).ok());
+    let with = match &net {
+        Some(net) => match d.run_with_overlaps(net, audio, &words, p, &OverlapParams::default(), progress) {
+            Ok(l) => Some(l),
             Err(overfilm_asr::AsrError::Cancelled) => return Err("취소됨".into()),
-            Err(_) => {}
-        }
-    }
+            Err(_) => None,
+        },
+        None => None,
+    };
+    let labels = match with {
+        Some(l) => l,
+        None => d.run(audio, &words, p, progress).map_err(|e| e.to_string())?,
+    };
     apply_labels(t, &labels);
     Ok(d.device.clone())
 }

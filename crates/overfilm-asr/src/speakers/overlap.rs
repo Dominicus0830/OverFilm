@@ -41,11 +41,14 @@ pub struct OverlapParams {
     pub min_similarity: f32,
     /// Carry ties between neighbouring chunks ([`stitch`]).
     pub stitch: bool,
+    /// Voice frames whose overlap probability ([`overlap_grid`]) reaches this are left out of
+    /// the speaker vectors ([`Diarizer::run_with_overlaps`]); above 1: none.
+    pub clean_pool: f32,
 }
 
 impl Default for OverlapParams {
     fn default() -> Self {
-        Self { step_ms: 5000, min_vote_frames: 12, vote_share: 0.6, overlap_prob: 0.3, word_share: 0.2, min_similarity: 0.2, stitch: true }
+        Self { step_ms: 5000, min_vote_frames: 12, vote_share: 0.6, overlap_prob: 0.3, word_share: 0.2, min_similarity: 0.2, stitch: true, clean_pool: 0.7 }
     }
 }
 
@@ -330,8 +333,86 @@ pub fn map_frames(act: &[[bool; LOCAL]], map_frames: usize, want: &dyn Fn(&[bool
     good.iter().enumerate().filter(|(_, g)| g.0 > 0 && g.1).map(|(j, _)| j).collect()
 }
 
+/// Overlap probability every 10 ms from the start (centre-weighted over the chunks).
+pub fn overlap_grid(chunks: &[Chunk], len_ms: i64) -> Vec<f32> {
+    let n = usize::try_from(len_ms.max(0) / 10 + 1).unwrap_or(0).min(100_000_000);
+    let mut acc = vec![(0f32, 0f32); n];
+    for ch in chunks {
+        for (f, &ov) in ch.overlap.iter().enumerate() {
+            let t = frame_ms(ch.start_ms, f);
+            let w = ch.weight(t);
+            // a frame is ~17 ms: spread it over the 10 ms cells it covers
+            for cell in [t - 5, t + 5] {
+                if let Some(a) = usize::try_from(cell / 10).ok().and_then(|i| acc.get_mut(i)) {
+                    a.0 += ov * w;
+                    a.1 += w;
+                }
+            }
+        }
+    }
+    acc.into_iter().map(|(s, w)| if w > 0.0 { s / w } else { 0.0 }).collect()
+}
+
 #[cfg(feature = "qwen")]
 impl super::Diarizer {
+    /// Run the segmentation over the chunks of `audio` that hold words (no ties yet).
+    pub fn segment(
+        &self,
+        net: &seg::SegNet,
+        audio: &[f32],
+        words: &[Word],
+        p: &OverlapParams,
+        progress: &mut dyn FnMut(f32) -> bool,
+    ) -> Result<Vec<Chunk>, crate::AsrError> {
+        let per_ms = SAMPLE_RATE as usize / 1000;
+        let len_ms = i64::try_from(audio.len() / per_ms).unwrap_or(0);
+        let starts = chunk_starts(len_ms, words, p.step_ms);
+        let mut out = Vec::with_capacity(starts.len());
+        for (n, &cs) in starts.iter().enumerate() {
+            if !progress(n as f32 / starts.len().max(1) as f32) {
+                return Err(crate::AsrError::Cancelled);
+            }
+            let a = usize::try_from(cs).unwrap_or(0).saturating_mul(per_ms).min(audio.len());
+            let b = a.saturating_add(CHUNK_SAMPLES).min(audio.len());
+            let Some(block) = audio.get(a..b) else { continue };
+            out.push(Chunk::new(cs, &net.forward(block)?));
+        }
+        Ok(out)
+    }
+
+    /// [`Diarizer::run`] plus overlapped speech: the chunks are segmented first, frames that are
+    /// likely overlapped ([`OverlapParams::clean_pool`]) are left out of the speaker vectors (so
+    /// one voice's vector is not mixed with another's), then [`Labels::also`] is filled.
+    /// `progress(fraction)` returns false to cancel.
+    pub fn run_with_overlaps(
+        &self,
+        net: &seg::SegNet,
+        audio: &[f32],
+        words: &[Word],
+        p: &super::Params,
+        op: &OverlapParams,
+        progress: &mut dyn FnMut(f32) -> bool,
+    ) -> Result<super::Labels, crate::AsrError> {
+        let segs = self.segment(net, audio, words, op, &mut |f| progress(0.2 * f))?;
+        let len_ms = i64::try_from(audio.len() / (SAMPLE_RATE as usize / 1000)).unwrap_or(0);
+        let grid = overlap_grid(&segs, len_ms);
+        let th = op.clean_pool;
+        let skip = |t: i64| usize::try_from(t / 10).ok().and_then(|i| grid.get(i)).is_some_and(|&o| o >= th);
+        let wins = super::windows(&super::speech_regions(words, p.pause_ms), p.window_ms, p.step_ms);
+        let vecs = super::window_vectors_skipping(
+            audio,
+            &wins,
+            &mut |b| self.frame_map(b),
+            &|m, a, b| self.net.embed(m, a, b),
+            (th <= 1.0).then_some(&skip as &dyn Fn(i64) -> bool),
+            &mut |d, t| progress(0.2 + 0.6 * d as f32 / t.max(1) as f32),
+        )?;
+        let c = super::cluster_windows(&vecs, &wins, p);
+        let mut labels = super::label_words(words, &wins, &vecs, &c, p);
+        labels.also = self.overlaps_from(segs, audio, words, &labels.words, op, &mut |f| progress(0.8 + 0.2 * f))?;
+        Ok(labels)
+    }
+
     /// Second speaker of each word (see the module docs); `labels` are the words' speakers.
     /// `progress(fraction)` returns false to cancel.
     pub fn overlaps(
@@ -343,25 +424,38 @@ impl super::Diarizer {
         p: &OverlapParams,
         progress: &mut dyn FnMut(f32) -> bool,
     ) -> Result<Vec<Option<usize>>, crate::AsrError> {
+        let segs = self.segment(net, audio, words, p, &mut |f| progress(0.5 * f))?;
+        self.overlaps_from(segs, audio, words, labels, p, &mut |f| progress(0.5 + 0.5 * f))
+    }
+
+    /// [`Diarizer::overlaps`] over chunks already segmented ([`Diarizer::segment`]).
+    pub fn overlaps_from(
+        &self,
+        segs: Vec<Chunk>,
+        audio: &[f32],
+        words: &[Word],
+        labels: &[Option<usize>],
+        p: &OverlapParams,
+        progress: &mut dyn FnMut(f32) -> bool,
+    ) -> Result<Vec<Option<usize>>, crate::AsrError> {
         let k = labels.iter().flatten().max().map_or(0, |m| m + 1);
         if k < 2 || words.is_empty() {
             return Ok(vec![None; words.len()]);
         }
         let per_ms = SAMPLE_RATE as usize / 1000;
-        let len_ms = i64::try_from(audio.len() / per_ms).unwrap_or(0);
-        let starts = chunk_starts(len_ms, words, p.step_ms);
+        let total = segs.len();
         let mut chunks = Vec::new();
         // pass 1: activity, votes; voices of decisively tied local speakers make the centroids
         let mut sums: Vec<(Vec<f32>, usize)> = vec![(Vec::new(), 0); k];
         let mut pending = Vec::new();
-        for (n, &cs) in starts.iter().enumerate() {
-            if !progress(n as f32 / starts.len().max(1) as f32) {
+        for (n, mut ch) in segs.into_iter().enumerate() {
+            if !progress(n as f32 / total.max(1) as f32) {
                 return Err(crate::AsrError::Cancelled);
             }
+            let cs = ch.start_ms;
             let a = usize::try_from(cs).unwrap_or(0).saturating_mul(per_ms).min(audio.len());
             let b = a.saturating_add(CHUNK_SAMPLES).min(audio.len());
             let Some(block) = audio.get(a..b) else { continue };
-            let mut ch = Chunk::new(cs, &net.forward(block)?);
             let act = ch.act.clone();
             let v = votes(&act, cs, words, labels, k);
             let ties0: [Option<usize>; LOCAL] = std::array::from_fn(|s| v.get(s).and_then(|v| by_votes(v, p)));

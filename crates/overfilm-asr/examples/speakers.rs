@@ -97,6 +97,10 @@ fn main() {
                         i += 1;
                     }
                     "--no-stitch" => op.stitch = false,
+                    "--clean-pool" => {
+                        op.clean_pool = a[i + 1].parse().unwrap();
+                        i += 1;
+                    }
                     "--ov-sim" => {
                         op.min_similarity = a[i + 1].parse().unwrap();
                         i += 1;
@@ -130,7 +134,17 @@ fn main() {
                 (serde_json::from_value(v["windows"].clone()).unwrap(), serde_json::from_value(v["vectors"].clone()).unwrap())
             } else {
                 let wins = speakers::windows(&speakers::speech_regions(&words, p.pause_ms), p.window_ms, p.step_ms);
-                let vecs = speakers::window_vectors(&audio, &wins, &mut |b| d.frame_map(b), &|m, x, y| d.pool(m, x, y), &mut |_, _| true).unwrap();
+                let vecs = match &seg_net {
+                    Some(n) if op.clean_pool <= 1.0 => {
+                        let th = op.clean_pool;
+                        let segs = d.segment(n, &audio, &words, &op, &mut |_| true).unwrap();
+                        let grid = speakers::overlap::overlap_grid(&segs, (audio.len() / 16) as i64);
+                        let skip = |t: i64| grid.get(usize::try_from(t / 10).unwrap_or(0)).is_some_and(|&o| o >= th);
+                        speakers::window_vectors_skipping(&audio, &wins, &mut |b| d.frame_map(b), &|m, x, y| d.pool(m, x, y), Some(&skip), &mut |_, _| true)
+                            .unwrap()
+                    }
+                    _ => speakers::window_vectors(&audio, &wins, &mut |b| d.frame_map(b), &|m, x, y| d.pool(m, x, y), &mut |_, _| true).unwrap(),
+                };
                 (wins, vecs)
             };
             eprintln!("{} windows, {:.1} s", wins.len(), t0.elapsed().as_secs_f32());
