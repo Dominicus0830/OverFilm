@@ -176,7 +176,7 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         known,
     };
     let rec = overfilm_pipeline::recognise::recognise(&audio, &req, &models, &mut |f, m| progress(0.1 + 0.88 * f, m))?;
-    let overfilm_pipeline::recognise::Recognised { mut transcript, corrections, device, voice_lines } = rec;
+    let overfilm_pipeline::recognise::Recognised { mut transcript, corrections, device, voice_lines, .. } = rec;
     if let Some((from, _)) = range {
         // the words were timed on the cut-out sound: put them on the input's clock
         shift(&mut transcript, from);
