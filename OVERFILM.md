@@ -151,9 +151,9 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   are ignored, and only ultimate/announcer/skin lines or lines of 8+ characters count on their own;
   communication-wheel lines (kind `comm`, "방어구가 필요해") and short everyday lines ("아니거든요")
   only count towards a speaker. The table holds ~20,000 lines: ultimates and announcer for most
-  heroes, plus the Korean lines of 39 heroes taken from the client's sound file names (lines of
+  heroes, plus the Korean lines of 40 heroes taken from the client's sound file names (lines of
   under 5 characters, glossary words such as Echo's copied hero names, foreign-language and
-  event-mode lines left out; Anran, D.Mon, Domina, Shion, Sierra and Zenyatta still missing).
+  event-mode lines left out; Anran, D.Mon, Domina, Shion and Sierra still missing).
   `find` compares only lines sharing enough character pairs with the text (an edit removes at most
   two distinct pairs): ~60 ms for 1,000 words. On 40 recognised hero lines 19 are marked on their
   own; on two real streams no streamer words are. Captions drop game audio
