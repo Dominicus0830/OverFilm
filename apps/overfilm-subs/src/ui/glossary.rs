@@ -163,6 +163,7 @@ fn category_label(c: &str) -> &'static str {
         "teams" => "팀",
         "terms" => "용어",
         "slang" => "커뮤니티 표현",
+        "netslang" => "인터넷·방송 말",
         "matchups" => "조합",
         "profanity" => "욕설 초성",
         "spelling" => "맞춤법",
