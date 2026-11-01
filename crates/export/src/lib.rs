@@ -124,6 +124,12 @@ impl Progress {
         self.eta_at(web_time::Instant::now())
     }
 
+    /// Estimate the time left from the average speed since the job started moving instead of the
+    /// last 15 seconds: for jobs whose `done` moves in long, even steps (speech recognition).
+    pub fn set_steady_pace(&self) {
+        self.pace.lock().unwrap_or_else(PoisonError::into_inner).set_steady();
+    }
+
     /// [`Progress::eta`] at a given time (tests, and hosts with a clock of their own).
     pub fn eta_at(&self, now: web_time::Instant) -> Option<std::time::Duration> {
         let (done, total) = (self.done.load(Ordering::Relaxed), self.total.load(Ordering::Relaxed));

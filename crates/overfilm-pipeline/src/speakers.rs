@@ -6,8 +6,11 @@
 //! voice lines (at least two matches) is a game voice as a whole, and then even short lines and
 //! the rest of its words count as game audio.
 
+use overfilm_asr::speakers::Labels;
+#[cfg(feature = "qwen")]
 use overfilm_asr::speakers::overlap::OverlapParams;
-use overfilm_asr::speakers::{Diarizer, Labels, Params};
+#[cfg(feature = "qwen")]
+use overfilm_asr::speakers::{Diarizer, Params};
 use overfilm_asr::{Speaker, Transcript};
 use overfilm_captions::{Caption, Layout, TimedWord};
 use overfilm_glossary::voicelines::VoiceLines;
@@ -293,7 +296,8 @@ pub fn captions_per_speaker(t: &Transcript, layout: &Layout, clean: bool) -> Vec
         .collect()
 }
 
-/// Run the speaker network over `audio` (on the GPU when `gpu` and one matches the CPU) and
+#[cfg(feature = "qwen")]
+/// Run the speaker network over `audio` (feature `qwen`; on the GPU when `gpu` and one matches the CPU) and
 /// label `t`'s words. Returns where the network ran.
 pub fn label(
     audio: &[f32],

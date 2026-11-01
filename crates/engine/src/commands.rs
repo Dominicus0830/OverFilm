@@ -3796,6 +3796,14 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::project_panel::commands());
     v.extend(crate::media_browser::commands());
     v.extend(crate::paste_media::commands());
+    v.extend(crate::overfilm_autocut::commands());
+    v.extend(crate::overfilm_captions::commands());
+    v.extend(crate::overfilm_transcribe::commands());
+    v.extend(crate::overfilm_assist::commands());
+    v.extend(crate::overfilm_reel::commands());
+    v.extend(crate::overfilm_kills::commands());
+    v.extend(crate::overfilm_style::commands());
+    v.extend(crate::overfilm_review::commands());
     // Edit ▸ Label ▸ <colour>, Paste Attributes, subclips, Video / Audio Options, Replace With Clip…
     // and their menu order
     crate::clip_ops::apply_layout(&mut v);

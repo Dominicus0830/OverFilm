@@ -6,7 +6,6 @@
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
-pub mod clean;
 pub mod edit;
 pub mod export;
 pub mod history;
@@ -15,11 +14,11 @@ pub mod learn;
 pub mod mcp;
 pub mod media;
 pub mod notify;
-pub mod pack;
 pub mod review;
-pub mod speakers;
 pub mod usergloss;
 pub mod voices;
+
+pub use overfilm_pipeline::{clean, pack, speakers};
 
 /// File extensions offered in the open dialog.
 pub const MEDIA_EXTENSIONS: &[&str] =

@@ -77,6 +77,17 @@ fn settings(app: &mut App, ui: &mut egui::Ui) {
     }
     ui.add_space(14.0);
     ui.label(RichText::new("세부 설정").strong());
+    if app.audio_tracks.len() > 1 {
+        let (tracks, track) = (&app.audio_tracks, &mut app.audio_track);
+        setting(ui, "오디오 트랙", "자막으로 만들 소리 (마이크만 따로 녹음한 트랙 등)", false, |ui| {
+            let shown = tracks.get(*track).cloned().unwrap_or_default();
+            craft_ui::ComboBox::from_id_salt("audio_track").selected_text(shown).width(240.0).show_ui(ui, |ui| {
+                for (i, t) in tracks.iter().enumerate() {
+                    ui.selectable_value(track, i, t.as_str());
+                }
+            });
+        });
+    }
     let o = &mut app.prefs.options;
     setting(ui, "추가 이름·용어", "단어집에 없는 이름만 쉼표로", false, |ui| {
         ui.add(egui::TextEdit::singleline(&mut o.extra_terms).hint_text("예: 스트리머 이름, 팀 이름").desired_width(240.0));
@@ -86,7 +97,12 @@ fn settings(app: &mut App, ui: &mut egui::Ui) {
     });
     if open {
         ui.add_enabled_ui(o.speakers, |ui| {
-            setting(ui, "사람 수", "알면 정해 주세요. 가장 확실합니다", true, |ui| {
+            let hint = if o.num_speakers == Some(1) {
+                "1명: 목소리 구별을 건너뛰어 더 빨리 끝납니다"
+            } else {
+                "알면 정해 주세요. 가장 확실합니다"
+            };
+            setting(ui, "사람 수", hint, true, |ui| {
                 let label = o.num_speakers.map_or("자동".to_string(), |n| format!("{n}명"));
                 craft_ui::ComboBox::from_id_salt("num_speakers").selected_text(label).width(140.0).show_ui(ui, |ui| {
                     ui.selectable_value(&mut o.num_speakers, None, "자동");

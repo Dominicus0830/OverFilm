@@ -62,6 +62,8 @@ pub struct Server {
 fn tools() -> Value {
     let path = json!({"type": "string", "description": "SRT 파일 경로"});
     let index = json!({"type": "integer", "minimum": 1, "description": "자막 번호 (1부터)"});
+    let audio_track =
+        json!({"type": "integer", "minimum": 1, "maximum": 64, "description": "인식할 오디오 트랙 번호 (1부터, 기본 1). OBS에서 마이크를 따로 녹음한 트랙 등"});
     json!([
         {"name": "extract_subtitles", "description": "영상/오디오 파일에서 한국어 자막(SRT)을 뽑습니다. 몇 분 걸리므로 바로 돌아오고, job_status로 진행을 확인합니다. 결과는 입력 파일 옆 .srt와 .overfilm.json(단어 시간)입니다.",
          "inputSchema": {"type": "object", "required": ["input"], "properties": {
@@ -73,13 +75,14 @@ fn tools() -> Value {
             "digits": {"type": "boolean", "description": "말로 한 숫자를 숫자로: 오 시즌 → 5시즌, 사십칠 퍼센트 → 47% (기본 true)"},
             "gpu": {"type": "boolean", "description": "그래픽카드(GPU)가 있으면 사용 (기본 true, 없거나 오류면 CPU)"},
             "speakers": {"type": "boolean", "description": "목소리를 구별해 사람이 둘 이상이면 자막에 (화자1), (화자2)를 붙임 (기본 true)"},
-            "num_speakers": {"type": "integer", "minimum": 1, "maximum": 20, "description": "사람 수를 알면 지정 (없으면 자동으로 셈)"},
+            "num_speakers": {"type": "integer", "minimum": 1, "maximum": 20, "description": "사람 수를 알면 지정 (없으면 자동으로 셈, 1이면 목소리 구별을 건너뛰어 빠름)"},
             "game_voice": {"type": "string", "enum": ["drop", "label", "keep"], "description": "영웅 대사·아나운서 같은 게임 음성: drop 자막에서 빼기(기본), label (게임) 표시, keep 그대로"},
             "per_speaker": {"type": "boolean", "description": "사람마다 SRT를 따로 저장 (이름.화자1.srt …, 기본 false)"},
             "only_voices": {"type": "boolean", "description": "등록한 목소리(add_voice)의 말만 자막으로, 예: 스트리머 말만 (기본 false)"},
             "use_voices": {"type": "boolean", "description": "등록한 목소리와 같은 사람이면 그 이름을 붙임 (기본 true)"},
             "clean_fillers": {"type": "boolean", "description": "추임새(어, 음)와 말 더듬기(그 그게)를 자막에서 뺌 (기본 false, 단어 시간 파일에는 남음)"},
-            "from": {"type": "string", "description": "이 시간부터만 인식 (예: 00:01:23,000)"}, "to": {"type": "string", "description": "이 시간까지만 인식"}}}},
+            "from": {"type": "string", "description": "이 시간부터만 인식 (예: 00:01:23,000)"}, "to": {"type": "string", "description": "이 시간까지만 인식"},
+            "audio_track": audio_track}}},
         {"name": "rerecognize_range", "description": "자막의 한 구간만 소리를 다시 인식해 바꿉니다 (다른 곳에서 고친 글자는 그대로). extra_terms로 그 구간에 나오는 이름을 알려 주면 더 정확합니다. 백그라운드로 돌고 job_status로 확인합니다.",
          "inputSchema": {"type": "object", "required": ["path", "from", "to"], "properties": {"path": path, "from": {"type": "string", "description": "시작 (예: 00:01:23,000)"}, "to": {"type": "string", "description": "끝"},
             "input": {"type": "string", "description": "원본 영상 (기본: SRT와 같은 이름의 영상)"}, "extra_terms": {"type": "string"}, "gpu": {"type": "boolean"}, "clean_fillers": {"type": "boolean"}}}},
@@ -214,6 +217,7 @@ impl Server {
         o.gpu = a.get("gpu").and_then(Value::as_bool).unwrap_or(true);
         o.speakers = a.get("speakers").and_then(Value::as_bool).unwrap_or(true);
         o.num_speakers = a.get("num_speakers").and_then(Value::as_u64).map(|n| n.clamp(1, 20) as usize);
+        o.audio_track = a.get("audio_track").and_then(Value::as_u64).map_or(0, |n| (n.clamp(1, 64) as usize).saturating_sub(1));
         if let Some(g) = s(a, "game_voice") {
             o.game_voice = GameVoice::parse(g).ok_or_else(|| format!("모르는 game_voice: {g}"))?;
         }
