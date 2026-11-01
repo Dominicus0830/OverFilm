@@ -29,7 +29,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
     vec![
         CommandSpec {
             id: "overfilm.style.learn",
-            label: "Learn Editing Style (OverFilm)",
+            label: "Learn Editing Style (OverFilm, Beta)",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
             params: r#"{"sequences":[id]?,"style":path?}"#,

@@ -338,9 +338,9 @@ the fights at 31:06 and 34:30 (a team wipe) died in the order and at the times t
 and two of the four sound-only highlights (31:06, 1:15:19) fall on fights. A plate that flickers back
 mid-respawn made a few double deaths, hence no second death of a player within 8 s.
 
-## Editing style
+## Editing style (beta)
 
-`Sequence ▸ OverFilm ▸ Learn Editing Style` (`overfilm.style.learn {sequences?, style?}`) learns
+`Sequence ▸ OverFilm ▸ Learn Editing Style (Beta)` (`overfilm.style.learn {sequences?, style?}`) learns
 from finished edits: select them in the Project panel (a Premiere Pro edit comes in through
 File ▸ Export ▸ Final Cut Pro XML in Premiere, then File ▸ Import here; `.prproj` is not read), or
 it takes the open sequence. Per sequence it reads (`overfilm_style::facts`): the time between video
@@ -356,7 +356,7 @@ the kept stretches (5–60 s) unless `seconds` is given, and the highlight reel 
 plain cuts when fewer than a fifth of the editor's cuts carry a transition, else with a dissolve
 of their usual length (unless `dissolve` / `dissolveFrames` is given). Checked by a round trip
 (the demo edit exported as FCP7 XML, imported, learnt: same cuts, shots and transitions); not yet
-on a real Premiere edit.
+on a real Premiere edit: a beta until it is.
 
 ## Dialogs
 
