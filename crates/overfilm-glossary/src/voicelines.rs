@@ -7,10 +7,12 @@
 //! line's length. Lines shorter than [`MIN_SYLLABLES`] are too easy to say for real ("간다",
 //! "승리") and only count as supporting evidence ([`Match::short`]).
 
+use std::collections::{HashMap, HashSet};
+
 /// Lines shorter than this (in compared characters) are weak evidence on their own.
 pub const MIN_SYLLABLES: usize = 5;
 /// Most lines kept from a table.
-pub const MAX_LINES: usize = 5_000;
+pub const MAX_LINES: usize = 60_000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
@@ -45,6 +47,11 @@ pub struct Match {
 #[derive(Clone, Debug, Default)]
 pub struct VoiceLines {
     pub lines: Vec<Line>,
+}
+
+/// Distinct neighbouring character pairs.
+fn pairs_of(s: &[char]) -> HashSet<(char, char)> {
+    s.windows(2).filter_map(|p| Some((*p.first()?, *p.get(1)?))).collect()
 }
 
 fn norm(s: &str) -> Vec<char> {
@@ -99,24 +106,74 @@ impl VoiceLines {
     }
 
     /// Non-overlapping matches in `words`, best first where they compete.
+    ///
+    /// Only lines that share enough character pairs with the text after a word are compared: an
+    /// edit removes at most two of a line's distinct pairs, so a line within `allowed` edits keeps
+    /// all but `2 × allowed` of them. The answer is the same as comparing every line.
     pub fn find(&self, words: &[&str]) -> Vec<Match> {
         let w: Vec<Vec<char>> = words.iter().map(|w| norm(w)).collect();
         let longest = self.lines.iter().map(|l| l.norm.len()).max().unwrap_or(0);
+        let reach = longest + longest / 4 + 1;
+        let mut index: HashMap<(char, char), Vec<usize>> = HashMap::new();
+        let mut need: Vec<usize> = Vec::with_capacity(self.lines.len());
+        for (li, l) in self.lines.iter().enumerate() {
+            let pairs = pairs_of(&l.norm);
+            need.push(pairs.len().saturating_sub(2 * (l.norm.len() / 5)).max(1));
+            for p in pairs {
+                index.entry(p).or_default().push(li);
+            }
+        }
+        let mut shared = vec![0usize; self.lines.len()];
         let mut found: Vec<Match> = Vec::new();
         for i in 0..w.len() {
+            // a span must start with real characters
+            if w.get(i).is_none_or(Vec::is_empty) {
+                continue;
+            }
+            let mut text: Vec<char> = Vec::new();
+            for x in w.get(i..).unwrap_or_default() {
+                if text.len() > reach {
+                    break;
+                }
+                text.extend(x);
+            }
+            let mut touched: Vec<usize> = Vec::new();
+            for p in pairs_of(&text) {
+                for &li in index.get(&p).map(Vec::as_slice).unwrap_or_default() {
+                    if let Some(c) = shared.get_mut(li) {
+                        if *c == 0 {
+                            touched.push(li);
+                        }
+                        *c += 1;
+                    }
+                }
+            }
+            // in table order, so ties break as when every line is compared
+            let mut cands: Vec<usize> =
+                touched.iter().copied().filter(|&li| shared.get(li).copied().unwrap_or(0) >= need.get(li).copied().unwrap_or(1)).collect();
+            cands.sort_unstable();
+            for &li in &touched {
+                if let Some(c) = shared.get_mut(li) {
+                    *c = 0;
+                }
+            }
+            if cands.is_empty() {
+                continue;
+            }
             let mut span: Vec<char> = Vec::new();
             for j in i..w.len() {
                 if let Some(x) = w.get(j) {
                     span.extend(x);
                 }
-                if span.len() > longest + longest / 4 + 1 {
+                if span.len() > reach {
                     break;
                 }
-                // a span must start and end with real characters
-                if span.is_empty() || w.get(i).is_some_and(Vec::is_empty) || w.get(j).is_some_and(Vec::is_empty) {
+                // and end with real characters
+                if w.get(j).is_some_and(Vec::is_empty) {
                     continue;
                 }
-                for (li, l) in self.lines.iter().enumerate() {
+                for &li in &cands {
+                    let Some(l) = self.lines.get(li) else { continue };
                     let (a, b) = (span.len(), l.norm.len());
                     let allowed = b / 5;
                     if a.abs_diff(b) > allowed {
@@ -129,17 +186,21 @@ impl VoiceLines {
                 }
             }
         }
-        // keep the best (score, then length) of overlapping matches
-        found.sort_by(|a, b| b.score.total_cmp(&a.score).then((b.end - b.start).cmp(&(a.end - a.start))));
-        let mut keep: Vec<Match> = Vec::new();
-        for m in found {
-            if keep.iter().all(|k| m.end <= k.start || m.start >= k.end) {
-                keep.push(m);
-            }
-        }
-        keep.sort_by_key(|m| m.start);
-        keep
+        keep_best(found)
     }
+}
+
+/// The best (score, then length) of overlapping matches, in text order.
+fn keep_best(mut found: Vec<Match>) -> Vec<Match> {
+    found.sort_by(|a, b| b.score.total_cmp(&a.score).then((b.end - b.start).cmp(&(a.end - a.start))));
+    let mut keep: Vec<Match> = Vec::new();
+    for m in found {
+        if keep.iter().all(|k| m.end <= k.start || m.start >= k.end) {
+            keep.push(m);
+        }
+    }
+    keep.sort_by_key(|m| m.start);
+    keep
 }
 
 #[cfg(test)]
@@ -161,6 +222,77 @@ mod tests {
         assert_eq!((m[1].start, m[1].end, m[1].line), (4, 6, 1));
         assert!(m[1].score < 1.0 && !m[1].short);
         assert!(m[2].short);
+    }
+
+    /// Every line compared at every span: what `find` must agree with.
+    fn brute(v: &VoiceLines, words: &[&str]) -> Vec<Match> {
+        let w: Vec<Vec<char>> = words.iter().map(|w| norm(w)).collect();
+        let mut out = Vec::new();
+        for i in 0..w.len() {
+            let mut span = Vec::new();
+            for j in i..w.len() {
+                span.extend(&w[j]);
+                if w[i].is_empty() || w[j].is_empty() {
+                    continue;
+                }
+                for (li, l) in v.lines.iter().enumerate() {
+                    let (a, b) = (span.len(), l.norm.len());
+                    let d = edit_distance(&span, &l.norm);
+                    if a.abs_diff(b) <= b / 5 && d <= b / 5 {
+                        out.push(Match { start: i, end: j + 1, line: li, score: 1.0 - d as f32 / b as f32, short: b < MIN_SYLLABLES });
+                    }
+                }
+            }
+        }
+        keep_best(out)
+    }
+
+    #[test]
+    fn the_pair_filter_misses_nothing() {
+        let syl: Vec<char> = "가나다라마바사아자차카타".chars().collect();
+        let mut seed = 7u64;
+        let mut next = |n: usize| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) as usize % n
+        };
+        let mut tsv = String::from("hero\tkind\ttext\n");
+        let mut lines = Vec::new();
+        for _ in 0..60 {
+            let n = 2 + next(12);
+            let l: String = (0..n).map(|_| syl[next(syl.len())]).collect();
+            tsv.push_str(&format!("h\tk\t{l}\n"));
+            lines.push(l);
+        }
+        let v = VoiceLines::parse(&tsv);
+        let mut total = 0;
+        for _ in 0..40 {
+            // text made of lines with a few edits, cut into words
+            let mut text: Vec<char> = Vec::new();
+            for _ in 0..4 {
+                let mut l: Vec<char> = lines[next(lines.len())].chars().collect();
+                for _ in 0..next(3) {
+                    let at = next(l.len());
+                    match next(3) {
+                        0 => l[at] = syl[next(syl.len())],
+                        1 => drop(l.remove(at)),
+                        _ => l.insert(at, syl[next(syl.len())]),
+                    }
+                }
+                text.extend(l);
+            }
+            let mut words: Vec<String> = Vec::new();
+            let mut k = 0;
+            while k < text.len() {
+                let n = 1 + next(4);
+                words.push(text[k..(k + n).min(text.len())].iter().collect());
+                k += n;
+            }
+            let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+            let got = v.find(&refs);
+            assert_eq!(got, brute(&v, &refs));
+            total += got.len();
+        }
+        assert!(total > 40, "{total}");
     }
 
     #[test]

@@ -53,9 +53,23 @@ const SURE: f32 = 0.8;
 /// said by a caster is one edit from Sojourn's "여기까지다".
 const EXACT_BELOW: usize = 8;
 
-fn is_sure(m: &overfilm_glossary::voicelines::Match, lines: &VoiceLines) -> bool {
+/// Line kind for communication-wheel lines ("방어구가 필요해"): people say them too, so they only
+/// count towards a speaker being game voice, never on their own.
+const COMM: &str = "comm";
+
+/// Exact, or a long line nearly said.
+fn is_close(m: &overfilm_glossary::voicelines::Match, lines: &VoiceLines) -> bool {
     let len = lines.lines.get(m.line).map_or(0, |l| l.len());
-    !m.short && (m.score >= 1.0 || (len >= EXACT_BELOW && m.score >= SURE))
+    m.score >= 1.0 || (len >= EXACT_BELOW && m.score >= SURE)
+}
+
+/// Whether a line alone marks its words as game audio: not a communication-wheel line, and
+/// either an ultimate / announcer / skin line or long. Short everyday lines ("아니거든요",
+/// "감사합니다") are said by people too and only count towards a speaker.
+fn is_sure(m: &overfilm_glossary::voicelines::Match, lines: &VoiceLines) -> bool {
+    let Some(l) = lines.lines.get(m.line) else { return false };
+    let signature = l.kind.starts_with("ult") || l.kind == "announcer" || l.kind == "other";
+    l.kind != COMM && (signature || l.len() >= EXACT_BELOW) && !m.short && is_close(m, lines)
 }
 
 /// Write per-word speakers and the speaker list into `t` (people numbered 화자1, 화자2… by first
@@ -107,6 +121,8 @@ pub fn mark_game_voice(t: &mut Transcript, lines: &VoiceLines) -> usize {
     let found = lines.find(&refs);
     let mut game = vec![false; texts.len()];
     let mut weak = vec![false; texts.len()];
+    // near misses of short lines ("하겠습니다" for "알겠습니다") are ordinary speech
+    let found: Vec<_> = found.into_iter().filter(|m| is_close(m, lines)).collect();
     for m in &found {
         let sure = is_sure(m, lines);
         for g in game.get_mut(m.start..m.end).into_iter().flatten() {
@@ -295,19 +311,23 @@ pub fn label(
     if gpu {
         d.use_gpu();
     }
-    let mut labels = d.run(audio, &words, p, &mut |f| progress(0.75 * f)).map_err(|e| e.to_string())?;
-    // overlapped speech when its model is there (models/<segment id> next to the speaker model);
-    // without it, or if it fails, the labels stand as they are
+    // with the overlap model (models/<segment id> next to the speaker model) the overlapped
+    // frames stay out of the voices and each word learns who else talks; without it, or if that
+    // fails, plain labels
     let seg = &overfilm_asr::catalogue::SEGMENT;
-    if let Some(models) = model_dir.parent().filter(|m| seg.installed(m))
-        && let Ok(net) = overfilm_asr::speakers::seg::SegNet::load(&seg.dir(models).join("model.onnx"))
-    {
-        match d.overlaps(&net, audio, &words, &labels.words, &OverlapParams::default(), &mut |f| progress(0.75 + 0.25 * f)) {
-            Ok(also) => labels.also = also,
+    let net = model_dir.parent().filter(|m| seg.installed(m)).and_then(|m| overfilm_asr::speakers::seg::SegNet::load(&seg.dir(m).join("model.onnx")).ok());
+    let with = match &net {
+        Some(net) => match d.run_with_overlaps(net, audio, &words, p, &OverlapParams::default(), progress) {
+            Ok(l) => Some(l),
             Err(overfilm_asr::AsrError::Cancelled) => return Err("취소됨".into()),
-            Err(_) => {}
-        }
-    }
+            Err(_) => None,
+        },
+        None => None,
+    };
+    let labels = match with {
+        Some(l) => l,
+        None => d.run(audio, &words, p, progress).map_err(|e| e.to_string())?,
+    };
     apply_labels(t, &labels);
     Ok(d.device.clone())
 }
@@ -341,6 +361,15 @@ mod tests {
         let mut near = transcript(&[("여기까지", 0, None)]);
         assert_eq!(mark_game_voice(&mut near, &VoiceLines::parse("hero\tkind\ttext\n소전\tult\t여기까지다\n")), 0);
         assert!(!near.words().any(|w| w.game));
+        // a communication-wheel line said by a person stays theirs
+        let mut comm = transcript(&[("방어구가", 0, Some(0)), ("필요해요", 500, Some(0))]);
+        comm.speakers = vec![Speaker::default()];
+        assert_eq!(mark_game_voice(&mut comm, &VoiceLines::parse("hero\tkind\ttext\n키리코\tcomm\t방어구가 필요해요\n")), 0);
+        assert!(!comm.words().any(|w| w.game));
+        // so is a short everyday line, but not a short ultimate line
+        let mut short = transcript(&[("아니거든요", 0, Some(0))]);
+        short.speakers = vec![Speaker::default()];
+        assert_eq!(mark_game_voice(&mut short, &VoiceLines::parse("hero\tkind\ttext\n시메트라\tmatchtalk\t아니거든요\n")), 0);
         // one match is not enough to call speaker 3 a game voice, but the words are game audio
         assert!(!t.speakers[2].game);
         assert!(t.words().filter(|w| w.game).count() == 2);
