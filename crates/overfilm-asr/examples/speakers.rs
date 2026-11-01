@@ -3,7 +3,7 @@
 //! ```sh
 //! cargo run --release -p overfilm-asr --features qwen --example speakers -- fbank audio.f32 > feats.f32
 //! cargo run --release -p overfilm-asr --features qwen --example speakers -- embed MODEL_DIR audio.f32
-//! cargo run --release -p overfilm-asr --features qwen --example speakers -- diarize MODEL_DIR audio.f32 words.json [threshold…] [--speakers N] [--window MS] [--step MS]
+//! cargo run --release -p overfilm-asr --features qwen --example speakers -- diarize MODEL_DIR audio.f32 words.json [threshold…] [--speakers N] [--window MS] [--step MS] [--overlap SEG_MODEL.onnx]
 //! ```
 //! `audio.f32` is raw 16 kHz mono little-endian f32 (`ffmpeg -i x -ac 1 -ar 16000 -f f32le`);
 //! `words.json` is a list of `{"text","start_ms","end_ms"}`. `diarize` prints one JSON line per
@@ -53,6 +53,8 @@ fn main() {
             let mut thresholds = Vec::new();
             let mut dump = None;
             let mut load: Option<String> = None;
+            let mut seg_net = None;
+            let mut op = speakers::overlap::OverlapParams::default();
             let mut i = 4;
             while i < a.len() {
                 match a[i].as_str() {
@@ -82,6 +84,31 @@ fn main() {
                         p.switch_cost = a[i + 1].parse().unwrap();
                         i += 1;
                     }
+                    "--overlap" => {
+                        seg_net = Some(speakers::seg::SegNet::load(Path::new(&a[i + 1])).expect("overlap model"));
+                        i += 1;
+                    }
+                    "--ov-share" => {
+                        op.word_share = a[i + 1].parse().unwrap();
+                        i += 1;
+                    }
+                    "--ov-prob" => {
+                        op.overlap_prob = a[i + 1].parse().unwrap();
+                        i += 1;
+                    }
+                    "--no-stitch" => op.stitch = false,
+                    "--clean-pool" => {
+                        op.clean_pool = a[i + 1].parse().unwrap();
+                        i += 1;
+                    }
+                    "--ov-sim" => {
+                        op.min_similarity = a[i + 1].parse().unwrap();
+                        i += 1;
+                    }
+                    "--ov-step" => {
+                        op.step_ms = a[i + 1].parse().unwrap();
+                        i += 1;
+                    }
                     "--dump" => {
                         dump = Some(a[i + 1].clone());
                         i += 1;
@@ -107,7 +134,17 @@ fn main() {
                 (serde_json::from_value(v["windows"].clone()).unwrap(), serde_json::from_value(v["vectors"].clone()).unwrap())
             } else {
                 let wins = speakers::windows(&speakers::speech_regions(&words, p.pause_ms), p.window_ms, p.step_ms);
-                let vecs = speakers::window_vectors(&audio, &wins, &mut |b| d.frame_map(b), &|m, x, y| d.pool(m, x, y), &mut |_, _| true).unwrap();
+                let vecs = match &seg_net {
+                    Some(n) if op.clean_pool <= 1.0 => {
+                        let th = op.clean_pool;
+                        let segs = d.segment(n, &audio, &words, &op, &mut |_| true).unwrap();
+                        let grid = speakers::overlap::overlap_grid(&segs, (audio.len() / 16) as i64);
+                        let skip = |t: i64| grid.get(usize::try_from(t / 10).unwrap_or(0)).is_some_and(|&o| o >= th);
+                        speakers::window_vectors_skipping(&audio, &wins, &mut |b| d.frame_map(b), &|m, x, y| d.pool(m, x, y), Some(&skip), &mut |_, _| true)
+                            .unwrap()
+                    }
+                    _ => speakers::window_vectors(&audio, &wins, &mut |b| d.frame_map(b), &|m, x, y| d.pool(m, x, y), &mut |_, _| true).unwrap(),
+                };
                 (wins, vecs)
             };
             eprintln!("{} windows, {:.1} s", wins.len(), t0.elapsed().as_secs_f32());
@@ -118,8 +155,25 @@ fn main() {
                 let p = Params { threshold: th, ..p.clone() };
                 let c = speakers::cluster_windows(&vecs, &wins, &p);
                 let l = speakers::label_words(&words, &wins, &vecs, &c, &p);
-                println!("{}", serde_json::json!({"threshold": th, "speakers": l.speakers.len(), "labels": l.words, "stats": l.speakers}));
+                let also = match &seg_net {
+                    Some(n) => {
+                        let t1 = std::time::Instant::now();
+                        let o = d.overlaps(n, &audio, &words, &l.words, &op, &mut |_| true).unwrap();
+                        eprintln!("overlap {:.1} s", t1.elapsed().as_secs_f32());
+                        o
+                    }
+                    None => Vec::new(),
+                };
+                println!("{}", serde_json::json!({"threshold": th, "speakers": l.speakers.len(), "labels": l.words, "also": also, "stats": l.speakers}));
             }
+        }
+        Some("seg") => {
+            let net = speakers::seg::SegNet::load(Path::new(&a[1])).expect("model");
+            let audio = read_f32(&a[2]);
+            let t = std::time::Instant::now();
+            let out = net.forward(&audio).expect("forward");
+            eprintln!("{:.3} s", t.elapsed().as_secs_f32());
+            println!("{}", serde_json::to_string(&out).unwrap());
         }
         _ => eprintln!("usage: speakers fbank|embed|diarize …"),
     }

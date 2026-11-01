@@ -73,6 +73,9 @@ pub struct Word {
     /// In-game voice (a hero line or the announcer), not a person in the room.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub game: bool,
+    /// Another speaker talking at the same time (overlapped speech).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub also: Option<usize>,
 }
 
 /// A whole input's transcript, chunk by chunk: the text as recognised (and corrected) and its

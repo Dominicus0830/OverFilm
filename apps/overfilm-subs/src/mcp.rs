@@ -562,7 +562,7 @@ mod tests {
         use overfilm_asr::{ChunkText, Speaker, Transcript, Word};
         let d = tempfile::tempdir().unwrap();
         let j = d.path().join("a.overfilm.json");
-        let w = |t: &str, s: i64, sp: usize| Word { text: t.into(), start_ms: s, end_ms: s + 400, speaker: Some(sp), game: false };
+        let w = |t: &str, s: i64, sp: usize| Word { text: t.into(), start_ms: s, end_ms: s + 400, speaker: Some(sp), ..Word::default() };
         let t = Transcript {
             chunks: vec![ChunkText {
                 start_ms: 0, end_ms: 3000, text: String::new(), words: vec![w("안녕", 0, 0), w("네", 1000, 1), w("영웅은", 2000, 2)]
