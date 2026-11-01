@@ -12,7 +12,7 @@ fn clock(ms: i64) -> String {
 fn main() -> std::io::Result<()> {
     let mut bytes = Vec::new();
     std::io::stdin().read_to_end(&mut bytes)?;
-    let samples: Vec<f32> = bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+    let samples: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
     let levels = overfilm_ai::levels(&samples, 16_000);
     let quiet = overfilm_ai::silences(&levels, &[], &overfilm_ai::SilenceParams::default());
     let total: i64 = quiet.iter().map(|s| s.len()).sum();
