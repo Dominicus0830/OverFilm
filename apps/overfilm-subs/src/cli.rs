@@ -9,6 +9,8 @@
 //! overfilm-subs relayout <file.overfilm.json> [-o out.srt] [--line-chars 16] [--one-line]
 //!               [--game-voice drop|label|keep] [--rename 화자1=이름]…
 //!                                       captions again from the saved word times
+//! overfilm-subs redo <file.srt> --from <time> --to <time> [--input <video>] [--terms "…"]
+//!                                       recognise one part again, keeping hand fixes elsewhere
 //! overfilm-subs export <file.srt> [--format srt|vtt|ass|txt] [--fps 29.97] [--gap 2] [-o out]
 //!                                       other formats, times on frames, a gap between captions
 //! overfilm-subs voice add <name> <video or audio> [--from 1:23] [--to 1:45]
@@ -36,9 +38,11 @@ const USAGE: &str = "사용법:
       --only-voices  등록한 목소리(voice add)의 말만 자막으로 (스트리머 말만 등)
       --no-voices    등록한 목소리로 이름 붙이지 않기
       --clean        추임새(어, 음)와 말 더듬기(그 그게)를 자막에서 빼기 (단어 시간 파일에는 남음)
+      --from 1:23 --to 4:56   이 구간만 인식 (자막 시간은 원본 기준)
   overfilm-subs review <자막.srt>
   overfilm-subs fix <자막.srt>      단어집 교정 적용 (원본은 .srt.bak)
   overfilm-subs relayout <이름.overfilm.json> [-o 저장.srt] [--line-chars 16] [--one-line] [--clean] [--game-voice …] [--rename 화자1=이름]   인식 다시 안 하고 자막만 다시 나누기
+  overfilm-subs redo <자막.srt> --from 00:01:23,000 --to 00:01:40,000 [--input 영상] [--terms \"이름\"]   이 부분만 다시 인식 (다른 곳 고친 글자는 그대로)
   overfilm-subs export <자막.srt> [--format srt|vtt|ass|txt] [--fps 29.97] [--gap 2] [-o 저장]   다른 형식으로 (프레임 맞춤, 자막 사이 빈 프레임)
   overfilm-subs voice add <이름> <영상/오디오> [--from 1:23] [--to 1:45]   목소리 등록 (10~30초 권장, 그 사람만 말하는 구간)
   overfilm-subs voice list | voice remove <이름>
@@ -88,6 +92,12 @@ fn extract(args: &[String]) -> Result<(), String> {
             "--only-voices" => o.only_voices = true,
             "--no-voices" => o.use_voices = false,
             "--clean" => o.clean_fillers = true,
+            "--from" | "--to" => {
+                let v = val()?;
+                let t = voices::parse_time(&v).and_then(|t| i64::try_from(t).ok()).ok_or_else(|| format!("{a} 뒤에 시간 (예: 1:23)"))?;
+                let (f, e) = o.range.unwrap_or((0, i64::MAX / 4));
+                o.range = Some(if a == "--from" { (t, e) } else { (f, t) });
+            }
             s if s.starts_with('-') => return Err(format!("모르는 옵션: {s}\n{USAGE}")),
             s => input = Some(PathBuf::from(s)),
         }
@@ -175,6 +185,45 @@ fn fix(args: &[String]) -> Result<(), String> {
         return Err(text);
     }
     println!("{text}");
+    Ok(())
+}
+
+/// `redo 자막.srt --from 1:23 --to 1:40 [--input 영상] [--terms …]`: recognise a part again.
+fn redo_cmd(args: &[String]) -> Result<(), String> {
+    let mut it = args.iter();
+    let (mut srt, mut input, mut from, mut to) = (None, None, None, None);
+    let mut o = job::Options::new(PathBuf::new());
+    while let Some(a) = it.next() {
+        let mut val = || it.next().cloned().ok_or_else(|| format!("{a} 뒤에 값이 필요합니다"));
+        match a.as_str() {
+            "--input" => input = Some(PathBuf::from(val()?)),
+            "--terms" => o.extra_terms = val()?,
+            "--from" => from = Some(review::parse_clock(&val()?).ok_or("--from 시간 형식 (예: 00:01:23,000 또는 1:23.0)")?),
+            "--to" => to = Some(review::parse_clock(&val()?).ok_or("--to 시간 형식")?),
+            "--cpu" => o.gpu = false,
+            "--clean" => o.clean_fillers = true,
+            s if s.starts_with('-') => return Err(format!("모르는 옵션: {s}")),
+            s => srt = Some(PathBuf::from(s)),
+        }
+    }
+    let srt = srt.ok_or(USAGE)?;
+    let (from, to) = (from.ok_or("--from이 필요합니다")?, to.ok_or("--to가 필요합니다")?);
+    o.input = match input {
+        Some(p) => p,
+        None => overfilm_subs::MEDIA_EXTENSIONS
+            .iter()
+            .map(|e| srt.with_extension(e))
+            .find(|p| p.is_file())
+            .ok_or("원본 영상을 찾지 못했습니다. --input으로 알려 주세요.")?,
+    };
+    let d = mcp::user_glossary_dir();
+    o.glossary_dir = d.is_dir().then_some(d);
+    let mut p = progress_bar();
+    let words = job::guarded(|| job::recognise_span(&o, from, to, &mut p))?;
+    eprintln!();
+    let mut opened = overfilm_subs::edit::Opened::load(&srt)?;
+    let n = opened.apply_redo(&o, from, to, words)?;
+    println!("{}–{} 다시 인식: 자막 {n}개 → {}", review::clock(from), review::clock(to), srt.display());
     Ok(())
 }
 
@@ -293,6 +342,7 @@ fn main() -> ExitCode {
         Some("fix") => fix(args.get(1..).unwrap_or_default()),
         Some("relayout") => relayout(args.get(1..).unwrap_or_default()),
         Some("export") => export_cmd(args.get(1..).unwrap_or_default()),
+        Some("redo") => redo_cmd(args.get(1..).unwrap_or_default()),
         Some("voice") => voice(args.get(1..).unwrap_or_default()),
         Some("models") => {
             let mut p = progress_bar();

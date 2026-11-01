@@ -119,6 +119,44 @@ impl Opened {
         self.save_transcript()
     }
 
+    /// Put words recognised again for `[from_ms, to_ms)` in place: the transcript's words there
+    /// are replaced and only the captions that start in the part are laid out again, so hand
+    /// fixes elsewhere stay. Returns the number of new captions.
+    pub fn apply_redo(&mut self, o: &Options, from_ms: i64, to_ms: i64, words: Vec<overfilm_asr::Word>) -> Result<usize, String> {
+        let fresh: Vec<Caption> = match &mut self.transcript {
+            Some(t) => {
+                job::splice(t, from_ms, to_ms, words);
+                let keep = if o.only_voices && t.speakers.iter().any(|s| s.enrolled && !s.game) { Keep::Enrolled } else { Keep::All };
+                speakers::captions_keep(t, o.game_voice, keep, &o.layout(), o.clean_fillers)
+                    .into_iter()
+                    .filter(|c| c.start_ms >= from_ms && c.start_ms < to_ms)
+                    .collect()
+            }
+            None => {
+                let tw: Vec<overfilm_captions::TimedWord> =
+                    words.iter().map(|w| overfilm_captions::TimedWord { text: w.text.clone(), start_ms: w.start_ms, end_ms: w.end_ms }).collect();
+                overfilm_captions::layout(&tw, &o.layout())
+            }
+        };
+        let n = fresh.len();
+        self.captions.retain(|c| !(c.start_ms >= from_ms && c.start_ms < to_ms));
+        self.captions.extend(fresh);
+        self.captions.sort_by_key(|c| c.start_ms);
+        // a new caption never runs into the next one
+        for i in 0..self.captions.len() {
+            let next = self.captions.get(i + 1).map(|c| c.start_ms);
+            if let (Some(c), Some(ns)) = (self.captions.get_mut(i), next)
+                && c.end_ms > ns
+            {
+                c.end_ms = ns.max(c.start_ms + 1);
+            }
+        }
+        let label = format!("다시 인식 {}–{}", crate::review::clock(from_ms), crate::review::clock(to_ms));
+        save_srt_as(&self.srt, &self.captions, &label)?;
+        self.save_transcript()?;
+        Ok(n)
+    }
+
     /// One SRT per person beside the main one (`이름.화자1.srt`…); returns the files written.
     pub fn write_per_speaker(&self, o: &Options) -> Result<Vec<PathBuf>, String> {
         let Some(t) = &self.transcript else { return Ok(Vec::new()) };
@@ -602,6 +640,42 @@ mod tests {
         // replacing with text that contains the search term does not loop
         assert_eq!(replace_in(&mut caps, "와", "와와", false), 1);
         assert_eq!(caps[0].lines[1], "정커퀸가 와와");
+    }
+
+    #[test]
+    fn redo_replaces_only_the_part() {
+        let d = tempfile::tempdir().unwrap();
+        let srt = d.path().join("r.srt");
+        let t = transcript(vec![w("처음", 0, 800, 0), w("전국퀸", 3000, 3500, 0), w("나왔다.", 3600, 4000, 0), w("끝", 8000, 8500, 0)], &["화자1"]);
+        std::fs::write(job::transcript_path(&srt), serde_json::to_string(&t).unwrap()).unwrap();
+        let caps = vec![
+            Caption { start_ms: 0, end_ms: 800, lines: vec!["손으로 고친 처음".into()] },
+            Caption { start_ms: 3000, end_ms: 4250, lines: vec!["전국퀸 나왔다.".into()] },
+            Caption { start_ms: 8000, end_ms: 8750, lines: vec!["끝".into()] },
+        ];
+        job::write_srt(&srt, &caps).unwrap();
+        let mut r = Opened::load(&srt).unwrap();
+        let new = vec![
+            overfilm_asr::Word { text: "정커퀸".into(), start_ms: 3010, end_ms: 3500, ..Default::default() },
+            overfilm_asr::Word { text: "나왔다.".into(), start_ms: 3600, end_ms: 4000, ..Default::default() },
+        ];
+        let n = r.apply_redo(&Options::new(PathBuf::new()), 3000, 4250, new).unwrap();
+        assert_eq!(n, 1);
+        let texts: Vec<String> = r.captions.iter().map(Caption::text).collect();
+        assert_eq!(texts, vec!["손으로 고친 처음", "정커퀸 나왔다.", "끝"], "the hand fix outside the part stays");
+        let back = Opened::load(&srt).unwrap();
+        assert!(back.transcript.unwrap().words().any(|w| w.text == "정커퀸"));
+        // without a transcript the words are laid out on their own
+        std::fs::remove_file(job::transcript_path(&srt)).unwrap();
+        let mut r = Opened::load(&srt).unwrap();
+        r.apply_redo(
+            &Options::new(PathBuf::new()),
+            8000,
+            8750,
+            vec![overfilm_asr::Word { text: "끝이다".into(), start_ms: 8000, end_ms: 8400, ..Default::default() }],
+        )
+        .unwrap();
+        assert_eq!(r.captions.last().unwrap().text(), "끝이다");
     }
 
     #[test]

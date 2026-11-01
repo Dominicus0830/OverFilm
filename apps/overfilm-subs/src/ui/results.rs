@@ -51,15 +51,26 @@ enum Action {
     ReplaceAll,
     RestoreVersion(u32),
     Learn(bool),
+    Extend(usize),
+    Redo,
+    CancelRedo,
+    RedoDone(Result<Vec<overfilm_asr::Word>, String>),
 }
 
-pub fn page(app: &mut App, ui: &mut egui::Ui, _ctx: &egui::Context) {
+pub fn page(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
+    let ctx = ctx.clone();
     let Some(r) = app.review.as_mut() else {
         app.step = Step::Empty;
         return;
     };
     let p = pal(ui);
     let mut actions = Vec::new();
+    if let Some(job) = &r.redo {
+        let done = job.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).2.take();
+        if let Some(res) = done {
+            actions.push(Action::RedoDone(res));
+        }
+    }
     egui::Panel::top("cmd").frame(egui::Frame::new().fill(p.layer).inner_margin(Margin::symmetric(12, 6))).show(ui, |ui| {
         command_bar(r, ui, &mut actions);
     });
@@ -144,7 +155,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, _ctx: &egui::Context) {
         export_dialog(r, &mut app.prefs.export, ui.ctx(), &mut actions);
     }
     for a in actions {
-        run(app, a);
+        run(app, a, &ctx);
     }
 }
 
@@ -381,7 +392,7 @@ fn table(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
         for &k in shown.get(range).unwrap_or_default() {
             let Some(c) = r.opened.captions.get(k) else { continue };
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
-            let selected = r.selected == Some(k);
+            let selected = r.selection().is_some_and(|s| s.contains(&k));
             if selected {
                 ui.painter().rect_filled(rect, 0.0, p.accent_soft);
             } else if resp.hovered() {
@@ -430,7 +441,11 @@ fn table(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
                 ui.painter().text(egui::pos2(rect.right() - 10.0, y), Align2::RIGHT_CENTER, tag, FontId::proportional(12.0), p.warn);
             }
             if resp.clicked() {
-                actions.push(Action::Select(k));
+                if ui.input(|i| i.modifiers.shift) && r.selected.is_some() {
+                    actions.push(Action::Extend(k));
+                } else {
+                    actions.push(Action::Select(k));
+                }
             }
         }
     });
@@ -443,8 +458,44 @@ fn short_clock(ms: i64) -> String {
     if h > 0 { format!("{h}:{m:02}:{s:02}.{f:03}") } else { format!("{m:02}:{s:02}.{f:03}") }
 }
 
+/// "Recognise this part again": extra names, the button, or the progress while it runs.
+fn redo_row(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+    let Some(sel) = r.selection() else { return };
+    let n = sel.end() - sel.start() + 1;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        if let Some(job) = &r.redo {
+            let (f, m) = {
+                let s = job.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                (s.0, s.1.clone())
+            };
+            ui.spinner();
+            ui.add(egui::ProgressBar::new(f.clamp(0.0, 1.0)).desired_width(160.0));
+            ui.add(egui::Label::new(RichText::new(m).small()).truncate());
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if button(ui, "멈추기").clicked() {
+                    actions.push(Action::CancelRedo);
+                }
+            });
+            return;
+        }
+        let label = if n > 1 { format!("선택한 자막 {n}개 다시 인식") } else { "이 부분 다시 인식".to_string() };
+        if button(ui, &label)
+            .on_hover_text("이 구간의 소리만 다시 인식합니다. 다른 곳에서 고친 글자는 그대로 둡니다. Shift+클릭으로 여러 줄을 고를 수 있습니다.")
+            .clicked()
+        {
+            actions.push(Action::Redo);
+        }
+        ui.add(egui::TextEdit::singleline(&mut r.redo_terms).hint_text("도움이 될 이름·용어 (선택)").desired_width(220.0));
+        if n == 1 {
+            caption(ui, "Shift+클릭으로 여러 줄 선택");
+        }
+    });
+}
+
 fn editor(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
     let p = pal(ui);
+    redo_row(r, ui, actions);
     let Some(k) = r.selected else { return };
     let Some(c) = r.opened.captions.get(k).cloned() else { return };
     let issues: Vec<review::Issue> = r.issues.iter().filter(|i| i.index == k + 1 && !r.ignored.contains(&(i.index, i.kind))).cloned().collect();
@@ -599,7 +650,7 @@ fn rebuild(r: &mut Review) -> Result<(), String> {
     Ok(())
 }
 
-fn run(app: &mut App, a: Action) {
+fn run(app: &mut App, a: Action, ctx: &egui::Context) {
     let mask = app.prefs.options.mask_profanity;
     let Some(r) = app.review.as_mut() else { return };
     let result: Result<Option<String>, String> = match a {
@@ -622,7 +673,54 @@ fn run(app: &mut App, a: Action) {
             app.status = None;
             return;
         }
+        Action::Extend(k) => {
+            r.sel_end = Some(k);
+            return;
+        }
+        Action::Redo => {
+            let input = match r.input.clone().filter(|p| p.is_file()) {
+                Some(p) => p,
+                None => match rfd::FileDialog::new()
+                    .set_title("이 자막을 만든 영상이나 오디오")
+                    .add_filter("영상·오디오", overfilm_subs::MEDIA_EXTENSIONS)
+                    .pick_file()
+                {
+                    Some(p) => {
+                        r.input = Some(p.clone());
+                        p
+                    }
+                    None => return,
+                },
+            };
+            r.start_redo(input, ctx);
+            return;
+        }
+        Action::CancelRedo => {
+            if let Some(j) = &r.redo {
+                j.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            return;
+        }
+        Action::RedoDone(res) => {
+            let Some(job) = r.redo.take() else { return };
+            match res {
+                Ok(words) => {
+                    r.remember();
+                    let o = r.options.clone();
+                    let found = words.len();
+                    r.selected = None;
+                    r.sel_end = None;
+                    r.opened.apply_redo(&o, job.from_ms, job.to_ms, words).map(|n| Some(format!("다시 인식했습니다: 단어 {found}개, 자막 {n}개.")))
+                }
+                Err(e) if job.cancel.load(std::sync::atomic::Ordering::Relaxed) => {
+                    let _ = e;
+                    Ok(Some("다시 인식을 멈췄습니다.".to_string()))
+                }
+                Err(e) => Err(e),
+            }
+        }
         Action::Select(k) => {
+            r.sel_end = None;
             r.selected = Some(k);
             r.draft = r.opened.captions.get(k).map(|c| c.text()).unwrap_or_default();
             return;
@@ -630,6 +728,7 @@ fn run(app: &mut App, a: Action) {
         Action::Filter(f) => {
             r.filter = f;
             r.selected = None;
+            r.sel_end = None;
             return;
         }
         Action::Apply(k, text) => {

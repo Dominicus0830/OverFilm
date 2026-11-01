@@ -133,6 +133,61 @@ struct Review {
     history: Option<Vec<overfilm_subs::history::Version>>,
     /// Fixes made often enough to offer for the glossary.
     learned: Vec<overfilm_subs::learn::Pair>,
+    /// Other end of a shift-click selection (with `selected`).
+    sel_end: Option<usize>,
+    /// Extra names for recognising a part again.
+    redo_terms: String,
+    /// A part being recognised again in the background.
+    redo: Option<RedoJob>,
+}
+
+/// Recognising a part again: the span, progress, and the words when done.
+struct RedoJob {
+    from_ms: i64,
+    to_ms: i64,
+    state: Arc<Mutex<(f32, String, Option<Result<Vec<overfilm_asr::Word>, String>>)>>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Review {
+    /// The selected captions as a range of indices (one caption, or a shift-click span).
+    fn selection(&self) -> Option<std::ops::RangeInclusive<usize>> {
+        let a = self.selected?;
+        let b = self.sel_end.unwrap_or(a);
+        Some(a.min(b)..=a.max(b))
+    }
+
+    /// Start recognising the selected captions' time again, on `input`.
+    fn start_redo(&mut self, input: PathBuf, ctx: &egui::Context) {
+        let Some(sel) = self.selection() else { return };
+        let (Some(first), Some(last)) = (self.opened.captions.get(*sel.start()), self.opened.captions.get(*sel.end())) else { return };
+        let (from_ms, to_ms) = (first.start_ms, last.end_ms);
+        let mut o = self.options.clone();
+        o.input = input;
+        let extra = self.redo_terms.trim();
+        if !extra.is_empty() {
+            o.extra_terms = if o.extra_terms.trim().is_empty() { extra.to_string() } else { format!("{}, {extra}", o.extra_terms) };
+        }
+        let d = mcp::user_glossary_dir();
+        o.glossary_dir = d.is_dir().then_some(d);
+        let state: Arc<Mutex<(f32, String, Option<Result<Vec<overfilm_asr::Word>, String>>)>> = Arc::new(Mutex::new((0.0, "시작".into(), None)));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (st, cn, ctx) = (state.clone(), cancel.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let r = job::guarded(|| {
+                job::recognise_span(&o, from_ms, to_ms, &mut |f, m| {
+                    let mut s = st.lock().unwrap_or_else(PoisonError::into_inner);
+                    s.0 = f;
+                    s.1 = m.to_string();
+                    ctx.request_repaint();
+                    !cn.load(Ordering::Relaxed)
+                })
+            });
+            st.lock().unwrap_or_else(PoisonError::into_inner).2 = Some(r);
+            ctx.request_repaint();
+        });
+        self.redo = Some(RedoJob { from_ms, to_ms, state, cancel });
+    }
 }
 
 /// The find and replace bar over the caption table.
@@ -335,6 +390,9 @@ impl App {
             find: FindBar::default(),
             history: None,
             learned: Vec::new(),
+            sel_end: None,
+            redo_terms: String::new(),
+            redo: None,
         };
         r.refresh_issues(self.prefs.options.mask_profanity);
         let entry = Recent {

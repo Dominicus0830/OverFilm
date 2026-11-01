@@ -48,6 +48,9 @@ struct JobState {
     result: Option<job::Done>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// Result of a part recognised again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    redo: Option<Value>,
 }
 
 #[derive(Default)]
@@ -75,7 +78,11 @@ fn tools() -> Value {
             "per_speaker": {"type": "boolean", "description": "사람마다 SRT를 따로 저장 (이름.화자1.srt …, 기본 false)"},
             "only_voices": {"type": "boolean", "description": "등록한 목소리(add_voice)의 말만 자막으로, 예: 스트리머 말만 (기본 false)"},
             "use_voices": {"type": "boolean", "description": "등록한 목소리와 같은 사람이면 그 이름을 붙임 (기본 true)"},
-            "clean_fillers": {"type": "boolean", "description": "추임새(어, 음)와 말 더듬기(그 그게)를 자막에서 뺌 (기본 false, 단어 시간 파일에는 남음)"}}}},
+            "clean_fillers": {"type": "boolean", "description": "추임새(어, 음)와 말 더듬기(그 그게)를 자막에서 뺌 (기본 false, 단어 시간 파일에는 남음)"},
+            "from": {"type": "string", "description": "이 시간부터만 인식 (예: 00:01:23,000)"}, "to": {"type": "string", "description": "이 시간까지만 인식"}}}},
+        {"name": "rerecognize_range", "description": "자막의 한 구간만 소리를 다시 인식해 바꿉니다 (다른 곳에서 고친 글자는 그대로). extra_terms로 그 구간에 나오는 이름을 알려 주면 더 정확합니다. 백그라운드로 돌고 job_status로 확인합니다.",
+         "inputSchema": {"type": "object", "required": ["path", "from", "to"], "properties": {"path": path, "from": {"type": "string", "description": "시작 (예: 00:01:23,000)"}, "to": {"type": "string", "description": "끝"},
+            "input": {"type": "string", "description": "원본 영상 (기본: SRT와 같은 이름의 영상)"}, "extra_terms": {"type": "string"}, "gpu": {"type": "boolean"}, "clean_fillers": {"type": "boolean"}}}},
         {"name": "add_voice", "description": "한 사람만 말하는 구간(10~30초 권장)으로 목소리를 등록합니다. 이후 추출에서 그 사람은 화자1 대신 이 이름으로 나오고, only_voices로 그 사람 말만 자막으로 만들 수 있습니다.",
          "inputSchema": {"type": "object", "required": ["name", "file"], "properties": {"name": {"type": "string"}, "file": {"type": "string", "description": "영상 또는 오디오 파일"},
             "start": {"type": "string", "description": "시작 (예: 1:23, 생략하면 처음)"}, "end": {"type": "string", "description": "끝 (예: 1:45, 생략하면 끝, 최대 2분)"}}}},
@@ -214,6 +221,12 @@ impl Server {
         o.only_voices = a.get("only_voices").and_then(Value::as_bool).unwrap_or(false);
         o.use_voices = a.get("use_voices").and_then(Value::as_bool).unwrap_or(true);
         o.clean_fillers = a.get("clean_fillers").and_then(Value::as_bool).unwrap_or(false);
+        let t = |k: &str| s(a, k).map(|v| review::parse_clock(v).ok_or_else(|| format!("{k}: 시간 형식 (예: 00:01:23,000)"))).transpose();
+        if let (from, to) = (t("from")?, t("to")?)
+            && (from.is_some() || to.is_some())
+        {
+            o.range = Some((from.unwrap_or(0), to.unwrap_or(i64::MAX / 4)));
+        }
         let d = user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         if !o.input.is_file() {
@@ -245,6 +258,58 @@ impl Server {
             }
         });
         Ok(json!({"job": id, "message": "자막 추출을 시작했습니다. job_status로 확인하세요."}))
+    }
+
+    /// Recognise one part of a result again in the background (`job_status` reports it).
+    fn redo(&self, a: &Value) -> Result<Value, String> {
+        let srt = path_arg(a)?;
+        let from = s(a, "from").and_then(review::parse_clock).ok_or("from이 필요합니다 (예: 00:01:23,000)")?;
+        let to = s(a, "to").and_then(review::parse_clock).ok_or("to가 필요합니다")?;
+        let input = match s(a, "input") {
+            Some(i) => PathBuf::from(i),
+            None => {
+                crate::MEDIA_EXTENSIONS.iter().map(|e| srt.with_extension(e)).find(|p| p.is_file()).ok_or("원본 영상을 찾지 못했습니다. input을 주세요.")?
+            }
+        };
+        if !srt.is_file() || !input.is_file() {
+            return Err("자막 또는 영상 파일이 없습니다".into());
+        }
+        let mut o = Options::new(input);
+        o.extra_terms = s(a, "extra_terms").unwrap_or_default().to_string();
+        o.gpu = a.get("gpu").and_then(Value::as_bool).unwrap_or(true);
+        o.clean_fillers = a.get("clean_fillers").and_then(Value::as_bool).unwrap_or(false);
+        let d = user_glossary_dir();
+        o.glossary_dir = d.is_dir().then_some(d);
+        let mut st = self.job.lock().unwrap_or_else(PoisonError::into_inner);
+        if st.running {
+            return Err(format!("이미 작업 중입니다: {} ({:.0}%)", st.input, st.progress * 100.0));
+        }
+        let id = st.id + 1;
+        *st = JobState { id, input: srt.display().to_string(), running: true, message: "다시 인식 시작".into(), ..JobState::default() };
+        drop(st);
+        self.cancel.store(false, std::sync::atomic::Ordering::Relaxed);
+        let (job_state, cancel) = (self.job.clone(), self.cancel.clone());
+        std::thread::spawn(move || {
+            let r = job::guarded(|| {
+                let words = job::recognise_span(&o, from, to, &mut |f, m| {
+                    let mut st = job_state.lock().unwrap_or_else(PoisonError::into_inner);
+                    st.progress = f;
+                    st.message = m.to_string();
+                    !cancel.load(std::sync::atomic::Ordering::Relaxed)
+                })?;
+                let found = words.len();
+                let mut opened = crate::edit::Opened::load(&srt)?;
+                let n = opened.apply_redo(&o, from, to, words)?;
+                Ok(json!({"srt": srt, "from": review::clock(from), "to": review::clock(to), "words": found, "captions": n}))
+            });
+            let mut st = job_state.lock().unwrap_or_else(PoisonError::into_inner);
+            st.running = false;
+            match r {
+                Ok(v) => st.redo = Some(v),
+                Err(e) => st.error = Some(e),
+            }
+        });
+        Ok(json!({"job": id, "message": "그 구간을 다시 인식합니다. job_status로 확인하세요."}))
     }
 
     fn edit(&self, a: &Value) -> Result<Value, String> {
@@ -309,6 +374,7 @@ impl Server {
     fn call(&self, name: &str, a: &Value) -> Result<Value, String> {
         match name {
             "extract_subtitles" => self.extract(a),
+            "rerecognize_range" => self.redo(a),
             "add_voice" => {
                 let name = s(a, "name").ok_or("name이 필요합니다")?;
                 let file = s(a, "file").map(PathBuf::from).ok_or("file이 필요합니다")?;

@@ -13,6 +13,11 @@ const MAX_SECONDS: i64 = 6 * 3600;
 
 /// The file's first audio stream as 16 kHz mono; `progress(fraction)` returns false to cancel.
 pub fn decode(path: &Path, progress: &mut dyn FnMut(f32) -> bool) -> Result<Vec<f32>, String> {
+    decode_span(path, None, progress)
+}
+
+/// [`decode`] of `[from_ms, to_ms)` only (clamped to the file), or of everything with `None`.
+pub fn decode_span(path: &Path, span: Option<(i64, i64)>, progress: &mut dyn FnMut(f32) -> bool) -> Result<Vec<f32>, String> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let reader = FileReader::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let src = filmcraft_media::reader::open_reader(&name, Arc::new(reader), &filmcraft_codecs::reader_openers(), &filmcraft_codecs::openers())
@@ -22,10 +27,16 @@ pub fn decode(path: &Path, progress: &mut dyn FnMut(f32) -> bool) -> Result<Vec<
     }
     let sr = overfilm_asr::SAMPLE_RATE;
     let rate = i64::from(sr);
-    let total = src.info().duration.to_units_floor(rate).clamp(0, MAX_SECONDS * rate);
-    let block = BLOCK_SECONDS * rate;
-    let mut out = Vec::with_capacity(usize::try_from(total).unwrap_or(0));
+    let mut total = src.info().duration.to_units_floor(rate).clamp(0, MAX_SECONDS * rate);
     let mut pos = 0i64;
+    if let Some((a, b)) = span {
+        let per_ms = rate / 1000;
+        pos = a.max(0).saturating_mul(per_ms).min(total);
+        total = b.max(0).saturating_mul(per_ms).clamp(pos, total);
+    }
+    let first = pos;
+    let block = BLOCK_SECONDS * rate;
+    let mut out = Vec::with_capacity(usize::try_from(total - pos).unwrap_or(0));
     while pos < total {
         let n = block.min(total - pos);
         let buf = src.audio(pos, usize::try_from(n).unwrap_or(0), sr).map_err(|e| format!("{name}: 소리를 읽지 못했습니다 ({e})"))?;
@@ -35,7 +46,7 @@ pub fn decode(path: &Path, progress: &mut dyn FnMut(f32) -> bool) -> Result<Vec<
         }
         out.extend(mono);
         pos += n;
-        if !progress(pos as f32 / total.max(1) as f32) {
+        if !progress((pos - first) as f32 / (total - first).max(1) as f32) {
             return Err("취소했습니다".into());
         }
     }
