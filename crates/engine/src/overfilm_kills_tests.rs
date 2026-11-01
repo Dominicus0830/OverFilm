@@ -106,3 +106,41 @@ fn overfilm_kills_e2e_on_a_broadcast() {
         eprintln!("{} {}", overfilm_vision::plan::clock(m.start), m.name);
     }
 }
+
+#[test]
+fn templates_go_to_the_users_own_file_and_import_merges() {
+    use overfilm_vision::{NRect, TemplateSet};
+    let mut s = demo();
+    // unsaved project, no path: the user's file
+    let r = s.execute("overfilm.screenTemplate.list", json!({})).unwrap();
+    assert!(r["templates"].as_str().unwrap().ends_with("overfilm-screens.json"), "{r}");
+    // someone's template file with a player bar
+    let dir = std::env::temp_dir().join(format!("overfilm-import-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let theirs = dir.join("owcs.json");
+    let mut set = TemplateSet::default();
+    set.bars.push(PlayerBar { team: 2, rect: NRect::new(0.7, 0.14, 0.27, 0.02), players: 5, alive_dark: vec![0.0; 5] });
+    std::fs::write(&theirs, set.to_json()).unwrap();
+    let mine = dir.join("mine.json").to_string_lossy().to_string();
+    let r = s.execute("overfilm.screenTemplate.import", json!({"path": theirs.to_string_lossy(), "templates": mine})).unwrap();
+    assert_eq!(r["bars"], 1);
+    let r = s.execute("overfilm.screenTemplate.list", json!({"templates": mine})).unwrap();
+    assert_eq!(r["bars"], json!([2]));
+    assert!(s.execute("overfilm.screenTemplate.import", json!({"path": mine, "templates": mine})).is_err(), "not into itself");
+    assert!(s.execute("overfilm.screenTemplate.import", json!({"path": dir.join("none.json").to_string_lossy(), "templates": mine})).is_err());
+    std::fs::write(dir.join("bad.json"), "{not json").unwrap();
+    assert!(s.execute("overfilm.screenTemplate.import", json!({"path": dir.join("bad.json").to_string_lossy(), "templates": mine})).is_err());
+
+    // a saved project with an empty template file beside it still uses the user's file
+    let proj = dir.join("p.fcproj");
+    s.path = Some(proj.to_string_lossy().to_string());
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("p.overfilm-screens.json"), "{\"templates\":[]}").unwrap();
+    let r = s.execute("overfilm.screenTemplate.list", json!({})).unwrap();
+    assert!(!r["templates"].as_str().unwrap().contains("p.overfilm-screens"), "{r}");
+    // one with something in it wins
+    std::fs::copy(dir.join("owcs.json"), dir.join("p.overfilm-screens.json")).unwrap();
+    let r = s.execute("overfilm.screenTemplate.list", json!({})).unwrap();
+    assert!(r["templates"].as_str().unwrap().contains("p.overfilm-screens"), "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -50,13 +50,18 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
     ]
 }
 
-/// The style file: `style`, or one beside the saved project; None for an unsaved project.
+/// The style file: `style`; else one beside the saved project when it exists; else the user's own.
 pub(crate) fn style_path(s: &Session, p: &Value) -> Option<String> {
     if let Some(t) = str_p(p, "style").filter(|t| !t.trim().is_empty()) {
         return Some(t.to_string());
     }
-    let proj = s.path.as_deref()?;
-    Some(format!("{}.overfilm-style.json", proj.strip_suffix(".fcproj").unwrap_or(proj)))
+    if let Some(proj) = s.path.as_deref() {
+        let beside = format!("{}.overfilm-style.json", proj.strip_suffix(".fcproj").unwrap_or(proj));
+        if std::path::Path::new(&beside).is_file() {
+            return Some(beside);
+        }
+    }
+    Some(crate::overfilm_autocut::user_file("overfilm-style.json"))
 }
 
 /// The saved style, if there is one and it reads.
@@ -189,7 +194,7 @@ fn learn(s: &mut Session, p: &Value) -> Result<Value> {
     let summary = style.summary_ko();
     let doc = json!({"learntFrom": names, "style": style, "summary": summary});
     let text = serde_json::to_string_pretty(&doc).map_err(|e| EngineError::Other(e.to_string()))?;
-    std::fs::write(&path, text).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+    crate::overfilm_autocut::write_file(&path, &text)?;
     s.toast(format!("OverFilm: editing style learnt from {} sequence(s)", names.len()));
     Ok(
         json!({"style": path, "learntFrom": names, "summary": summary, "highlightSeconds": style.highlight_length_ms().map(|m| m as f64 / 1000.0), "joinSeconds": style.join_ms().map(|m| m as f64 / 1000.0)}),

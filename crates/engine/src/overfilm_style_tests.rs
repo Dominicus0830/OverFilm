@@ -89,7 +89,9 @@ fn learn_saves_a_style_that_steers_the_reel_and_the_highlights() {
 #[test]
 fn learn_refuses_what_it_cannot_read() {
     let mut s = demo();
-    assert!(s.execute("overfilm.style.learn", json!({})).is_err(), "unsaved project and no path");
+    // an unsaved project and no path: the user's own style file
+    let r = s.execute("overfilm.style.learn", json!({})).unwrap();
+    assert!(r["style"].as_str().unwrap().ends_with("overfilm-style.json"), "{r}");
     let path = tmp("refuse");
     let r = s.execute("overfilm.style.learn", json!({"style": path, "sequences": [123_456_789]}));
     assert!(r.is_err());

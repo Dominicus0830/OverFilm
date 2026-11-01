@@ -69,6 +69,16 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             journal: true,
         },
         CommandSpec {
+            id: "overfilm.screenTemplate.import",
+            label: "Import Screen Templates (OverFilm)…",
+            menu: &[],
+            shortcut: None,
+            params: r#"{"path":path,"templates":path?}"#,
+            enabled: crate::commands::always,
+            run: import,
+            journal: true,
+        },
+        CommandSpec {
             id: "overfilm.screenTemplate.list",
             label: "List Screen Templates (OverFilm)",
             menu: &[],
@@ -91,14 +101,38 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// The template file: `templates`, or one beside the saved project.
-pub(crate) fn templates_path(s: &Session, p: &Value, cmd: &str) -> Result<String> {
+/// The user's own OverFilm data file `name` (shared by every project): beside the models
+/// OverFilmSubs uses (`%LOCALAPPDATA%\\OverFilm` on Windows). Tests use a temporary folder.
+pub(crate) fn user_file(name: &str) -> String {
+    #[cfg(test)]
+    let dir = std::env::temp_dir().join(format!("overfilm-user-{}", std::process::id()));
+    #[cfg(not(test))]
+    let dir = overfilm_pipeline::data_dir();
+    dir.join(name).to_string_lossy().into_owned()
+}
+
+/// The template file: `templates`; else one beside the saved project when it has templates; else the
+/// user's own (so an unsaved project works, and one library serves every project).
+pub(crate) fn templates_path(s: &Session, p: &Value, _cmd: &str) -> Result<String> {
     if let Some(t) = str_p(p, "templates").filter(|t| !t.trim().is_empty()) {
         return Ok(t.to_string());
     }
-    let proj = s.path.as_deref().ok_or_else(|| bad(cmd, "save the project first, or give `templates` (a .json path)"))?;
-    let stem = proj.strip_suffix(".fcproj").unwrap_or(proj);
-    Ok(format!("{stem}.overfilm-screens.json"))
+    if let Some(proj) = s.path.as_deref() {
+        let beside = format!("{}.overfilm-screens.json", proj.strip_suffix(".fcproj").unwrap_or(proj));
+        // only one with something in it: an empty one left by an earlier try would hide the user's
+        if load_set(&beside).is_ok_and(|t| !t.templates.is_empty() || !t.bars.is_empty()) {
+            return Ok(beside);
+        }
+    }
+    Ok(user_file("overfilm-screens.json"))
+}
+
+/// Write `text` to `path`, making its folder first.
+pub(crate) fn write_file(path: &str, text: &str) -> Result<()> {
+    if let Some(dir) = std::path::Path::new(path).parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|e| EngineError::Other(format!("{}: {e}", dir.display())))?;
+    }
+    std::fs::write(path, text).map_err(|e| EngineError::Other(format!("{path}: {e}")))
 }
 
 pub(crate) fn load_set(path: &str) -> Result<TemplateSet> {
@@ -165,8 +199,34 @@ fn learn(s: &mut Session, p: &Value) -> Result<Value> {
     let score = tpl.score(&frame);
     let mut set = load_set(&path)?;
     set.insert(tpl);
-    std::fs::write(&path, set.to_json()).map_err(|e| EngineError::Other(format!("{path}: {e}")))?;
+    write_file(&path, &set.to_json())?;
     Ok(json!({"templates": path, "name": name, "screen": screen.as_str(), "count": set.templates.len(), "selfScore": score}))
+}
+
+/// Add the templates and player bars of the file at `path` (someone else's, a broadcast's) to the
+/// template file, replacing ones of the same name or team.
+fn import(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "overfilm.screenTemplate.import";
+    let from = str_p(p, "path").filter(|t| !t.trim().is_empty()).ok_or_else(|| bad(CMD, "give `path`, the template file to bring in"))?;
+    let text = std::fs::read_to_string(from).map_err(|e| bad(CMD, format!("{from}: {e}")))?;
+    let other = TemplateSet::from_json(&text).map_err(|e| bad(CMD, format!("{from}: {e}")))?;
+    let path = templates_path(s, p, CMD)?;
+    if std::path::Path::new(&path) == std::path::Path::new(from) {
+        return Err(bad(CMD, "that is the template file itself"));
+    }
+    let mut set = load_set(&path)?;
+    let (t, b) = (other.templates.len(), other.bars.len());
+    for x in other.templates {
+        set.insert(x);
+    }
+    for x in other.bars {
+        set.insert_bar(x);
+    }
+    if set.templates.len() > 256 {
+        return Err(bad(CMD, "more than 256 templates together"));
+    }
+    write_file(&path, &set.to_json())?;
+    Ok(json!({"templates": path, "added": t, "bars": b, "count": set.templates.len()}))
 }
 
 fn list(s: &mut Session, p: &Value) -> Result<Value> {
@@ -174,6 +234,7 @@ fn list(s: &mut Session, p: &Value) -> Result<Value> {
     let set = load_set(&path)?;
     Ok(json!({
         "templates": path,
+        "bars": set.bars.iter().map(|b| b.team).collect::<Vec<_>>(),
         "list": set.templates.iter().map(|t| json!({"name": t.name, "screen": t.screen.as_str(), "parts": t.parts.len(), "threshold": t.threshold})).collect::<Vec<_>>(),
     }))
 }

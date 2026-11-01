@@ -203,7 +203,7 @@ fn learn_body(ui: &mut egui::Ui, elems: &mut Elems, d: &mut Draft) {
             number(ui, elems, format!("{pre}.players"), tl!("Players:"), &mut p["players"], 1.0..=12.0, "");
         }
         text(ui, elems, format!("{pre}.name"), tl!("Name:"), &mut p["name"], tl!("e.g. PREPARE TO ATTACK"));
-        text(ui, elems, format!("{pre}.templates"), tl!("Template file:"), &mut p["templates"], tl!("save the project first, or type a .json path"));
+        text(ui, elems, format!("{pre}.templates"), tl!("Template file:"), &mut p["templates"], tl!("your OverFilm template file, or type a .json path"));
     });
     ui.add_space(4.0);
     ui.horizontal(|ui| {
@@ -285,6 +285,21 @@ fn learn_body(ui: &mut egui::Ui, elems: &mut Elems, d: &mut Draft) {
     }
 }
 
+/// "Import Templates…": bring someone else's template file into this one.
+fn import_button(ui: &mut egui::Ui, elems: &mut Elems, pre: &str, d: &mut Draft, import: &mut bool) {
+    let r = ui.button(tl!("Import Templates…"));
+    elems.push((format!("{pre}.import"), r.rect, "Import Templates…".into()));
+    if r.clicked() {
+        *import = true;
+        d.params["refresh"] = json!(true);
+    }
+}
+
+/// Whether the template list has something Auto Cut can cut by.
+fn has_break_templates(info: &Value) -> bool {
+    info["list"].as_array().is_some_and(|l| l.iter().any(|t| matches!(t["screen"].as_str(), Some("standby" | "setup" | "pause"))))
+}
+
 pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
     let Some(Some(mut d)) = ctx.data(|m| m.get_temp::<Option<Draft>>(draft_id())) else { return };
     let pre = prefix(d.command);
@@ -295,7 +310,15 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
         _ => tl!("Learn Screen Template (OverFilm)"),
     };
     let mut elems: Elems = Vec::new();
-    let (mut close, mut apply) = (false, false);
+    let (mut close, mut apply, mut import) = (false, false, false);
+    // an import finished: read the template list again
+    if d.params["refresh"].as_bool() == Some(true) && !app.native_dialog_open() {
+        d.params["refresh"] = json!(false);
+        let t = d.params["templates"].as_str().filter(|t| !t.is_empty()).map(|t| json!({"templates": t})).unwrap_or(json!({}));
+        if let Ok(v) = app.session.execute("overfilm.screenTemplate.list", t) {
+            d.info = v;
+        }
+    }
     egui::Window::new(title)
         .id(egui::Id::unique(("overfilm-dialog", pre)))
         .collapsible(false)
@@ -375,7 +398,7 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                             format!("{pre}.templates"),
                             tl!("Template file:"),
                             &mut p["templates"],
-                            tl!("save the project first, or type a .json path"),
+                            tl!("your OverFilm template file, or type a .json path"),
                         );
                         number(ui, &mut elems, format!("{pre}.keepBefore"), tl!("Keep before the start:"), &mut p["keepBefore"], 0.0..=60.0, " s");
                         number(ui, &mut elems, format!("{pre}.fps"), tl!("Frames checked per second:"), &mut p["fps"], 0.5..=8.0, "");
@@ -391,8 +414,18 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                     check(ui, &mut elems, format!("{pre}.frozenPauses"), tl!("A frozen picture in a round is a pause"), &mut d.params["frozenPauses"]);
                     let n = d.info["list"].as_array().map_or(0, Vec::len);
                     ui.weak(tlf!("{n} screen template(s) in the file. Learn them first: Sequence ▸ OverFilm ▸ Learn Screen Template.", n));
+                    import_button(ui, &mut elems, pre, &mut d, &mut import);
+                    if !has_break_templates(&d.info) {
+                        ui.colored_label(
+                            app.tokens.danger,
+                            tl!("No break-screen, setup or pause template yet: import a template file, or learn one from a frame of that screen."),
+                        );
+                    }
                 }
-                _ => learn_body(ui, &mut elems, &mut d),
+                _ => {
+                    learn_body(ui, &mut elems, &mut d);
+                    import_button(ui, &mut elems, pre, &mut d, &mut import);
+                }
             }
             if !d.error.is_empty() {
                 ui.colored_label(app.tokens.danger, &d.error);
@@ -402,7 +435,8 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                 let c = ui.button(tl!("Cancel"));
                 elems.push((format!("{pre}.cancel"), c.rect, "Cancel".into()));
                 close |= c.clicked();
-                let o = ui.add(egui::Button::new(egui::RichText::new(tl!("OK")).color(egui::Color32::WHITE)).fill(app.tokens.accent));
+                let ready = d.command != "overfilm.autoCut" || has_break_templates(&d.info);
+                let o = ui.add_enabled(ready, egui::Button::new(egui::RichText::new(tl!("OK")).color(egui::Color32::WHITE)).fill(app.tokens.accent));
                 elems.push((format!("{pre}.ok"), o.rect, "OK".into()));
                 apply |= o.clicked();
             });
@@ -412,6 +446,20 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
     }
     if crate::widgets::escape_closes(ctx) {
         close = true;
+    }
+    if import {
+        let into = d.params["templates"].as_str().unwrap_or_default().to_string();
+        app.pick_ui(crate::native_dialogs::FileDialog::open_file("JSON", &["json"]), move |app, paths| {
+            let Some(path) = paths.into_iter().next() else { return };
+            let mut p = json!({"path": path});
+            if !into.is_empty() {
+                p["templates"] = json!(into);
+            }
+            app.ui.status = match app.session.execute("overfilm.screenTemplate.import", p) {
+                Ok(v) => tlf!("Imported {n} template(s) and {b} player bar(s)", n = v["added"], b = v["bars"]),
+                Err(e) => e.to_string(),
+            };
+        });
     }
     if apply {
         let (command, p) = learn_call(&d).unwrap_or((d.command, run_params(&d)));
@@ -456,6 +504,7 @@ fn run_params(d: &Draft) -> Value {
     let mut p = d.params.clone();
     if let Some(m) = p.as_object_mut() {
         m.remove("drawIgnore");
+        m.remove("refresh");
         m.remove("players");
         m.retain(|_, v| !(v.is_null() || v.as_str().is_some_and(str::is_empty)));
         if m.get("numSpeakers").and_then(Value::as_f64).is_some_and(|n| n < 1.0) {
