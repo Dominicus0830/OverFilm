@@ -267,6 +267,11 @@ impl TemplateSet {
         best
     }
 
+    /// [`TemplateSet::best`] and [`TemplateSet::live`] of one frame.
+    pub fn look(&self, frame: &Luma) -> crate::plan::Look {
+        crate::plan::Look { best: self.best(frame), live: self.live(frame) }
+    }
+
     /// Whether a game-HUD (`live`) template matches.
     pub fn live(&self, frame: &Luma) -> bool {
         self.templates.iter().filter(|t| t.screen == Screen::Live).any(|t| t.score(frame) >= t.min_score())

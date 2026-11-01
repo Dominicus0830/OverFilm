@@ -100,7 +100,7 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
     let fps = f64_p(p, "fps").filter(|f| f.is_finite()).unwrap_or(2.0).clamp(0.5, 8.0);
     let gap_ms = f64_p(p, "fightGap").filter(|v| v.is_finite()).map(|v| (v.clamp(1.0, 120.0) * 1000.0) as i64).unwrap_or(10_000);
     let min_kills = u64_p(p, "minKills").map(|n| n.clamp(1, 20) as usize).unwrap_or(3);
-    let (work, total) = sample_plan(s, p, fps)?;
+    let (work, total) = sample_plan(s, p, fps, 0)?;
     let id = s.jobs.iter().map(|j| j.id).max().unwrap_or(0) + 1;
     let job = crate::Job { id, label: "OverFilm Kills".into(), progress: Default::default(), result: Default::default() };
     job.progress.total.store(total, std::sync::atomic::Ordering::Relaxed);

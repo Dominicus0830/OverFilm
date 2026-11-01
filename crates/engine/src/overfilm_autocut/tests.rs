@@ -150,3 +150,55 @@ fn frozen_picture_in_a_round_is_cut_with_a_dissolve() {
     assert_eq!(q.video_tracks[0].transitions.len(), 1, "{:?}", q.video_tracks[0].transitions);
     assert_eq!(s.history.undo.last().unwrap().0, "OverFilm Auto Cut");
 }
+
+/// Decoding in chunks on several decoders makes the very samples one decoder going frame after
+/// frame makes, across chunk boundaries too (the still share there compares with the previous
+/// chunk's last frame).
+#[test]
+fn parallel_chunks_make_the_same_samples_as_one_decoder() {
+    let dir = tmp_dir("overfilm-autocut-parallel");
+    let path = dir.join("par.mov");
+    let grey = Generator::ColorMatte { color: [0.4, 0.4, 0.4, 1.0] };
+    make_movie(&path, &[(Generator::BarsAndTone, 144), (PLAY, 96), (grey, 144), (PLAY, 160)], 160, 90);
+    let (mut s, _, _) = session_with(&[&path]);
+    let tpl = dir.join("screens.json").to_string_lossy().into_owned();
+    s.execute(
+        "overfilm.screenTemplate.learn",
+        json!({"templates": tpl, "screen": "setup", "rects": [[0.0, 0.0, 1.0, 0.6]], "time": Tick(2 * TICKS_PER_SECOND).0}),
+    )
+    .unwrap();
+    let set = overfilm_vision::TemplateSet::from_json(&std::fs::read_to_string(&tpl).unwrap()).unwrap();
+    // every frame of 22.7 s at 24 fps: two chunks and a bit
+    let (work, total) = super::sample_plan(&s, &json!({}), 24.0, 2).unwrap();
+    assert!(total as usize > super::CHUNK * 2, "{total}");
+    assert_eq!(work[0].spares.len(), 2, "the file opens again with decoders of its own");
+    let mut one = overfilm_vision::Analyzer::new(set.clone());
+    for (st, mt) in &work[0].times {
+        let f = work[0].src.video_frame(filmcraft_media::FrameRequest { time: *mt, scale: work[0].scale }).unwrap();
+        one.push(*st, overfilm_vision::Luma::from_rgba(&f.to_rgba8(), f.width as usize, f.height as usize, super::WIDTH).unwrap());
+    }
+    let prog = filmcraft_export::Progress::default();
+    let mut many = overfilm_vision::Analyzer::new(set);
+    let seen = super::look_at_all(&work, many.templates(), many.still_tol, &prog);
+    super::add_in_order(&mut many, &work, seen);
+    assert_eq!(prog.done.load(std::sync::atomic::Ordering::Relaxed), total);
+    assert_eq!(one.samples(), many.samples());
+    assert!(one.samples().iter().any(|x| x.still > 0.99) && one.samples().iter().any(|x| x.screen.is_some()));
+}
+
+/// On a real broadcast, for timing and to compare plans before and after a change:
+/// `OVERFILM_E2E_BROADCAST=match.mp4 OVERFILM_E2E_TEMPLATES=screens.json cargo test -p
+/// filmcraft-engine --release -- --ignored overfilm_autocut_e2e --nocapture` prints the samples'
+/// screens and the cuts as JSON lines.
+#[test]
+#[ignore = "needs a broadcast recording and its screen templates"]
+fn overfilm_autocut_e2e_on_a_broadcast() {
+    let (Some(path), Some(templates)) = (std::env::var_os("OVERFILM_E2E_BROADCAST"), std::env::var_os("OVERFILM_E2E_TEMPLATES")) else { return };
+    let (mut s, _, _) = crate::media_test_util::session_with(&[Path::new(&path)]);
+    let t0 = std::time::Instant::now();
+    let r = s.execute("overfilm.autoCut", json!({"templates": templates.to_string_lossy(), "wait": true})).unwrap();
+    eprintln!("SECONDS {:.1}", t0.elapsed().as_secs_f64());
+    eprintln!("CUTS {}", r["cuts"]);
+    eprintln!("SEGMENTS {}", r["segments"]);
+    eprintln!("SAMPLES {}", r["samples"]);
+}

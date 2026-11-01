@@ -207,7 +207,11 @@ breaks and the setups of Nepal, Route 66 and its second half (with the scoreboar
 ending 10 s before the round starts; every cut edge checked by eye, no play cut. Missed: the setup
 of a Push map (Colosseo), whose HUD shows only the countdown and "0.00m" (also shown after the round
 starts), so it has no text to learn. No pause happened in the clip, so pauses are only tested on
-generated video. The run takes about 6 minutes for 84 minutes of video (decoding bound).
+generated video. The run is decoding bound: the clip's file is opened once more per core (up to 4
+decoders) and each decodes 2-minute chunks, put back in time order so the samples are exactly
+those of one decoder (the frozen-picture check at a chunk's start compares with the previous
+chunk's last frame). On 4 cores (dev build) this took the 84 minutes from 1373 s to 796 s with the
+same segments and cuts (`overfilm_autocut_e2e_on_a_broadcast`, ignored test).
 `cargo run -p overfilm-vision --release --example autocut_raw` runs templates and the plan on raw
 gray frames piped from ffmpeg (see its header).
 
@@ -482,6 +486,7 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `OVERFILM.md` | new file (this document) |
 | `crates/engine/Cargo.toml` | depends on `overfilm-vision`, `overfilm-captions`, `overfilm-pipeline`, `overfilm-asr`, `overfilm-ai`, `overfilm-review`; feature `overfilm-qwen` |
 | `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `mod overfilm_kills`, `mod overfilm_style`, `mod overfilm_review`, `Session::overfilm_jobs`, `overfilm_caption_jobs`, `overfilm_assist_jobs`, `overfilm_kill_jobs` and `overfilm_review`, their `poll` in `poll_persistence` |
+| `crates/engine/src/media_pool.rs` | `MediaPool::reopen`: an uncached second opening of a file the host streams, for Auto Cut's parallel decoders |
 | `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()`, `overfilm_reel::commands()`, `overfilm_kills::commands()`, `overfilm_style::commands()` and `overfilm_review::commands()` |
 | `crates/engine/src/transcript.rs` | `targets` is `pub(crate)` (which clips to recognise) |
 | `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |

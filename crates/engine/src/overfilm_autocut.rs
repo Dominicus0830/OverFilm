@@ -256,7 +256,9 @@ fn list(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// The frames to sample at `fps`: of the chosen clips (`clips`), or the lowest video track's.
-pub(crate) fn sample_plan(s: &Session, p: &Value, fps: f64) -> Result<(Vec<Work>, u64)> {
+/// `spares` more decoders of each clip's file are opened for parallel decoding where that can be
+/// done (see [`Work::spares`]).
+pub(crate) fn sample_plan(s: &Session, p: &Value, fps: f64, spares: usize) -> Result<(Vec<Work>, u64)> {
     let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
     let step = Tick::from_seconds_f64(1.0 / fps).max(Tick(1));
     // the chosen clips, or the lowest video track's
@@ -286,7 +288,18 @@ pub(crate) fn sample_plan(s: &Session, p: &Value, fps: f64) -> Result<(Vec<Work>
             t += step;
         }
         last_end = it.end();
-        work.push(Work { name: it.name.clone(), src, scale: (WIDTH as f64 / v.width.max(1) as f64).min(1.0) as f32, times });
+        // more decoders only of the original file the shared source reads (not a proxy or slate),
+        // and only when the new opening sees the same picture
+        let mut more = Vec::new();
+        if spares > 0 && s.media.full_res_source(&s.project, it.item, &*s.services).is_some_and(|f| Arc::ptr_eq(&f, &src)) {
+            for _ in 0..spares {
+                match s.media.reopen(&s.project, it.item, &*s.services) {
+                    Some(o) if o.info().video == src.info().video && o.info().duration == src.info().duration => more.push(o),
+                    _ => break,
+                }
+            }
+        }
+        work.push(Work { name: it.name.clone(), src, spares: more, scale: (WIDTH as f64 / v.width.max(1) as f64).min(1.0) as f32, times });
     }
     if work.is_empty() {
         return Err(EngineError::Other("no video clip with media to analyse (select clips, or put the broadcast on V1)".into()));
@@ -294,10 +307,120 @@ pub(crate) fn sample_plan(s: &Session, p: &Value, fps: f64) -> Result<(Vec<Work>
     Ok((work, total))
 }
 
+/// Samples decoded and looked at in one go by one worker: a run of one clip's [`Work::times`].
+const CHUNK: usize = 240;
+
+/// Decoders working at once: one per core, 1 to 4 (on 4 cores this cut an 84-minute 720p60
+/// broadcast from 1373 s to 796 s; each decoder holds its own pictures, so no more than 4).
+fn decode_workers() -> usize {
+    if cfg!(target_arch = "wasm32") {
+        return 1;
+    }
+    std::thread::available_parallelism().map(std::num::NonZeroUsize::get).unwrap_or(1).clamp(1, 4)
+}
+
+/// One chunk's frames as the templates saw them.
+#[derive(Default)]
+struct Seen {
+    /// Per sample: what the templates saw and the share unchanged since the chunk's previous
+    /// decoded frame; `None` where the frame could not be decoded.
+    looks: Vec<Option<(overfilm_vision::Look, f32)>>,
+    /// The chunk's first and last decoded frames, to compare across chunks.
+    first: Option<Luma>,
+    last: Option<Luma>,
+}
+
+/// Decode and look at every sample of `work`, a chunk at a time, on up to [`decode_workers`]
+/// threads each with decoders of its own. `None` for the chunks not done (stopped).
+fn look_at_all(work: &[Work], set: &TemplateSet, tol: f32, prog: &filmcraft_export::Progress) -> Vec<Option<Seen>> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let chunks: Vec<(usize, usize, usize)> =
+        work.iter().enumerate().flat_map(|(k, w)| (0..w.times.len()).step_by(CHUNK).map(move |a| (k, a, a.saturating_add(CHUNK).min(w.times.len())))).collect();
+    let workers = work.iter().map(|w| w.spares.len().saturating_add(1)).min().unwrap_or(1).min(chunks.len()).max(1);
+    let next = AtomicUsize::new(0);
+    let seen: Mutex<Vec<Option<Seen>>> = Mutex::new((0..chunks.len()).map(|_| None).collect());
+    let worker = |n: usize| {
+        loop {
+            let i = next.fetch_add(1, Ordering::Relaxed);
+            let Some(&(k, a, b)) = chunks.get(i) else { break };
+            let Some(w) = work.get(k) else { break };
+            let src = if n == 0 { &w.src } else { w.spares.get(n - 1).unwrap_or(&w.src) };
+            let mut out = Seen::default();
+            for (st, mt) in w.times.get(a..b).unwrap_or(&[]) {
+                if prog.cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+                // a frame that can't be decoded is skipped: no sample, no cut there
+                let frame = src
+                    .video_frame(filmcraft_media::FrameRequest { time: *mt, scale: w.scale })
+                    .ok()
+                    .and_then(|f| Luma::from_rgba(&f.to_rgba8(), f.width as usize, f.height as usize, WIDTH));
+                match frame {
+                    Some(l) => {
+                        let still = out.last.as_ref().map(|p| l.still_fraction(p, tol)).unwrap_or(0.0);
+                        out.looks.push(Some((set.look(&l), still)));
+                        if out.first.is_none() {
+                            out.first = Some(l.clone());
+                        }
+                        out.last = Some(l);
+                    }
+                    None => out.looks.push(None),
+                }
+                let done = prog.done.fetch_add(1, Ordering::Relaxed).saturating_add(1);
+                if n == 0 && done.is_multiple_of(32) {
+                    *lock(&prog.status) = format!("{}: {}", w.name, overfilm_vision::plan::clock(*st));
+                }
+            }
+            if let Some(slot) = lock(&seen).get_mut(i) {
+                *slot = Some(out);
+            }
+        }
+    };
+    std::thread::scope(|scope| {
+        for n in 1..workers {
+            // a worker that can't start leaves its chunks to the others
+            let _ = std::thread::Builder::new().name(format!("overfilm-look-{n}")).spawn_scoped(scope, move || worker(n));
+        }
+        worker(0);
+    });
+    seen.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Add the looked-at samples to `an` in time order, as [`Analyzer::push`] would have made them
+/// one frame after another: a chunk's first frame is compared with the last decoded one before it.
+fn add_in_order(an: &mut Analyzer, work: &[Work], seen: Vec<Option<Seen>>) {
+    let tol = an.still_tol;
+    let mut prev: Option<Luma> = None;
+    let mut seen = seen.into_iter();
+    for w in work {
+        for times in w.times.chunks(CHUNK) {
+            let Some(Some(chunk)) = seen.next() else { return };
+            let mut first = true;
+            for ((st, _), look) in times.iter().zip(&chunk.looks) {
+                let Some((look, still)) = look else { continue };
+                let still = if std::mem::take(&mut first) {
+                    match (&prev, &chunk.first) {
+                        (Some(p), Some(f)) => f.still_fraction(p, tol),
+                        _ => 0.0,
+                    }
+                } else {
+                    *still
+                };
+                an.push_looked(*st, *look, still);
+            }
+            if chunk.last.is_some() {
+                prev = chunk.last;
+            }
+        }
+    }
+}
+
 /// One clip to analyse.
 pub(crate) struct Work {
     pub name: String,
     pub src: filmcraft_media::SharedSource,
+    /// The same file opened again, each with its own decoder (parallel decoding).
+    pub spares: Vec<filmcraft_media::SharedSource>,
     pub scale: f32,
     /// (sequence time, media time) of each sample.
     pub times: Vec<(Tick, Tick)>,
@@ -340,7 +463,7 @@ fn auto_cut(s: &mut Session, p: &Value) -> Result<Value> {
     if s.overfilm_jobs.iter().any(|j| j.seq == seq_id) {
         return Err(EngineError::Other("Auto Cut is already running on this sequence".into()));
     }
-    let (work, total) = sample_plan(s, p, fps)?;
+    let (work, total) = sample_plan(s, p, fps, decode_workers().saturating_sub(1))?;
     let id = s.jobs.iter().map(|j| j.id).max().unwrap_or(0) + 1;
     let job = crate::Job { id, label: "OverFilm Auto Cut".into(), progress: Default::default(), result: Default::default() };
     job.progress.total.store(total, std::sync::atomic::Ordering::Relaxed);
@@ -351,26 +474,12 @@ fn auto_cut(s: &mut Session, p: &Value) -> Result<Value> {
         use std::sync::atomic::Ordering;
         let t0 = web_time::Instant::now();
         let mut an = Analyzer::new(set);
-        let mut done = 0u64;
-        let mut err = None;
-        'clips: for w in &work {
-            for (st, mt) in &w.times {
-                if prog.cancel.load(Ordering::Relaxed) {
-                    err = Some("stopped".to_string());
-                    break 'clips;
-                }
-                // a frame that can't be decoded is skipped: no sample, no cut there
-                if let Ok(f) = w.src.video_frame(filmcraft_media::FrameRequest { time: *mt, scale: w.scale })
-                    && let Some(l) = Luma::from_rgba(&f.to_rgba8(), f.width as usize, f.height as usize, WIDTH)
-                {
-                    an.push(*st, l);
-                }
-                done += 1;
-                prog.done.store(done, Ordering::Relaxed);
-                if done.is_multiple_of(32) {
-                    *lock(&prog.status) = format!("{}: {}", w.name, overfilm_vision::plan::clock(*st));
-                }
-            }
+        let seen = look_at_all(&work, an.templates(), an.still_tol, &prog);
+        let stopped = prog.cancel.load(Ordering::Relaxed);
+        let err = stopped.then(|| "stopped".to_string());
+        let done = prog.done.load(Ordering::Relaxed);
+        if !stopped {
+            add_in_order(&mut an, &work, seen);
         }
         let samples = an.into_samples();
         let segs = overfilm_vision::segments(&samples, &params);
