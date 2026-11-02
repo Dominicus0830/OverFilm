@@ -720,6 +720,21 @@ called with parameters, over the control channel or MCP, the command runs direct
 The labels are in English in the code and Korean in `crates/ui-egui/src/i18n/ko.tsv` (Edit ▸
 Language ▸ 한국어).
 
+## Name and icon
+
+The program shows itself as **OverFilm**: the window title (taskbar, Alt-Tab), the exe's
+VERSIONINFO (`FileDescription`/`ProductName`, which Task Manager and Explorer show), message boxes,
+the About dialog and the Korean labels that named FilmCraft. The icon is the OverFilm clapperboard
+(`assets/app-icon/README.md`), used by the editor and by OverFilmSubs. Folder and file names
+(`FilmCraft Previews`, `FilmCraft Media Cache`, `filmcraft.log`, the settings folder, `.fcproj`)
+and the app id keep FilmCraft's, so existing settings, caches and projects carry over. The Windows
+installer (NSIS, project files `overfilm-editor/installer/overfilm.nsi`) installs `OverFilm.exe`
+with the same icon on the Start menu and desktop shortcuts.
+
+Cross-compiling for Windows from Linux, `apps/filmcraft/build.rs` and `apps/overfilm-subs/build.rs`
+embed the icon and VERSIONINFO with MinGW's `x86_64-w64-mingw32-windres` (`apps/filmcraft/winres.rs`;
+`apt-get install mingw-w64`). Without it the exe builds without them, with a warning.
+
 ## Upstream updates
 
 The first commit was a snapshot of filmcraft `fed0f42` without its history. The merge commit
@@ -776,5 +791,10 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `crates/ui-egui/src/panels/overfilm.rs` | new file: the OverFilm dialogs |
 | `crates/ui-egui/src/panels.rs`, `menus.rs`, `panels/dialogs.rs` | `mod overfilm`, its `route` before the menu dialogs, its `show` |
 | `crates/ui-egui/src/i18n/ko.tsv` | Korean labels of the OverFilm menu items and dialogs (appended) |
+| `assets/app-icon/*`, `apps/filmcraft-web/web/favicon.png`, `ATTRIBUTION.md` | the OverFilm icon in place of the owl (same file names) |
+| `apps/filmcraft/build.rs`, `apps/filmcraft/winres.rs` | exe icon and VERSIONINFO named OverFilm; `windres` when cross-compiling |
+| `apps/filmcraft/src/main.rs` | `APP_NAME` ("OverFilm") for the window title and message boxes |
+| `crates/ui-egui/src/panels/dialogs.rs` | About heading "OverFilm", "Based on FilmCraft" |
+| `crates/ui-egui/src/i18n/ko.tsv` (values) | Korean labels say OverFilm where they said FilmCraft, except the FilmCraft website links |
 | `crates/engine/src/overfilm_autocut.rs` (+ `tests.rs`) | new file: Auto Cut commands (frames in, cuts out); `dissolve_at` is shared with the reel |
 | `crates/engine/src/overfilm_captions.rs` | new file: styled captions, Premiere styles in, and the Premiere Pro export |
