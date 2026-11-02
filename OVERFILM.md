@@ -16,7 +16,7 @@ calling the caption layout) and listed in the table at the end.
 | `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`), in-game voice lines found by text (`voicelines`) |
 | `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels, overlapped speech with pyannote segmentation-3.0); next: `filmcraft_speech::Transcriber` |
 | `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out; caption styles and motion for the editor (`styles`) |
-| `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures), the auto-cut plan, deaths and ultimates from the HUD's player bars, ultimate kills from the kill feed; see "Auto cut" below |
+| `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures), the auto-cut plan, deaths and ultimates from the HUD's player bars, who killed whom and ultimate kills from the kill feed; see "Auto cut" below |
 | `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the shared models folder |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L1 | M6 | analysis behind the editing suggestions: loudness, silences, highlights (`overfilm.assist.suggest` in the engine), the learnt editing style (`style`) |
@@ -398,6 +398,39 @@ have no kill feed to check against. The kill-feed reading found exactly the thre
 of six rows in a kill feed screenshot the owner sent (no portrait or reticle taken for one); no
 recording with a kill feed was at hand to measure more.
 
+### Who killed whom (kill feed)
+
+On videos that show the game's kill feed (gameplay, streams, broadcasts that keep it), the kill
+scan reads every row once the feed is learnt (`overfilm_vision::feedrows`); `icon` is optional for
+this, `rect` around the feed is enough, and the feed's row height is learnt with it.
+
+- A row is two boxes in the team colours (blue: the viewer's team, red: the other) with the killer's
+  hero picture after the first and the victim's before the second; a row with one box is a death
+  with nobody to credit. Rows that touch (a reticle or an effect between them) are cut apart at the
+  emptiest line near each row height. The ultimate icon is read on the row itself, between the two.
+- Nothing built in is matched: the white name text (a gray grid of its own width) and the hero
+  picture are kept as small grids, and the same name or picture read again is the same player or
+  hero (normalised correlation of the grids moved by a cell or two, names of lengths more than
+  12 % apart never match). They are numbered as they first appear: "선수 1", "영웅 2".
+- A row on screen for two samples that was not there before is one kill, at its first sample;
+  the same killer and victim stay one kill while the row moves up the feed. Each is a point marker
+  "OverFilm 킬피드: 선수 1 (영웅 1) → 선수 2 (영웅 3)" (" (궁극기)" with the icon; blue killer cerulean,
+  red rose, nobody tan), the comment "아군 → 적". Frames are decoded up to 1920 wide while the
+  feed is read. With no name plates' deaths on the sequence the highlights count these kills.
+- `overfilm.killFeed.list {}`: the kills (kill feed markers, else the plates' deaths) with time,
+  clock and text, and the last scan's players and heroes. The OverFilm panel shows it under
+  "처치 목록": a click moves the playhead there.
+- `overfilm.killFeed.name {kind: "player"|"hero", id, name, templates?}` (the panel's "선수·영웅
+  이름 붙이기"): names player or hero `id`; the markers are written again (one undo step) and the
+  name and its grid go into the template file (`feed_names`), so later scans name the same text or
+  picture themselves. Names are the user's: nothing ships with any.
+
+Measured on the owner's kill feed screenshot (six rows): all six read right at its size, at 2/3 and
+at 1/2 of it (NECROS four times and FRANKYBOXING and LEEVI twice each, one player each; three
+ultimate kills); at 1/2 one victim's picture was taken for another hero's. The same rows played as
+a 2 fps H.264 video (CRF 30), one row more every two seconds, gave the six kills at the right times
+(`feed_raw` example: `rows`, `pairs`, `run`). No recording with a kill feed has been measured yet.
+
 ## Claude Code review
 
 Off until switched on in `Sequence ▸ OverFilm ▸ Claude Code Review Settings…`
@@ -506,7 +539,8 @@ called with parameters, over the control channel or MCP, the command runs direct
   clock, a camera). OK learns it into the template file. "Team 1/2 name plates (kills)" learns a
   player bar instead (the first green rectangle, and the number of players); "Team 1/2 ready
   ultimate icon" a team's ultimate icon (the first green rectangle, and the plate it is on); "Kill
-  feed (ultimate kills)" the kill feed (the first rectangle around it, the second round one icon).
+  feed (who killed whom, ultimates)" the kill feed (the first rectangle around it, the optional
+  second round one ultimate icon).
 - **Cut and Caption in One Go (OverFilm)…** opens the OverFilm panel (above).
 - **Claude Code Review Settings (OverFilm)…** (`panels/overfilm_review.rs`): on/off, on its own,
   `claude` path, model, time limit, batch size, most items, and a connection check.

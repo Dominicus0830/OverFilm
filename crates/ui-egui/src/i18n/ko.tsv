@@ -2631,7 +2631,6 @@
 	Saturation	채도
 	Saturation at 50 %	50%에서 채도
 	Saturation Min	채도 최소
-	Save	저장
 	Save .cfa and .pek media cache files next to original media files when possible	가능하면 .cfa 및 .pek 미디어 캐시 파일을 원본 옆에 저장
 	Save a Copy…	사본 저장…
 	Save All	모두 저장
@@ -3782,3 +3781,16 @@
 	Ask Claude Code About Cuts	컷을 Claude Code에 묻기
 	Ask Claude Code About Captions	자막을 Claude Code에 묻기
 	Export for Premiere Pro…	Premiere Pro로 내보내기…
+	Kills ({n})	처치 목록({n})
+	Who died, from the name plates. Learn the kill feed to see who killed whom.	이름판으로 찾은 처치당한 선수예요. 킬피드를 등록하면 누가 누구를 처치했는지 보여요.
+	Name players and heroes	선수·영웅 이름 붙이기
+	Click a kill to see it, then type the name. OverFilm knows the name or picture again in later videos.	처치를 눌러 화면에서 확인한 뒤 이름을 적어 주세요. 다음 영상부터는 같은 이름·그림을 알아봐요.
+	player name	선수 이름
+	hero name	영웅 이름
+	Save	저장
+	List Kills (OverFilm)	처치 목록(OverFilm)
+	Name Player or Hero (OverFilm)	선수·영웅 이름 붙이기(OverFilm)
+	Kill feed (who killed whom, ultimates)	킬피드(누가 누구를 처치했는지, 궁극기)
+	No kill feed row in the box: draw it around the kill feed, on a frame where it shows kills.	상자 안에 킬피드 줄이 없어요. 처치가 보이는 화면에서 킬피드 전체를 둘러 그려 주세요.
+	Find kills first, with the kill feed learnt.	먼저 킬피드를 등록하고 처치 찾기를 실행해 주세요.
+	Draw a green box around the kill feed (a second one round an ultimate icon in it is optional).	초록 상자로 킬피드 전체를 둘러 그려 주세요(두 번째 상자로 궁극기 아이콘 하나를 둘러도 되지만 없어도 돼요).

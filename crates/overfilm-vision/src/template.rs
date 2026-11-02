@@ -66,6 +66,9 @@ pub struct TemplateSet {
     /// The game's kill feed (ultimate kills), on broadcasts that show it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub killfeed: Option<crate::killfeed::KillFeed>,
+    /// Names the user gave to players and heroes seen in the kill feed.
+    #[serde(default, skip_serializing_if = "crate::feedrows::FeedNames::is_empty")]
+    pub feed_names: crate::feedrows::FeedNames,
 }
 
 impl Part {

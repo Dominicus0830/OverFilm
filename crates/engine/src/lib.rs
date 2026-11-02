@@ -495,6 +495,8 @@ pub struct Session {
     pub overfilm_assist_jobs: Vec<overfilm_assist::PendingAssist>,
     /// Running OverFilm kill scans.
     pub overfilm_kill_jobs: Vec<overfilm_kills::PendingKills>,
+    /// The last kill feed reading (who killed whom), for naming its players and heroes.
+    pub overfilm_feed: Option<overfilm_kills::FeedState>,
     /// Claude Code review (OverFilm): settings file, running reviews, pure recognition.
     pub overfilm_review: overfilm_review::ReviewState,
     /// OverFilm One Go: the run of cut, review and caption steps (the last one stays for its status).
@@ -608,6 +610,7 @@ impl Session {
             overfilm_caption_jobs: Vec::new(),
             overfilm_assist_jobs: Vec::new(),
             overfilm_kill_jobs: Vec::new(),
+            overfilm_feed: None,
             overfilm_review: Default::default(),
             overfilm_flow: None,
             presets: Default::default(),
