@@ -66,6 +66,9 @@ pub struct TemplateSet {
     /// The game's kill feed (ultimate kills), on broadcasts that show it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub killfeed: Option<crate::killfeed::KillFeed>,
+    /// Names the user gave to players and heroes seen in the kill feed.
+    #[serde(default, skip_serializing_if = "crate::feedrows::FeedNames::is_empty")]
+    pub feed_names: crate::feedrows::FeedNames,
 }
 
 impl Part {
@@ -390,5 +393,8 @@ mod tests {
         assert!(set.templates.iter().any(|t| t.screen == Screen::Live));
         assert_eq!(set.bars.iter().map(|b| b.team).collect::<Vec<_>>(), [1, 2]);
         assert!(set.bars.iter().all(|b| b.ult.is_some()), "both teams' ready-ultimate icons");
+        // the broadcast's kill feed, read row by row (no ultimate icon learnt: the rows find it)
+        let feed = set.killfeed.as_ref().expect("kill feed");
+        assert!(feed.radius == 0.0 && feed.row > 0.0 && feed.rect.x + feed.rect.w <= 1.0);
     }
 }

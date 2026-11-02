@@ -25,8 +25,12 @@ const MAX_ICONS: usize = 12;
 pub struct KillFeed {
     /// Around all of the feed's rows (frame-relative).
     pub rect: NRect,
-    /// The icon's radius as a share of the frame height.
+    /// The icon's radius as a share of the frame height (0: not learnt; the rows' own reading
+    /// of the icon is used, see [`crate::feedrows`]).
     pub radius: f32,
+    /// One row's height as a share of the rectangle's height (0: not learnt).
+    #[serde(default)]
+    pub row: f32,
 }
 
 /// An icon found on one frame: its centre (frame-relative).
@@ -55,7 +59,7 @@ impl KillFeed {
         }
         let good: Vec<f32> = tries.iter().filter(|t| t.1 >= best * 0.9).map(|t| t.0).collect();
         let radius = good.get(good.len() / 2).copied().unwrap_or(side / 2.0);
-        let feed = KillFeed { rect, radius };
+        let feed = KillFeed { rect, radius, row: 0.0 };
         if feed.icons(frame).is_empty() {
             return Err(VisionError::Templates("the ultimate icon is not inside the kill feed's rectangle".into()));
         }
@@ -107,7 +111,7 @@ impl KillFeed {
 /// 0 when it does not; otherwise the share of rim directions less the bright share outside. A
 /// direction is on the rim when it is bright somewhere between 0.6 and 1.0 of the radius, so a
 /// centre a little off still counts (the symbol may cut the rim in a direction or two).
-fn ring_score(frame: &Luma, cx: f32, cy: f32, r: f32, aspect: f32) -> f32 {
+pub(crate) fn ring_score(frame: &Luma, cx: f32, cy: f32, r: f32, aspect: f32) -> f32 {
     const MISS: usize = N / 5;
     let mut missed = 0usize;
     for i in 0..N {

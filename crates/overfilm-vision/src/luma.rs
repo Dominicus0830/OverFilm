@@ -125,6 +125,77 @@ impl Luma {
     }
 }
 
+/// An 8-bit RGB crop of a frame, at (nearly) full resolution: the kill feed's small text and
+/// pictures are read in colour (the team is the box's colour).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Rgb {
+    pub width: usize,
+    pub height: usize,
+    /// R, G, B per pixel, row by row.
+    pub px: Vec<u8>,
+}
+
+impl Rgb {
+    /// The part of an RGBA frame inside `rect`, shrunk by a whole factor to at most `max_width`
+    /// wide (at most 2048). `None` for an empty rectangle or a buffer too small for the size given.
+    pub fn crop_rgba(rgba: &[u8], width: usize, height: usize, rect: NRect, max_width: usize) -> Option<Rgb> {
+        let need = width.checked_mul(height)?.checked_mul(4)?;
+        if width == 0 || height == 0 || rgba.len() < need {
+            return None;
+        }
+        let r = rect.clamped()?;
+        let x0 = ((r.x * width as f32) as usize).min(width - 1);
+        let y0 = ((r.y * height as f32) as usize).min(height - 1);
+        let x1 = (((r.x + r.w) * width as f32).ceil() as usize).clamp(x0 + 1, width);
+        let y1 = (((r.y + r.h) * height as f32).ceil() as usize).clamp(y0 + 1, height);
+        let f = (x1 - x0).div_ceil(max_width.clamp(8, 2048)).max(1);
+        let (w, h) = (((x1 - x0) / f).max(1), ((y1 - y0) / f).max(1));
+        let mut px = Vec::with_capacity(w * h * 3);
+        let n = (f * f) as u32;
+        for y in 0..h {
+            for x in 0..w {
+                let mut acc = [0u32; 3];
+                for yy in y0 + y * f..(y0 + y * f + f).min(height) {
+                    for xx in x0 + x * f..(x0 + x * f + f).min(width) {
+                        let i = (yy * width + xx) * 4;
+                        for (c, a) in acc.iter_mut().enumerate() {
+                            *a += rgba.get(i + c).copied().unwrap_or(0) as u32;
+                        }
+                    }
+                }
+                px.extend(acc.map(|a| (a / n).min(255) as u8));
+            }
+        }
+        Some(Rgb { width: w, height: h, px })
+    }
+
+    /// A picture from 8-bit RGB rows (tests).
+    pub fn from_rgb(px: Vec<u8>, width: usize, height: usize) -> Option<Rgb> {
+        (width > 0 && height > 0 && width.checked_mul(height).and_then(|n| n.checked_mul(3)) == Some(px.len())).then_some(Rgb { width, height, px })
+    }
+
+    /// The pixel at `(x, y)`; black outside.
+    pub fn at(&self, x: usize, y: usize) -> [u8; 3] {
+        if x >= self.width || y >= self.height {
+            return [0; 3];
+        }
+        let i = (y * self.width + x) * 3;
+        [self.px.get(i).copied().unwrap_or(0), self.px.get(i + 1).copied().unwrap_or(0), self.px.get(i + 2).copied().unwrap_or(0)]
+    }
+
+    /// Rec. 709 gray of the pixel at `(x, y)`.
+    pub fn gray(&self, x: usize, y: usize) -> f32 {
+        let [r, g, b] = self.at(x, y);
+        0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32
+    }
+
+    /// The whole crop in gray.
+    pub fn luma(&self) -> Luma {
+        let px = (0..self.height).flat_map(|y| (0..self.width).map(move |x| (y, x))).map(|(y, x)| self.gray(x, y).round().clamp(0.0, 255.0) as u8).collect();
+        Luma { width: self.width, height: self.height, px }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
