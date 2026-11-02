@@ -44,7 +44,7 @@ fn markers_say_who_plays_what_and_read_back_as_a_prior() {
     mark(&mut s, &st).unwrap();
     let m = markers(&s);
     let names: Vec<&str> = m.iter().map(|x| x.1.as_str()).collect();
-    assert!(names.contains(&"OverFilm 경기: 로제 vs 오투 블래스트"), "{names:?}");
+    assert!(names.contains(&"OverFilm 경기: 로데 잔사이드 vs 오투 블래스트"), "{names:?}");
     assert!(names.contains(&"OverFilm 선수"));
     assert!(names.contains(&"OverFilm 선수 교체: 오투 블래스트 페이스 → 페르"), "{names:?}");
     assert!(names.contains(&"OverFilm 영웅 교체: 우톈 영웅 2 → 겐지"), "{names:?}");
@@ -55,7 +55,7 @@ fn markers_say_who_plays_what_and_read_back_as_a_prior() {
     // read back: teams, players, heroes in play (unnamed heroes left out)
     let q = s.active_sequence().unwrap();
     let p = prior_on_sequence(&q.markers, 25_000);
-    assert_eq!(p.teams, ["로제", "오투 블래스트"]);
+    assert_eq!(p.teams, ["로데 잔사이드", "오투 블래스트"]);
     assert!(p.players.contains(&"우톈".to_string()) && p.players.contains(&"페르".to_string()) && p.players.len() == 11, "{:?}", p.players);
     assert_eq!(p.heroes[0], (1_000, 5_000, vec!["트레이서".to_string()]));
     assert_eq!(p.heroes[1], (5_000, 12_000, vec!["트레이서".to_string(), "겐지".to_string()]));
