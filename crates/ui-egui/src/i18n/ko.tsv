@@ -3674,7 +3674,22 @@
 	Team 2 name plates (kills)	2팀 선수 이름판(처치 인식)
 	Players:	선수 수:
 	Learnt team {team}'s name plates	{team}팀 선수 이름판을 등록했어요
-	Find Kills and Team Fights (OverFilm)	처치·교전 찾기(OverFilm)
+	Learnt team {team}'s ultimate icon	{team}팀 궁극기 아이콘을 등록했어요
+	Kill feed (ultimate kills)	킬피드(궁극기 처치 인식)
+	Learnt the kill feed ({n} ultimate icon(s) on this frame)	킬피드를 등록했어요(이 화면의 궁극기 아이콘 {n}개)
+	Draw a green box around the kill feed, then a second one round one ultimate icon in it.	초록 상자로 킬피드 전체를 둘러 그린 다음, 두 번째 상자로 궁극기 아이콘 하나를 둘러 그려 주세요.
+	Draw a second green box round one ultimate icon in the kill feed.	두 번째 초록 상자로 킬피드의 궁극기 아이콘 하나를 둘러 그려 주세요.
+	No ultimate icon in the second box: draw it tight round one white ultimate icon of the kill feed.	두 번째 상자 안에 궁극기 아이콘이 없어요. 킬피드의 흰 원 궁극기 아이콘 하나에 딱 맞게 그려 주세요.
+	The ultimate icon is outside the kill feed's box: draw the feed's box around it.	궁극기 아이콘이 킬피드 상자 밖에 있어요. 킬피드 상자가 아이콘을 포함하게 그려 주세요.
+	Learn Kill Feed (OverFilm)	킬피드 등록(OverFilm)
+	Team 1 ready ultimate icon	1팀 궁극기 준비 아이콘(궁극기 인식)
+	Team 2 ready ultimate icon	2팀 궁극기 준비 아이콘(궁극기 인식)
+	On player's plate:	몇 번 선수 이름판:
+	No ready ultimate icon in the box: draw it around one white ultimate circle, not the charge number.	상자 안에 궁극기 준비 아이콘이 없어요. 숫자(%)가 아니라 흰 원 아이콘 하나를 둘러 그려 주세요.
+	Learn that team's name plates first (Team 1/2 name plates).	그 팀의 선수 이름판부터 등록해 주세요(1팀/2팀 선수 이름판).
+	Draw one green box around a ready ultimate icon.	궁극기 준비 아이콘 하나를 초록 상자로 둘러 그려 주세요.
+	Learn Ultimate Icon (OverFilm)	궁극기 아이콘 등록(OverFilm)
+	Find Kills, Ultimates and Team Fights (OverFilm)	처치·궁극기·교전 찾기(OverFilm)
 	Learn Player Bar (OverFilm)	선수 이름판 등록(OverFilm)
 	Learn Editing Style (OverFilm, Beta)	편집 스타일 배우기(OverFilm, 베타)
 	Show Editing Style (OverFilm)	편집 스타일 보기(OverFilm)
@@ -3761,7 +3776,7 @@
 	Auto Cut…	자동 컷…
 	Apply Cut Markers	컷 마커대로 자르기
 	Suggest Silences and Highlights	무음·하이라이트 제안
-	Find Kills and Team Fights	처치·교전 찾기
+	Find Kills, Ultimates and Team Fights	처치·궁극기·교전 찾기
 	Make Highlight Reel	하이라이트 모음 만들기
 	Styled Captions…	자막 스타일…
 	Ask Claude Code About Cuts	컷을 Claude Code에 묻기

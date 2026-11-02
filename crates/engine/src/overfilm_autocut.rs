@@ -238,6 +238,9 @@ fn import(s: &mut Session, p: &Value) -> Result<Value> {
     for x in other.bars {
         set.insert_bar(x);
     }
+    if other.killfeed.is_some() {
+        set.killfeed = other.killfeed;
+    }
     if set.templates.len() > 256 {
         return Err(bad(CMD, "more than 256 templates together"));
     }
@@ -251,6 +254,8 @@ fn list(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({
         "templates": path,
         "bars": set.bars.iter().map(|b| b.team).collect::<Vec<_>>(),
+        "ultIcons": set.bars.iter().filter(|b| b.ult.is_some()).map(|b| b.team).collect::<Vec<_>>(),
+        "killFeed": set.killfeed.is_some(),
         "list": set.templates.iter().map(|t| json!({"name": t.name, "screen": t.screen.as_str(), "parts": t.parts.len(), "threshold": t.threshold})).collect::<Vec<_>>(),
     }))
 }
