@@ -17,8 +17,10 @@
 //!   marker replaced by cut markers for the parts to cut and keep markers for the parts to keep).
 //! - `overfilm.review.captions {track?, captions?:[id], all=false, again=false, lineChars=16,
 //!   maxLines=2, wait=false}` asks about the captions that need judgment (unsure words, a glossary
-//!   correction, awkward breaks) with the pure recognition, the corrected text and the captions
-//!   around them; fixes and splits are applied, keeps left alone.
+//!   correction, words the recogniser was not quite sure of, awkward breaks) with the pure
+//!   recognition, the corrected text and the captions around them, plus the kind of video
+//!   (`mode`), the match info markers ("OverFilm 경기/선수/영웅 선택/영웅 교체") and the glossary
+//!   terms the batch mentions; fixes and splits are applied, keeps left alone.
 //!
 //! Reviews run as background jobs (Jobs panel; stop cancels the running `claude`). A marker or
 //! caption changed while its review ran is left as it is. The pure recognition is kept in memory
@@ -30,7 +32,7 @@ use std::sync::{Arc, Mutex};
 
 use filmcraft_project::{Caption, ClipId, ItemId, Label, Marker, MarkerId, MarkerKind, TrackId};
 use filmcraft_time::{TICKS_PER_SECOND, Tick};
-use overfilm_review::captions::{self as caps, CapWord, CaptionAnswer, CaptionDecision, CaptionQuestion, Limits, Neighbor, RawChunk};
+use overfilm_review::captions::{self as caps, CapWord, CaptionAnswer, CaptionDecision, CaptionQuestion, Limits, RawChunk};
 use overfilm_review::cuts::{self, CutAnswer, CutDecision, CutQuestion, ScreenAt};
 use overfilm_review::{ReviewError, Reviewer, Settings};
 use serde_json::{Value, json};
@@ -115,7 +117,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Ask Claude Code About Unclear Captions (OverFilm)",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"track":id?,"captions":[id]?,"all":bool=false,"again":bool=false,"lineChars":n=16,"maxLines":1|2=2,"wait":bool=false}"#,
+            params: r#"{"track":id?,"captions":[id]?,"all":bool=false,"again":bool=false,"mode":"general"|"commentary"?,"lineChars":n=16,"maxLines":1|2=2,"wait":bool=false}"#,
             enabled: can_review_captions,
             run: review_captions,
             journal: true,
@@ -477,13 +479,8 @@ fn raw_of(s: &Session, words: &[&filmcraft_edit::transcript::SeqWord]) -> Option
     (!parts.is_empty()).then(|| parts.join(" "))
 }
 
-struct CaptionInfo {
-    q: CaptionQuestion,
-    words: Vec<CapWord>,
-}
-
 /// One caption's words, corrected text and pure recognition.
-fn caption_info(s: &Session, all: &[filmcraft_edit::transcript::SeqWord], c: &Caption) -> CaptionInfo {
+fn caption_info(s: &Session, all: &[filmcraft_edit::transcript::SeqWord], c: &Caption) -> caps::CaptionIn {
     let (a, b) = (c.start, c.start + c.duration);
     let ws: Vec<&filmcraft_edit::transcript::SeqWord> = all
         .iter()
@@ -496,7 +493,7 @@ fn caption_info(s: &Session, all: &[filmcraft_edit::transcript::SeqWord], c: &Ca
     let raw = raw_of(s, &ws);
     let words = ws.iter().map(|w| CapWord { text: w.text.clone(), start_ms: ms(w.start), end_ms: ms(w.end), confidence: w.confidence }).collect();
     let q = CaptionQuestion { id: c.id.0.to_string(), start_ms: ms(a), end_ms: ms(b), text: c.text.clone(), raw, corrected, ..Default::default() };
-    CaptionInfo { q, words }
+    caps::CaptionIn { q, words }
 }
 
 fn limits_p(p: &Value) -> Limits {
@@ -526,41 +523,93 @@ fn caption_questions(s: &Session, p: &Value, track: TrackId, lim: &Limits, max: 
     let chosen = ids_p(p, "captions");
     let all_flag = bool_p(p, "all").unwrap_or(false) || chosen.is_some();
     let words = crate::transcript::sequence_words(s);
-    let infos: Vec<CaptionInfo> = t.captions.iter().map(|c| caption_info(s, &words, c)).collect();
-    let neighbor = |i: usize| {
-        infos.get(i).map(|x| Neighbor {
-            start_ms: x.q.start_ms,
-            end_ms: x.q.end_ms,
-            text: x.q.text.clone(),
-            raw: x.q.raw.clone().filter(|r| overfilm_review::bare(r) != overfilm_review::bare(&x.q.corrected)),
-        })
-    };
+    let infos: Vec<caps::CaptionIn> = t.captions.iter().map(|c| caption_info(s, &words, c)).collect();
     let again = bool_p(p, "again").unwrap_or(false) || chosen.is_some();
-    let (mut cases, mut wmap, mut texts) = (Vec::new(), BTreeMap::new(), BTreeMap::new());
-    for (i, info) in infos.iter().enumerate() {
-        if chosen.as_ref().is_some_and(|c| !c.iter().any(|id| id.to_string() == info.q.id))
+    let skip = |info: &caps::CaptionIn| {
+        chosen.as_ref().is_some_and(|c| !c.iter().any(|id| id.to_string() == info.q.id))
             || (!again && info.q.id.parse::<u64>().is_ok_and(|id| s.overfilm_review.reviewed.contains(&id)))
-        {
-            continue;
-        }
-        let next = infos.get(i + 1).map(|x| x.q.text.as_str());
-        let (doubts, unsure) = caps::doubts(&info.q.text, &info.words, info.q.raw.as_deref(), &info.q.corrected, next, lim);
-        if doubts.is_empty() && !all_flag {
-            continue;
-        }
-        let mut c = info.q.clone();
-        c.doubts = doubts;
-        c.unsure = unsure;
-        c.before = (i.saturating_sub(2)..i).filter_map(&neighbor).collect();
-        c.after = (i + 1..i + 3).filter_map(&neighbor).collect();
-        wmap.insert(c.id.clone(), info.words.clone());
+    };
+    let (mut cases, mut wmap, mut texts) = (Vec::new(), BTreeMap::new(), BTreeMap::new());
+    for (i, c) in caps::select(&infos, lim, all_flag, skip, max) {
+        wmap.insert(c.id.clone(), infos.get(i).map(|x| x.words.clone()).unwrap_or_default());
         texts.insert(c.id.clone(), c.text.clone());
         cases.push(c);
-        if cases.len() >= max {
-            break;
-        }
     }
     Ok((cases, wmap, texts))
+}
+
+/// Markers the match-info step leaves with what the screen showed (the match, the line-ups, the
+/// heroes picked and swapped).
+const MATCH_INFO: &[&str] =
+    &[crate::overfilm_lineup::MARK_MATCH, crate::overfilm_lineup::MARK_LINEUP, crate::overfilm_lineup::MARK_PICKS, crate::overfilm_lineup::MARK_SWAP];
+
+/// Most terms and match lines sent with one question.
+const MAX_TERMS: usize = 50;
+const MAX_ON_SCREEN: usize = 20;
+
+/// The match-info markers up to `until_ms` (the latest ones when there are many), one line each.
+fn on_screen(markers: &[Marker], until_ms: i64) -> Vec<String> {
+    let mut ms_lines: Vec<(i64, String)> = markers
+        .iter()
+        .filter(|m| MATCH_INFO.iter().any(|p| m.name.starts_with(p)) && ms(m.start) <= until_ms)
+        .map(|m| {
+            let c = m.comment.trim();
+            (ms(m.start), if c.is_empty() { m.name.clone() } else { format!("{} — {c}", m.name) })
+        })
+        .collect();
+    ms_lines.sort_by_key(|(t, _)| *t);
+    let skip = ms_lines.len().saturating_sub(MAX_ON_SCREEN);
+    ms_lines.into_iter().skip(skip).map(|(_, l)| l).collect()
+}
+
+/// The glossary (built in plus the user's tables) as the reviewer is shown it; profanity is
+/// left out.
+fn review_terms() -> Vec<caps::Term> {
+    let user = overfilm_pipeline::user_glossary_dir();
+    let g = overfilm_pipeline::pack::glossary(user.is_dir().then_some(user.as_path()), true)
+        .or_else(|_| overfilm_pipeline::pack::glossary(None, true))
+        .unwrap_or_default();
+    g.entries
+        .iter()
+        .filter(|e| !e.ko.is_empty() && e.category != "profanity")
+        .map(|e| caps::Term {
+            ko: e.ko.clone(),
+            en: e.en.clone(),
+            kind: e.category.clone(),
+            aliases: e.aliases.iter().chain(&e.old).cloned().collect(),
+            misheard: e.misheard.clone(),
+            note: e.note.clone(),
+        })
+        .collect()
+}
+
+/// What the reviewer should know for one batch: the kind of video (`mode`, else commentary when
+/// match info is on the markers), the match info so far and the glossary terms the batch mentions.
+fn backgrounds(s: &Session, p: &Value, batches: &[Vec<CaptionQuestion>]) -> Vec<caps::Background> {
+    let markers: &[Marker] = s.active_sequence().map(|q| q.markers.as_slice()).unwrap_or_default();
+    let has_match = markers.iter().any(|m| MATCH_INFO.iter().any(|p| m.name.starts_with(p)));
+    let video = match str_p(p, "mode").and_then(overfilm_pipeline::pack::Mode::parse) {
+        Some(m) => m.label().to_string(),
+        None if has_match => overfilm_pipeline::pack::Mode::Commentary.label().to_string(),
+        None => String::new(),
+    };
+    let terms = review_terms();
+    batches
+        .iter()
+        .map(|b| {
+            let mut texts: Vec<&str> = Vec::new();
+            for c in b {
+                texts.extend([c.text.as_str(), c.corrected.as_str()]);
+                texts.extend(c.raw.as_deref());
+                for n in c.before.iter().chain(&c.after) {
+                    texts.push(n.text.as_str());
+                    texts.extend(n.raw.as_deref());
+                }
+            }
+            let until = b.iter().map(|c| c.end_ms).max().unwrap_or(0);
+            caps::Background { video: video.clone(), on_screen: on_screen(markers, until), terms: caps::relevant_terms(&terms, &texts, MAX_TERMS) }
+        })
+        .collect()
 }
 
 fn review_captions(s: &mut Session, p: &Value) -> Result<Value> {
@@ -575,12 +624,14 @@ fn review_captions(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let n = cases.len();
     let batches: Vec<Vec<CaptionQuestion>> = cases.chunks(st.batch.max(1)).map(<[CaptionQuestion]>::to_vec).collect();
+    let bgs = backgrounds(s, p, &batches);
     let work = move |stop: &std::sync::atomic::AtomicBool, step: &mut dyn FnMut(usize)| {
         let mut answers = Vec::new();
         let mut errors = Vec::new();
         for (i, b) in batches.iter().enumerate() {
             step(i);
-            match r.ask(&caps::question(b, &lim), stop) {
+            let bg = bgs.get(i).cloned().unwrap_or_default();
+            match r.ask(&caps::question_with(b, &lim, &bg), stop) {
                 Ok(v) => answers.extend(caps::parse(&v, b, &lim)),
                 Err(e) => {
                     let stop_all = !matches!(e, ReviewError::BadAnswer(_) | ReviewError::Failed(_) | ReviewError::Timeout(_));

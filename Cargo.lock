@@ -4858,6 +4858,7 @@ dependencies = [
  "overfilm-asr",
  "overfilm-captions",
  "overfilm-glossary",
+ "overfilm-review",
  "overfilm-vision",
  "rten",
  "serde",

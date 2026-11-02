@@ -684,8 +684,9 @@ the calls it is unsure of to the Claude Code command line on the same computer:
   Keep ranges are clipped into the marker. The user's rule goes with every question: waiting time up
   to 10 s before the start, pauses whole, silences only when nothing happens, nothing else.
 - **Captions** (`Ask Claude Code About Unclear Captions`, `overfilm.review.captions {track?,
-  captions?, all, again, lineChars=16, maxLines=2}`): captions with unsure words (confidence under
-  0.7), a glossary correction (the pure recognition differs from the corrected text), over the
+  captions?, all, again, mode?, lineChars=16, maxLines=2}`): captions with unsure words (confidence under
+  0.7) or not-quite-sure ones (under 0.9: the recogniser is often sure of a wrong word that sounds
+  alike), a glossary correction (the pure recognition differs from the corrected text), over the
   line limits, a one- or two-letter line, or a very short caption after them. Each goes with the
   caption, the pure recognition of its words (kept from recognition: `Recognised::raw_texts`,
   lined up with the corrected words by edit distance; beside a saved project as
@@ -693,7 +694,15 @@ the calls it is unsure of to the Claude Code command line on the same computer:
   their own pure recognition. Answers: `keep`, `fix` (new text, at most two lines) or `split`
   (2–4 captions; times cut at the word boundary where each part's letters run out). A fix far from
   both the caption and the pure recognition (over 40 % of the letters changed) or over the line
-  limits is dropped; speaker labels such as `(화자1)` are kept.
+  limits is dropped; speaker labels such as `(화자1)` are kept. Each question also carries the kind
+  of video (`mode`, or commentary when match info markers exist), the match info markers so far
+  ("OverFilm 경기/선수/영웅 선택/영웅 교체") and the glossary terms its captions mention (spelling,
+  other names, known misrecognitions, role). The instructions ask to fix confident misrecognitions
+  that make no sense in context with a similar-sounding word or term, and to keep when nothing in
+  the sound or the context supports a change. Measured on the aichi set (2026-11-02, real
+  Claude Code, `cargo run -p overfilm-pipeline --example review_eval`): CER 5.97 %
+  before review; old instructions 5.83 %; now 5.68 % (172 of 307 captions asked, terms 98.2 →
+  99.1 %); asking every caption 5.62 %.
 - **On its own** (`auto`): after Auto Cut or Suggestions mark cuts, and after OverFilm Captions
   places captions, the matching review starts by itself.
 
