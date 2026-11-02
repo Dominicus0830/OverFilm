@@ -47,6 +47,46 @@ impl Motion {
     }
 }
 
+/// One point of a [`CustomMotion`] (a motion taken from a template), relative to the caption
+/// at rest.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KeyPoint {
+    /// Seconds from the start of this part of the motion.
+    pub t: f32,
+    /// Percent of the size at rest.
+    pub scale: f32,
+    /// Percent of the opacity at rest.
+    pub opacity: f32,
+    /// Offset from the place at rest, as a share of the frame height.
+    pub dx: f32,
+    pub dy: f32,
+    /// Degrees from the angle at rest.
+    pub rotation: f32,
+    /// The segment leaving this point eases (else it is linear).
+    pub ease: bool,
+}
+
+/// Keyframed motion in and out taken from a template: `in` runs from the caption's start, `out`
+/// ends at the caption's end. Either may be empty.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomMotion {
+    #[serde(rename = "in")]
+    pub r#in: Vec<KeyPoint>,
+    pub out: Vec<KeyPoint>,
+}
+
+impl CustomMotion {
+    fn span(points: &[KeyPoint]) -> f32 {
+        points.iter().map(|k| k.t).filter(|t| t.is_finite()).fold(0.0, f32::max)
+    }
+    /// Seconds the motion in and the motion out take.
+    pub fn lengths(&self) -> (f32, f32) {
+        (Self::span(&self.r#in), Self::span(&self.out))
+    }
+}
+
 /// Vertical place on the frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -103,6 +143,9 @@ pub struct CaptionPreset {
     /// Fill per speaker name ("화자1", "도미니코" …).
     pub speaker_colors: Vec<(String, Rgba)>,
     pub hide_speaker_label: bool,
+    /// Motion taken from a template; when set it is used instead of `motion_in`/`motion_out`
+    /// (a typewriter in still types the text).
+    pub custom_motion: Option<CustomMotion>,
 }
 
 impl Default for CaptionPreset {
@@ -125,6 +168,7 @@ impl Default for CaptionPreset {
             motion_secs: 0.2,
             speaker_colors: Vec::new(),
             hide_speaker_label: true,
+            custom_motion: None,
         }
     }
 }
@@ -304,6 +348,10 @@ fn animate(e: &mut EffectInstance, preset: &CaptionPreset, text: &str, pos: Vec2
     if m <= Tick::ZERO {
         return;
     }
+    if let Some(c) = preset.custom_motion.as_ref().filter(|c| !c.r#in.is_empty() || !c.out.is_empty()) {
+        animate_custom(e, c, preset.motion_in == Motion::Typewriter, text, pos, duration, h);
+        return;
+    }
     let end = duration;
     let (lin, ease, out_ease, hold) = (Interpolation::Linear, Interpolation::EaseOut, Interpolation::EaseIn, Interpolation::Hold);
     let f = ParamValue::Float;
@@ -362,6 +410,111 @@ fn animate(e: &mut EffectInstance, preset: &CaptionPreset, text: &str, pos: Vec2
     keyed(e, "position", position);
 }
 
+/// The look of a text layer as a preset (the reverse of [`caption_layer`]): font, size, fill,
+/// outlines, box and shadow, sizes scaled back to 1080 lines; its place from where it sits; its
+/// motion from what is keyframed (text → typewriter, scale → pop, position → slide up, opacity
+/// alone → fade).
+pub fn preset_from_layer(e: &EffectInstance, name: &str, frame: Frame) -> CaptionPreset {
+    let base = CaptionPreset::default();
+    let h = frame.height.max(16) as f64;
+    let k = 1080.0 / h;
+    let val = |key: &str| e.params.get(key).map(|p| &p.value);
+    let num = |key: &str| val(key).and_then(ParamValue::as_f64).filter(|v| v.is_finite());
+    let on = |key: &str| val(key).and_then(ParamValue::as_bool).unwrap_or(false);
+    let rgba =
+        |key: &str| val(key).and_then(ParamValue::as_color).map(|c| c.map(|x| if x.is_finite() { (x.clamp(0.0, 1.0) * 255.0).round() as u8 } else { 0 }));
+    let text = |key: &str| match val(key) {
+        Some(ParamValue::Text(t)) => Some(t.clone()),
+        _ => None,
+    };
+    let px = |key: &str, default: f64| (num(key).unwrap_or(default) * k).clamp(0.0, 400.0) as f32;
+    let stroke = |on_key: &str, colour: &str, width: &str| {
+        on(on_key).then(|| Stroke { color: rgba(colour).unwrap_or([0, 0, 0, 255]), width: px(width, 4.0).min(100.0) })
+    };
+    let boxed = on("background").then(|| {
+        let mut color = rgba("background_color").unwrap_or([0, 0, 0, 255]);
+        color[3] = (num("background_opacity").unwrap_or(100.0).clamp(0.0, 100.0) * 2.55).round() as u8;
+        BoxStyle { color, padding: px("background_size", 0.0).min(200.0), radius: px("background_radius", 0.0).min(200.0) }
+    });
+    let y = val("position").and_then(ParamValue::as_vec2).map(|v| v.y).filter(|y| y.is_finite()).unwrap_or(h * 0.85) / h;
+    let place = if y < 0.34 {
+        Place::Top
+    } else if y < 0.66 {
+        Place::Middle
+    } else {
+        Place::Bottom
+    };
+    let keyed = |key: &str| e.params.get(key).is_some_and(|p| p.keyframes.len() >= 2);
+    let motion_in = if keyed("text") {
+        Motion::Typewriter
+    } else if keyed("scale") {
+        Motion::Pop
+    } else if keyed("position") {
+        Motion::SlideUp
+    } else if keyed("opacity") {
+        Motion::Fade
+    } else {
+        Motion::None
+    };
+    CaptionPreset {
+        name: name.to_string(),
+        font: text("font").unwrap_or_default(),
+        font_style: text("font_style").filter(|s| !s.is_empty()).unwrap_or_else(|| base.font_style.clone()),
+        size: px("size", 64.0 / k).max(8.0),
+        fill: rgba("fill_color").unwrap_or([255, 255, 255, 255]),
+        stroke: stroke("stroke", "stroke_color", "stroke_width"),
+        stroke2: stroke("stroke2", "stroke2_color", "stroke2_width"),
+        boxed,
+        shadow: on("shadow"),
+        place,
+        motion_in,
+        motion_out: if motion_in == Motion::None { Motion::None } else { Motion::Fade },
+        speaker_colors: Vec::new(),
+        ..base
+    }
+}
+
+/// Keyframe a template's motion: the in from the start, the out up to the end, both sped up
+/// together when they would take more than 60 % of the caption (so it can be read at rest).
+fn animate_custom(e: &mut EffectInstance, c: &CustomMotion, typewriter: bool, text: &str, pos: Vec2, duration: Tick, h: f64) {
+    let (a, b) = c.lengths();
+    let total = (a + b) as f64;
+    let room = duration.seconds() * 0.6;
+    let k = if total > room && total > 0.0 { room / total } else { 1.0 };
+    let end_s = duration.seconds();
+    let mut opacity = Vec::new();
+    let mut scale = Vec::new();
+    let mut position = Vec::new();
+    let mut rotation = Vec::new();
+    let finite = |x: f32, d: f64| if x.is_finite() { x as f64 } else { d };
+    let mut add = |points: &[KeyPoint], at: f64| {
+        for p in points.iter().take(256) {
+            let t = Tick::from_seconds_f64((at + finite(p.t, 0.0) * k).clamp(0.0, end_s));
+            let i = if p.ease { Interpolation::EaseOut } else { Interpolation::Linear };
+            opacity.push((t, ParamValue::Float(finite(p.opacity, 100.0).clamp(0.0, 100.0)), i));
+            scale.push((t, ParamValue::Float(finite(p.scale, 100.0).clamp(0.0, 1000.0)), i));
+            position.push((t, ParamValue::Vec2(Vec2::new(pos.x + finite(p.dx, 0.0) * h, pos.y + finite(p.dy, 0.0) * h)), i));
+            rotation.push((t, ParamValue::Float(finite(p.rotation, 0.0)), i));
+        }
+    };
+    add(&c.r#in, 0.0);
+    add(&c.out, end_s - b as f64 * k);
+    // only what moves gets keyframes
+    let moves = |keys: &[(Tick, ParamValue, Interpolation)]| keys.windows(2).any(|w| w.first().map(|x| &x.1) != w.get(1).map(|x| &x.1));
+    for (name, keys) in [("opacity", opacity), ("scale", scale), ("position", position), ("rotation", rotation)] {
+        if moves(&keys) {
+            keyed(e, name, keys);
+        }
+    }
+    if typewriter {
+        let chars: Vec<char> = text.chars().collect();
+        let n = chars.len().clamp(1, 400) as i64;
+        let per = Tick(TICKS_PER_SECOND * 6 / 100).min(Tick(duration.0 / 2 / n)).max(Tick(1));
+        let keys = (1..=n).map(|i| (Tick(per.0 * (i - 1)), ParamValue::Text(chars.iter().take(i as usize).collect()), Interpolation::Hold)).collect();
+        keyed(e, "text", keys);
+    }
+}
+
 /// Is `e` a text layer this module made (any text layer, really)?
 pub fn is_text_layer(e: &EffectInstance) -> bool {
     e.effect == TEXT_LAYER
@@ -411,6 +564,58 @@ mod tests {
         let e = caption_layer(&p, "어", None, secs(0.3), HD);
         let op = &e.params["opacity"].keyframes;
         assert_eq!(op[1].time, secs(0.3).mul_ratio(1, 3));
+    }
+
+    #[test]
+    fn a_styled_layer_reads_back_as_its_preset() {
+        let p = builtin_presets().into_iter().find(|p| p.name == "예능 노랑").unwrap();
+        let e = caption_layer(&p, "한방에 갑니다", None, secs(2.0), Frame { width: 3840, height: 2160 });
+        let back = preset_from_layer(&e, "다시", Frame { width: 3840, height: 2160 });
+        assert_eq!(back.name, "다시");
+        assert_eq!(back.font_style, p.font_style);
+        assert!((back.size - p.size).abs() < 0.01, "{} {}", back.size, p.size);
+        assert_eq!(back.fill, p.fill);
+        assert_eq!(back.stroke, p.stroke);
+        assert_eq!(back.stroke2, p.stroke2);
+        assert_eq!(back.boxed, None);
+        assert!(back.shadow);
+        assert_eq!(back.place, Place::Bottom);
+        assert_eq!(back.motion_in, Motion::Pop);
+        let b = builtin_presets().into_iter().find(|p| p.name == "박스").unwrap();
+        let back = preset_from_layer(&caption_layer(&b, "x", None, secs(2.0), HD), "b", HD);
+        assert_eq!(back.boxed.as_ref().map(|x| x.color), Some([0, 0, 0, 190]));
+        assert_eq!(back.motion_in, Motion::Fade);
+        // an empty layer still gives a usable preset
+        let empty = EffectInstance {
+            effect: TEXT_LAYER.into(),
+            enabled: true,
+            params: Default::default(),
+            masks: Vec::new(),
+            post_fader: false,
+            essential: false,
+            layer: None,
+        };
+        assert_eq!(preset_from_layer(&empty, "e", Frame { width: 0, height: 0 }).size, 64.0);
+    }
+
+    #[test]
+    fn a_template_motion_is_fitted_into_a_short_caption() {
+        let kp = |t: f32, scale: f32, opacity: f32| KeyPoint { t, scale, opacity, ..KeyPoint::default() };
+        let c = CustomMotion { r#in: vec![kp(0.0, 0.0, 100.0), kp(2.0, 100.0, 100.0)], out: vec![kp(0.0, 100.0, 100.0), kp(1.0, 100.0, 0.0)] };
+        let p = CaptionPreset { custom_motion: Some(c), ..CaptionPreset::default() };
+        // 3 s of motion in a 2 s caption: sped up to 1.2 s (60 %)
+        let e = caption_layer(&p, "가나", None, secs(2.0), HD);
+        let sc = &e.params["scale"].keyframes;
+        assert_eq!(sc.first().unwrap().value, ParamValue::Float(0.0));
+        assert_eq!(sc[1].time, secs(0.8));
+        let op = &e.params["opacity"].keyframes;
+        assert_eq!(op.last().unwrap().time, secs(2.0));
+        assert_eq!(op.last().unwrap().value, ParamValue::Float(0.0));
+        assert_eq!(op[op.len() - 2].time, secs(1.6));
+        assert!(!e.params.get("rotation").is_some_and(|r| r.is_animated()), "nothing rotates");
+        // a long caption keeps the template's timing
+        let e = caption_layer(&p, "가나", None, secs(10.0), HD);
+        assert_eq!(e.params["scale"].keyframes[1].time, secs(2.0));
     }
 
     #[test]

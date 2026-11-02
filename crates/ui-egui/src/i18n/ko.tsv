@@ -3797,3 +3797,10 @@
 	No kill feed row in the box: draw it around the kill feed, on a frame where it shows kills.	상자 안에 킬피드 줄이 없어요. 처치가 보이는 화면에서 킬피드 전체를 둘러 그려 주세요.
 	Find kills first, with the kill feed learnt.	먼저 킬피드를 등록하고 처치 찾기를 실행해 주세요.
 	Draw a green box around the kill feed (a second one round an ultimate icon in it is optional).	초록 상자로 킬피드 전체를 둘러 그려 주세요(두 번째 상자로 궁극기 아이콘 하나를 둘러도 되지만 없어도 돼요).
+	Import Premiere Style…	Premiere 스타일 불러오기…
+	A .prtextstyle (Premiere: right-click a caption style ▸ Export Text Style), a .mogrt, a .prproj or a Premiere XML.	Premiere 자막 스타일(.prtextstyle: 스타일을 오른쪽 클릭 ▸ 텍스트 스타일 내보내기), .mogrt, .prproj, Premiere에서 내보낸 XML을 열 수 있어요.
+	new style name	새 스타일 이름
+	Save Selected Caption's Look	선택한 자막 모양을 스타일로 저장
+	Saved the caption style "{name}"	자막 스타일 "{name}"을(를) 저장했어요
+	Imported caption style(s): {names}	자막 스타일을 가져왔어요: {names}
+	font(s) not installed: {fonts}	이 컴퓨터에 없는 글꼴: {fonts}
