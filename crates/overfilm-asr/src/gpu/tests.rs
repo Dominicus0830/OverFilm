@@ -63,7 +63,7 @@ fn products_match() {
     let (n, k) = (200, 96);
     let w = rng.vec(n * k, 0.5);
     let bias = rng.vec(n, 0.5);
-    for rows in [1usize, 3, 70] {
+    for rows in [1usize, 3, 6, 8, 70] {
         let x = rng.vec(rows * k, 1.0);
         let (xr, wr) = (&x, &w);
         let want: Vec<f32> = (0..rows).flat_map(|r| (0..n).map(move |j| (0..k).map(|i| xr[r * k + i] * wr[j * k + i]).sum::<f32>())).collect();
@@ -160,6 +160,7 @@ fn decoder_matches() {
         eps: tc.rms_norm_eps as f32,
         theta: tc.rope_theta,
         head_rows,
+        kv_cap: KV_CAP,
     };
     let mut gpu = Text::new(&c, d, &mut st, "thinker").unwrap();
     let h = tc.hidden_size;
@@ -296,6 +297,7 @@ fn gpu_rows_of_different_sequences() {
         eps: tc.rms_norm_eps as f32,
         theta: tc.rope_theta,
         head_rows,
+        kv_cap: KV_CAP,
     };
     let mut gpu = Text::new(&c, d, &mut st, "thinker").unwrap();
     let prefix = rng.vec(5 * h, 1.0);

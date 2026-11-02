@@ -34,14 +34,18 @@ const ARGMAX: &str = include_str!("argmax.wgsl");
 const CONV: &str = include_str!("conv.wgsl");
 const GATHER: &str = include_str!("gather.wgsl");
 
-/// Rows up to which a product runs as matrix × vector (`mv` in `matmul.wgsl`).
-const MV_ROWS: usize = 4;
+/// Rows up to which a product runs as matrix × vector (`mv` in `matmul.wgsl`, which reads
+/// each weight once for all of them).
+const MV_ROWS: usize = 8;
 /// Rows per decoder or encoder pass (longer inputs run in several passes through the cache).
 pub const MAX_ROWS: usize = 1024;
-/// Positions in the decoder's key/value cache (prompt + audio + generated text): a 60 s piece
-/// takes about 1,800 with room for its text, so three or four fit side by side after the prompt
-/// (16-bit keys and values: about 0.9 GB for Qwen3-ASR's 28 layers).
+/// Positions in a decoder's key/value cache by default (the aligner: one pass over its audio
+/// and text; 16-bit keys and values, about 0.9 GB for 28 layers).
 pub const KV_CAP: usize = 8192;
+/// Positions in the recogniser's cache (prompt + audio + generated text per piece): a 60 s
+/// piece takes about 1,800 with room for its text, so eight fit side by side after the prompt
+/// (about 1.9 GB for Qwen3-ASR's 28 layers).
+pub const KV_CAP_SIDE: usize = 16_384;
 /// Sequences decoded side by side at most ([`Text::forward_seqs`]).
 pub const MAX_SEQS: usize = 8;
 /// Largest single buffer binding asked for (weights larger than this are split by rows).
@@ -640,6 +644,8 @@ pub struct TextDims {
     pub eps: f32,
     pub theta: f64,
     pub head_rows: usize,
+    /// key/value cache positions ([`KV_CAP`] or [`KV_CAP_SIDE`])
+    pub kv_cap: usize,
 }
 
 struct DecLayer {
@@ -700,8 +706,8 @@ impl Text {
         let mid = c.floats(r * d.inter);
         let half = d.dh / 2;
         let inv: Vec<f32> = (0..half).map(|i| (1.0 / d.theta.powf(2.0 * i as f64 / d.dh as f64)) as f32).collect();
-        let mut table = Vec::with_capacity(KV_CAP * half * 2);
-        for p in 0..KV_CAP {
+        let mut table = Vec::with_capacity(d.kv_cap * half * 2);
+        for p in 0..d.kv_cap {
             for w in &inv {
                 let a = p as f32 * w;
                 table.push(a.cos());
@@ -711,7 +717,7 @@ impl Text {
         let cs = c.upload_f32(&table);
         // per-row position, cache region and prefix length when rows are different sequences
         let ri = c.storage((r * 16) as u64);
-        let kv_words = (d.hkv * KV_CAP * half) as u64 * 4;
+        let kv_words = (d.hkv * d.kv_cap * half) as u64 * 4;
         let mut keep = vec![hn.clone(), qkv.clone(), q.clone(), o.clone(), gu.clone(), mid.clone(), cs.clone()];
         let mut layers = Vec::with_capacity(d.layers);
         let lin = |w: &Weight, x: &wgpu::Buffer, y: &wgpu::Buffer, ldy: usize, acc: bool| Lin::new(c, w, LinSpec { x, y, step: &step, ldy, acc, rows1: false });
@@ -730,8 +736,8 @@ impl Text {
             if w_qkv.n != qkv_n || w_qkv.k != d.hidden || w_gu.n != 2 * d.inter || w_down.k != d.inter {
                 return Err(gpu_err(format!("layer {i}: unexpected weight sizes")));
             }
-            let ru = c.uniform(&[d.hq as u32, d.hkv as u32, d.dh as u32, KV_CAP as u32, 0, d.eps.to_bits(), 0, 0]);
-            let au = c.uniform(&[d.hq as u32, d.hkv as u32, d.dh as u32, KV_CAP as u32, 0, ((d.dh as f32).powf(-0.5)).to_bits(), 0, 0]);
+            let ru = c.uniform(&[d.hq as u32, d.hkv as u32, d.dh as u32, d.kv_cap as u32, 0, d.eps.to_bits(), 0, 0]);
+            let au = c.uniform(&[d.hq as u32, d.hkv as u32, d.dh as u32, d.kv_cap as u32, 0, ((d.dh as f32).powf(-0.5)).to_bits(), 0, 0]);
             let eu = c.uniform(&[d.inter as u32, 0, 0, 0]);
             layers.push(DecLayer {
                 ln1: norm_bg(c, &step, d.hidden, false, false, d.eps, [&h, &ln1w, &c.zero, &hn]),
@@ -776,6 +782,11 @@ impl Text {
 
     /// Run `x` (`t × hidden`, row-major) after the cached tokens (`cached`) or from position 0;
     /// returns the argmax class of the last row (`last_only`) or of every row.
+    /// Positions the key/value cache holds.
+    pub fn cap(&self) -> usize {
+        self.d.kv_cap
+    }
+
     pub fn forward(&mut self, x: &[f32], cached: bool, last_only: bool) -> Result<Vec<u32>, AsrError> {
         let c = self.ctx.clone();
         let d = self.d;
@@ -784,8 +795,8 @@ impl Text {
             return Err(gpu_err("input size"));
         }
         let start = if cached { self.pos } else { 0 };
-        if start + t > KV_CAP {
-            return Err(gpu_err(format!("{} tokens exceed the cache ({KV_CAP})", start + t)));
+        if start + t > d.kv_cap {
+            return Err(gpu_err(format!("{} tokens exceed the cache ({})", start + t, d.kv_cap)));
         }
         if !last_only && self.all.is_none() {
             return Err(gpu_err("per-row output not available for this head"));
@@ -866,8 +877,8 @@ impl Text {
         }
         for &(pos, base, plen) in rows {
             let place = if pos < plen { pos } else { base.saturating_add(pos - plen) };
-            if pos >= KV_CAP || place >= KV_CAP || plen > KV_CAP {
-                return Err(gpu_err(format!("position {pos} (cache place {place}) outside the cache ({KV_CAP})")));
+            if pos >= d.kv_cap || place >= d.kv_cap || plen > d.kv_cap {
+                return Err(gpu_err(format!("position {pos} (cache place {place}) outside the cache ({})", d.kv_cap)));
             }
         }
         let mut out = Vec::new();

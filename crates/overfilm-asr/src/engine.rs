@@ -342,6 +342,8 @@ fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Res
         eps: tc.rms_norm_eps as f32,
         theta: tc.rope_theta,
         head_rows,
+        // the recogniser decodes pieces side by side; the aligner (a classifier) runs one pass
+        kv_cap: if cfg.thinker_config.classify_num.is_some() { gpu::KV_CAP } else { gpu::KV_CAP_SIDE },
     };
     let text = gpu::Text::new(ctx, d, &mut st, "thinker")?;
     Ok(GpuNet { front, gfront, embed, enc, text })
@@ -436,9 +438,10 @@ fn finish(tok: &Tokenizer, out: &[u32], probs: &[f32], language: Option<&str>) -
     Scored { text, words }
 }
 
-/// Pieces of sound recognised side by side on the GPU (see [`Asr::transcribe_many`]; four
-/// 60-second pieces fill its key/value cache).
-pub const BATCH: usize = 4;
+/// Pieces of sound recognised side by side on the GPU (see [`Asr::transcribe_many`]; eight
+/// 60-second pieces fill its key/value cache, [`gpu::KV_CAP_SIDE`], and one decoding step reads
+/// each weight once for all of them).
+pub const BATCH: usize = 8;
 
 /// Pieces of sound recognised side by side on the CPU. A decoding step there is bound by memory
 /// traffic (the 2 GB of 8-bit weights, then each piece's cache), so more pieces per weight pass
@@ -671,7 +674,7 @@ impl Asr {
     /// [`Asr::transcribe_many`] on the GPU: the prompt prefix is cached once at the start of the
     /// key/value cache and every piece gets a region of its own after it; one decoder pass then
     /// produces the next token of every piece (the 8-bit product reads each weight row once for
-    /// up to four rows). Pieces that do not fit in the cache side by side run in turns.
+    /// up to eight rows). Pieces that do not fit in the cache side by side run in turns.
     fn transcribe_many_gpu(
         &mut self,
         audios: &[&[f32]],
@@ -692,7 +695,7 @@ impl Asr {
         let longest = feats.iter().map(|f| f.dim(0).unwrap_or(0)).max().unwrap_or(0);
         let limit = max_new_tokens(audios.iter().map(|a| a.len()).max().unwrap_or(0));
         let need = longest + after.len() + limit + 1;
-        let fit = gpu::KV_CAP.saturating_sub(plen) / need.max(1);
+        let fit = g.text.cap().saturating_sub(plen) / need.max(1);
         let side = fit.min(BATCH).min(audios.len());
         if trace {
             eprintln!("gpu: prefix {plen} tokens, {need} per piece, {side} side by side, encoder {:?}", t0.elapsed());

@@ -132,7 +132,7 @@ pub(super) fn tile_ok(c: &Ctx) -> Result<bool, AsrError> {
 fn products(c: &Ctx, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), AsrError> {
     let (n, k) = (1000, 2048);
     for fmt in [Fmt::F16, Fmt::Q8] {
-        for rows in [1usize, 3, 150] {
+        for rows in [1usize, 3, 8, 150] {
             let kind = if rows <= super::MV_ROWS {
                 "vec"
             } else if c.tiled() {
@@ -507,6 +507,7 @@ fn decoder(c: &Arc<Ctx>, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), Asr
         eps: tc.rms_norm_eps as f32,
         theta: tc.rope_theta,
         head_rows,
+        kv_cap: super::KV_CAP,
     };
     let mut gpu = Text::new(c, d, &mut st, "thinker")?;
     let h = tc.hidden_size;
