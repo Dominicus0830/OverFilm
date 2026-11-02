@@ -218,3 +218,5 @@ first_pick	선픽		첫 킬; 퍼블			noeval	한타 첫 처치 (퍼스트 블러�
 spawn_door	스폰 문		공격 스폰; 수비 스폰			noeval
 last_point	막거점		마지막 거점; 1거점; 2거점			noeval
 cart_push	화물 밀기		화물 위; 화물 막기			noeval
+double_jump	2단점프		이단점프; 더블점프; 이단 점프			noeval	겐지·한조 공중에서 한 번 더 뛰기 (나무위키 겐지/운용)
+flat_map	평지맵		1층맵; 일층맵				고저차가 적고 좁은 전장 (나무위키 오버워치/용어, 2층맵의 반대)
