@@ -804,7 +804,8 @@ fn poll_one(s: &mut Session, job: u64) -> Option<Result<Value>> {
 /// After cut markers were made: review them when the user asked for that ([`Settings::auto`]).
 pub fn after_cut_marks(s: &mut Session) {
     let st = settings(s);
-    if !(st.enabled && st.auto) || can_review_cuts(s).is_err() {
+    // a One Go run asks only when the user ticked that review
+    if !(st.enabled && st.auto) || crate::overfilm_flow::active(s) || can_review_cuts(s).is_err() {
         return;
     }
     match review_cuts(s, &json!({})) {
@@ -817,7 +818,7 @@ pub fn after_cut_marks(s: &mut Session) {
 /// After OverFilm Captions placed captions: review them when the user asked for that.
 pub fn after_captions(s: &mut Session) {
     let st = settings(s);
-    if !(st.enabled && st.auto) || can_review_captions(s).is_err() {
+    if !(st.enabled && st.auto) || crate::overfilm_flow::active(s) || can_review_captions(s).is_err() {
         return;
     }
     match review_captions(s, &json!({})) {

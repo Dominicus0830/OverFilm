@@ -41,10 +41,12 @@ pub enum PanelKind {
     ReferenceMonitor,
     Timecode,
     ProjectNotes,
+    /// OverFilm: cut and caption in one go, and the OverFilm tools.
+    OverFilm,
 }
 
 impl PanelKind {
-    pub const ALL: [PanelKind; 28] = [
+    pub const ALL: [PanelKind; 29] = [
         PanelKind::Project,
         PanelKind::MediaBrowser,
         PanelKind::Libraries,
@@ -73,6 +75,7 @@ impl PanelKind {
         PanelKind::ReferenceMonitor,
         PanelKind::Timecode,
         PanelKind::ProjectNotes,
+        PanelKind::OverFilm,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -104,6 +107,7 @@ impl PanelKind {
             PanelKind::ReferenceMonitor => "Reference Monitor",
             PanelKind::Timecode => "Timecode",
             PanelKind::ProjectNotes => "Project Notes",
+            PanelKind::OverFilm => "OverFilm",
         }
     }
     pub fn id(self) -> String {
