@@ -116,6 +116,7 @@ pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) 
     if label_speakers {
         let p = overfilm_asr::speakers::Params { speakers: r.num_speakers.filter(|&n| n > 0), known: r.known.clone(), ..Default::default() };
         let mut cancelled = false;
+        let t = std::time::Instant::now();
         let res = speakers::label(audio, &mut transcript, &overfilm_asr::catalogue::SPEAKER.dir(models), &p, r.gpu, &mut |f| {
             let go = progress(0.9 + 0.1 * f, "목소리 구별하는 중");
             cancelled |= !go;
@@ -125,6 +126,7 @@ pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) 
             return Err("취소됨".into());
         }
         speaker_device = res?;
+        transcript.add_stage("화자 구별", t.elapsed().as_secs_f32(), 0);
     }
     let voice_lines = speakers::mark_game_voice(&mut transcript, &pack::voicelines());
     let device = if speaker_device.is_empty() || speaker_device == transcript.device {

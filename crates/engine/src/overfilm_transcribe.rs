@@ -442,7 +442,8 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
                 let t = to_project(&rec.transcript);
                 lock(&raw_out).push((*item, crate::overfilm_review::raw_chunks(&rec)));
                 reports.push(json!({"item": item.0, "words": t.words.len(), "speakers": t.speakers.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
-                    "voiceLines": rec.voice_lines, "corrections": rec.corrections.len(), "device": rec.device}));
+                    "voiceLines": rec.voice_lines, "corrections": rec.corrections.len(), "device": rec.device,
+                    "stages": rec.transcript.stage_summary()}));
                 items.push((*item, t));
             }
             Ok((items, reports))

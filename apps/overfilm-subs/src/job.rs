@@ -142,6 +142,9 @@ pub struct Done {
     /// Something the user should know about the result (e.g. no enrolled voice was heard).
     #[serde(default)]
     pub note: String,
+    /// How long each stage took, one line (see [`overfilm_asr::Transcript::stage_summary`]).
+    #[serde(default)]
+    pub stages: String,
 }
 
 /// Where the models live (shared with the editor; see [`overfilm_pipeline::models_dir`]).
@@ -164,7 +167,9 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
     let models = models_dir();
     ensure_models(&models, &mut |f, m| progress(0.05 * f, m))?;
     let range = o.range.map(|(a, b)| (a.max(0), b.max(a.max(0))));
+    let t_read = std::time::Instant::now();
     let audio = crate::media::decode_span(&o.input, o.audio_track, range, &mut |f| progress(0.05 + 0.05 * f, "소리 읽는 중"))?;
+    let read_s = t_read.elapsed().as_secs_f32();
     if audio.is_empty() {
         return Err("소리가 비어 있습니다".into());
     }
@@ -184,6 +189,7 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
     };
     let rec = overfilm_pipeline::recognise::recognise(&audio, &req, &models, &mut |f, m| progress(0.1 + 0.88 * f, m))?;
     let overfilm_pipeline::recognise::Recognised { mut transcript, corrections, device, voice_lines, .. } = rec;
+    transcript.stages.insert(0, overfilm_asr::Stage { name: "소리 읽기".into(), seconds: read_s, count: 0 });
     if let Some((from, _)) = range {
         // the words were timed on the cut-out sound: put them on the input's clock
         shift(&mut transcript, from);
@@ -227,6 +233,7 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         voice_lines,
         speaker_srts,
         note,
+        stages: transcript.stage_summary(),
     })
 }
 

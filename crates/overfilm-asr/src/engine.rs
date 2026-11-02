@@ -384,12 +384,30 @@ pub const BATCH: usize = 4;
 /// take about 170 MB per 60-second piece.
 pub const CPU_BATCH: usize = 8;
 
+/// Seconds a model has spent in each stage since it was loaded.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Clock {
+    /// the audio encoder (sound features)
+    pub encode: f64,
+    /// running the prompt and the audio through the decoder at once
+    pub prefill: f64,
+    /// generating text one token at a time
+    pub decode: f64,
+    /// tokens generated
+    pub tokens: usize,
+}
+
+fn secs(t: std::time::Instant) -> f64 {
+    t.elapsed().as_secs_f64()
+}
+
 /// Qwen3-ASR.
 pub struct Asr {
     m: Loaded,
     eos: Vec<u32>,
     /// key/value cache of the prompt up to the audio, for the last context used
     prefix: Option<(String, Prefix)>,
+    clock: Clock,
 }
 
 impl Asr {
@@ -404,11 +422,16 @@ impl Asr {
     pub fn load_on(dir: &Path, quantize: bool, gpu: Option<&Arc<Ctx>>) -> Result<Self, AsrError> {
         let m = load_dir(dir, quantize, gpu)?;
         let eos = vec![special(&m.tok, "<|im_end|>")?, special(&m.tok, "<|endoftext|>")?];
-        Ok(Self { m, eos, prefix: None })
+        Ok(Self { m, eos, prefix: None, clock: Clock::default() })
     }
 
     pub fn on_gpu(&self) -> bool {
         matches!(self.m.net, Net::Gpu(_))
+    }
+
+    /// Time spent so far, stage by stage.
+    pub fn clock(&self) -> Clock {
+        self.clock
     }
 
     /// Transcribe a piece (≤ [`MAX_CHUNK_SECONDS`]) of 16 kHz mono audio. `context`: text the model may lean on (term
@@ -421,6 +444,7 @@ impl Asr {
     pub fn transcribe_scored(&mut self, audio: &[f32], context: &str, language: Option<&str>, cancel: &mut dyn FnMut() -> bool) -> Result<Scored, AsrError> {
         let t0 = std::time::Instant::now();
         let feats = self.m.net.encode(audio)?;
+        self.clock.encode += secs(t0);
         let trace = std::env::var_os("OVERFILM_ASR_TRACE").is_some();
         if trace {
             eprintln!("encoder {:?}", t0.elapsed());
@@ -433,6 +457,7 @@ impl Asr {
         let x = net.inputs(&[], &feats, &after)?;
         let (first, mut p) = net.forward_p(&x, true, true)?;
         let mut next = first.first().copied().unwrap_or(self.eos[0]);
+        self.clock.prefill += secs(t1);
         if trace {
             eprintln!("prefill {} tokens {:?}", x.dim(0)?, t1.elapsed());
         }
@@ -451,6 +476,8 @@ impl Asr {
             p = np;
         }
         net.clear();
+        self.clock.decode += secs(t2);
+        self.clock.tokens = self.clock.tokens.saturating_add(out.len());
         if trace {
             eprintln!("decode {} tokens {:?}", out.len(), t2.elapsed());
         }
@@ -508,9 +535,11 @@ impl Asr {
                 return Err(AsrError::Cancelled);
             }
         }
+        self.clock.encode += secs(t0);
         if trace {
             eprintln!("encoder x{} {:?}", audios.len(), t0.elapsed());
         }
+        let tp = std::time::Instant::now();
         let Net::Cpu(th) = &mut self.m.net else { return Err(AsrError::Model("batched decoding needs the CPU model".into())) };
         let (first, mut seqs) = th.text.prefill_seqs(&xs)?;
         let first = first.to_dtype(DType::F32)?;
@@ -522,6 +551,7 @@ impl Asr {
             next.push(u32::try_from(best).unwrap_or(self.eos[0]));
             prob.push(top_probability(&row));
         }
+        self.clock.prefill += secs(tp);
         if trace {
             eprintln!("encoder+prefill x{} {:?}", audios.len(), t0.elapsed());
         }
@@ -565,6 +595,8 @@ impl Asr {
             }
         }
         self.m.net.clear();
+        self.clock.decode += secs(t1);
+        self.clock.tokens = self.clock.tokens.saturating_add(outs.iter().map(Vec::len).sum());
         if trace {
             eprintln!("decode x{} {} tokens {:?}", audios.len(), outs.iter().map(Vec::len).sum::<usize>(), t1.elapsed());
         }
@@ -592,6 +624,7 @@ impl Asr {
         for a in audios {
             feats.push(self.m.net.encode(a)?);
         }
+        self.clock.encode += secs(t0);
         let Net::Gpu(g) = &mut self.m.net else { return Err(AsrError::Model("not on the GPU".into())) };
         let plen = g.text.pos;
         let longest = feats.iter().map(|f| f.dim(0).unwrap_or(0)).max().unwrap_or(0);
@@ -637,6 +670,7 @@ impl Asr {
                     return Err(AsrError::Cancelled);
                 }
             }
+            self.clock.prefill += secs(t1);
             if trace {
                 eprintln!("gpu prefill x{} {:?}", group.len(), t1.elapsed());
             }
@@ -679,6 +713,8 @@ impl Asr {
                     }
                 }
             }
+            self.clock.decode += secs(t2);
+            self.clock.tokens = self.clock.tokens.saturating_add(outs.iter().map(Vec::len).sum());
             if trace {
                 eprintln!("gpu decode x{} {} tokens {:?}", group.len(), outs.iter().map(Vec::len).sum::<usize>(), t2.elapsed());
             }
@@ -695,6 +731,7 @@ pub struct Aligner {
     ts_id: u32,
     /// milliseconds per timestamp class
     step_ms: f64,
+    clock: Clock,
 }
 
 impl Aligner {
@@ -709,11 +746,16 @@ impl Aligner {
             None => special(&m.tok, "<timestamp>")?,
         };
         let step_ms = m.cfg.timestamp_segment_time.unwrap_or(80.0);
-        Ok(Self { m, ts_id, step_ms })
+        Ok(Self { m, ts_id, step_ms, clock: Clock::default() })
     }
 
     pub fn on_gpu(&self) -> bool {
         matches!(self.m.net, Net::Gpu(_))
+    }
+
+    /// Time spent so far: `encode` for the audio encoder, `prefill` for the one decoder pass.
+    pub fn clock(&self) -> Clock {
+        self.clock
     }
 
     /// Start and end (milliseconds) of each unit of `units` (see [`text::align_units`]) in
@@ -738,6 +780,8 @@ impl Aligner {
         net.clear();
         let t1 = std::time::Instant::now();
         let ids = net.forward(&x, false, false)?;
+        self.clock.encode += t1.duration_since(t0).as_secs_f64();
+        self.clock.prefill += secs(t1);
         if std::env::var_os("OVERFILM_ASR_TRACE").is_some() {
             eprintln!("align: encoder {:?}, {} rows {:?}", t0.elapsed().saturating_sub(t1.elapsed()), x.dim(0)?, t1.elapsed());
         }
@@ -800,7 +844,12 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
     if !progress(0.0, &format!("음성 인식 모델 불러오는 중 ({})", label(&gpu))) {
         return Err(AsrError::Cancelled);
     }
+    let mut out = Transcript { language: s.language.unwrap_or_default().to_string(), ..Transcript::default() };
+    let t = std::time::Instant::now();
     let mut asr = load_any(&mut gpu, progress, |g| Asr::load_on(s.asr_dir, s.quantize, g))?;
+    out.add_stage("모델 불러오기", secs(t) as f32, 0);
+    // a model reloaded on the CPU after a GPU error starts a fresh clock: keep what came before
+    let mut asr_before = Clock::default();
     let mut chunks = Vec::with_capacity(spans.len());
     let mut scores: Vec<Vec<(String, f32)>> = Vec::with_capacity(spans.len());
     let n = spans.len().max(1) as f32;
@@ -830,8 +879,11 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
                 if !progress(0.8 * i as f32 / n, &format!("GPU 오류로 CPU에서 이어 합니다: {e}")) {
                     return Err(AsrError::Cancelled);
                 }
+                asr_before = add_clocks(asr_before, asr.clock());
                 drop(asr);
+                let t = std::time::Instant::now();
                 asr = Asr::load_on(s.asr_dir, s.quantize, None)?;
+                out.add_stage("모델 불러오기", secs(t) as f32, 0);
                 continue;
             }
             r => r?,
@@ -852,11 +904,18 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
         }
     }
     let device = label(&gpu);
+    let c = add_clocks(asr_before, asr.clock());
+    out.add_stage("소리 특징", c.encode as f32, 0);
+    out.add_stage("프롬프트 처리", c.prefill as f32, 0);
+    out.add_stage("글자 생성", c.decode as f32, c.tokens);
     drop(asr);
     if !progress(0.8, &format!("시간 맞춤 모델 불러오는 중 ({})", label(&gpu))) {
         return Err(AsrError::Cancelled);
     }
+    let t = std::time::Instant::now();
     let mut aligner = load_any(&mut gpu, progress, |g| Aligner::load_on(s.aligner_dir, s.quantize, g))?;
+    out.add_stage("시간 맞춤 모델 불러오기", secs(t) as f32, 0);
+    let mut align_before = Clock::default();
     for (i, (c, &(a, b))) in chunks.iter_mut().zip(&spans).enumerate() {
         let units = text::align_units(&c.text);
         let piece = audio.get(a..b).unwrap_or(&[]);
@@ -866,8 +925,11 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
                 if !progress(0.8 + 0.2 * i as f32 / n, &format!("GPU 오류로 CPU에서 이어 합니다: {e}")) {
                     return Err(AsrError::Cancelled);
                 }
+                align_before = add_clocks(align_before, aligner.clock());
                 drop(aligner);
+                let t = std::time::Instant::now();
                 aligner = Aligner::load_on(s.aligner_dir, s.quantize, None)?;
+                out.add_stage("시간 맞춤 모델 불러오기", secs(t) as f32, 0);
                 aligner.align(piece, &units)?
             }
             r => r?,
@@ -881,7 +943,15 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
         }
     }
     let _ = gpu;
-    Ok(Transcript { language: s.language.unwrap_or_default().to_string(), device, chunks, speakers: Vec::new() })
+    let c = add_clocks(align_before, aligner.clock());
+    out.add_stage("시간 맞춤", (c.encode + c.prefill) as f32, 0);
+    out.device = device;
+    out.chunks = chunks;
+    Ok(out)
+}
+
+fn add_clocks(a: Clock, b: Clock) -> Clock {
+    Clock { encode: a.encode + b.encode, prefill: a.prefill + b.prefill, decode: a.decode + b.decode, tokens: a.tokens.saturating_add(b.tokens) }
 }
 
 /// The real model on the GPU against the CPU: encoder output for 3 s of noise, decoder scores

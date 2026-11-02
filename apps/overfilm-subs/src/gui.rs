@@ -369,10 +369,11 @@ impl App {
         match self.open_result(&done.srt, self.input.clone(), options) {
             Ok(()) => {
                 if let Some(r) = &mut self.review {
-                    r.summary = Some(match note {
+                    let summary = match note {
                         Some(n) => format!("{summary} {n}"),
                         None => summary,
-                    });
+                    };
+                    r.summary = Some(if done.stages.is_empty() { summary } else { format!("{summary}\n단계별 시간: {}", done.stages) });
                 }
             }
             Err(e) => self.status = Some(Err(e)),

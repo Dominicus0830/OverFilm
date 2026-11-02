@@ -18,6 +18,7 @@ fn ow(words: &[(&str, i64, i64, Option<usize>, bool)], speakers: &[(&str, bool)]
                 .collect(),
         }],
         speakers: speakers.iter().map(|&(l, g)| overfilm_asr::Speaker { label: l.into(), game: g, ..Default::default() }).collect(),
+        stages: Vec::new(),
     }
 }
 

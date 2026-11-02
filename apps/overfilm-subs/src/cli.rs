@@ -118,6 +118,9 @@ fn extract(args: &[String]) -> Result<(), String> {
     println!("자막 {}개 → {}", done.captions, done.srt.display());
     println!("단어 시간 → {}", done.transcript.display());
     println!("소리 {}초를 {}초 걸려 처리 ({}), 단어집 교정 {}곳", done.audio_seconds, done.seconds_taken, done.device, done.corrections.len());
+    if !done.stages.is_empty() {
+        println!("단계별 시간: {}", done.stages);
+    }
     let who = job::speaker_summary(&done);
     if !who.is_empty() {
         println!("{who}");
