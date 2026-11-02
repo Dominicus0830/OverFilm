@@ -10,10 +10,14 @@
 //!   graphic's `Source Text` is read the same way, one style per different look.
 //! - **`.mogrt`** (ZIP): a template made in Premiere carries the same `Source Text`; one made in
 //!   After Effects only has `definition.json`, whose editable controls give the font, its size
-//!   and the colours whose names say what they colour (fill, outline, background). The motion
-//!   comes from the After Effects project inside ([`crate::aep`]): the text layer's scale,
-//!   position, opacity and rotation keyframes; a per-character animator becomes the typewriter.
-//!   When none can be read, it is guessed from the template's name (pop, slide, bounce,
+//!   and the colours whose names say what they colour (fill, outline, background). The rest comes
+//!   from the After Effects project inside ([`crate::aep`] reads it, [`crate::aep_look`] turns it
+//!   into a look): the text's motion through its parents and precompositions, with expressions
+//!   evaluated ([`crate::aep_expr`]); its glow, light sweep, blur, drop shadow, gradient ramp and
+//!   fill; its masks; shape layers (boxes and bars, pinned to the text when sized to it); and the
+//!   motion of the other text layers, used for the caption's next lines. A per-character
+//!   animator becomes the typewriter. What has no counterpart is listed in the notes. When the
+//!   project cannot be read, the motion is guessed from the template's name (pop, slide, bounce,
 //!   typewriter, fade).
 //!
 //! What is read from a Premiere text style: font (PostScript name), size, fill colour, outline
@@ -412,8 +416,10 @@ fn mogrt(bytes: &[u8], name: &str, out: &mut Imported, depth: u32) -> Result<(),
         let title = capsule_name(def).map(|t| clean_name(&t)).unwrap_or_else(|| name.to_string());
         if out.presets.is_empty() {
             if let Some((mut preset, font)) = from_definition(def, &title) {
-                let moved = aep.and_then(|a| crate::aep::motion(a, frame_short(def)));
-                apply_ae_motion(&mut preset, moved, &mut out.notes);
+                // the template's text size in its own pixels, for measuring its effects
+                let font_px = f64::from(preset.size) * frame_short(def) / 1080.0;
+                let made = aep.and_then(|a| crate::aep_look::template(a, Some(font_px)));
+                apply_ae_template(&mut preset, made, &mut out.notes);
                 out.presets.push(preset);
                 out.fonts.push(font);
             }
@@ -541,30 +547,47 @@ fn frame_short(def: &Value) -> f64 {
     frame.and_then(|f| Some(f.get("x")?.as_f64()?.min(f.get("y")?.as_f64()?))).filter(|s| s.is_finite() && *s >= 16.0).unwrap_or(1080.0)
 }
 
-/// Put an After Effects template's own motion on its preset (else keep the motion guessed from
-/// its name), and tell the user what came over.
-fn apply_ae_motion(preset: &mut CaptionPreset, moved: Option<crate::aep::AeMotion>, notes: &mut Vec<String>) {
-    let mut took = Vec::new();
-    if let Some(m) = moved {
-        if m.per_character {
-            preset.motion_in = Motion::Typewriter;
-            took.push("글자가 하나씩 나오는 움직임은 한 글자씩(타자기)으로");
-        }
-        if let Some(c) = m.custom {
-            if !m.per_character {
-                preset.motion_in = Motion::None;
-            }
-            preset.motion_out = Motion::None;
-            preset.custom_motion = Some(c);
-            took.push("크기·위치·투명도·회전 키프레임은 그대로");
-        }
-    }
-    if took.is_empty() {
+/// Put an After Effects template's own motion and look on its preset (else keep the motion
+/// guessed from its name), and tell the user what came over and what did not.
+fn apply_ae_template(preset: &mut CaptionPreset, made: Option<crate::aep_look::AeTemplate>, notes: &mut Vec<String>) {
+    let Some(m) = made else {
         notes.push(
             "After Effects로 만든 템플릿이라 글꼴·크기·이름으로 알 수 있는 색만 가져오고, 움직임은 이름을 보고 비슷한 OverFilm 모션으로 골랐어요.".into(),
         );
+        return;
+    };
+    let mut took = m.took.clone();
+    if m.per_character {
+        preset.motion_in = Motion::Typewriter;
+        took.push("글자가 하나씩 나오는 움직임(타자기로)".into());
+    }
+    if let Some(c) = m.motion {
+        if !m.per_character {
+            preset.motion_in = Motion::None;
+        }
+        preset.motion_out = Motion::None;
+        preset.custom_motion = Some(c);
+    }
+    // the template's layers make the text bigger or smaller than its font size
+    if m.text_scale.is_finite() && (0.2..=10.0).contains(&m.text_scale) && (m.text_scale - 1.0).abs() > 0.02 {
+        preset.size = (preset.size * m.text_scale as f32).clamp(8.0, 400.0);
+    }
+    if let Some(f) = m.fill {
+        preset.fill = f;
+    }
+    if m.look.shadow.is_some() {
+        preset.shadow = true;
+    }
+    if !m.look.is_empty() {
+        preset.template = Some(m.look);
+    }
+    if took.is_empty() {
+        notes.push("After Effects 템플릿에서 움직임을 찾지 못해, 이름을 보고 비슷한 OverFilm 모션으로 골랐어요.".into());
     } else {
-        notes.push(format!("After Effects 템플릿의 움직임을 가져왔어요: {}. 효과(빛, 그라데이션, 글로우 등)와 표현식은 가져오지 못해요.", took.join(", ")));
+        notes.push(format!("After Effects 템플릿에서 가져왔어요: {}.", took.join(", ")));
+    }
+    if !m.missed.is_empty() {
+        notes.push(format!("가져오지 못한 것: {}.", m.missed.join(", ")));
     }
 }
 

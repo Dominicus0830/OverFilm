@@ -297,7 +297,7 @@ fn an_after_effects_mogrt_brings_its_keyframed_motion() {
     let c = p.custom_motion.as_ref().expect("the template's own motion");
     assert_eq!(c.lengths(), (0.5, 0.5));
     assert_eq!(p.motion_in, Motion::None);
-    assert!(r.notes.iter().any(|n| n.contains("키프레임")), "{:?}", r.notes);
+    assert!(r.notes.iter().any(|n| n.contains("움직임")), "{:?}", r.notes);
     // the caption it makes moves like the template
     let e = crate::styles::caption_layer(p, "제목", None, filmcraft_time::Tick::from_seconds_f64(3.0), crate::styles::Frame { width: 1920, height: 1080 });
     let sc = &e.params["scale"].keyframes;

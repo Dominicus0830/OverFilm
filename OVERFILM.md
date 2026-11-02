@@ -368,10 +368,22 @@ track. Then:
   position, opacity and rotation keyframes; the keys before the longest still stretch become
   the caption's custom motion in, the keys after it the motion out (`CaptionPreset::custom_motion`,
   values relative to the rest pose, eased or linear per key), sped up so in and out take at most
-  60 % of a caption. A per-character text animator becomes the typewriter. Not carried over:
-  effects (glow, gradients, light sweeps), expressions, masks, parented or shape layers and
-  every layer but the first animated one; a template with no readable keyframes falls back to
-  a motion guessed from its names. Choosing a motion in the dialog replaces the template's.
+  60 % of a caption. A per-character text animator becomes the typewriter. The text is measured
+  through its parents and the precompositions that show it, and expressions are evaluated
+  (`overfilm_captions::aep_expr`: variables, if/else, Math, ease/linear/clamp, effect controls,
+  other layers' transforms, valueAtTime, loopOut; `wiggle()` becomes the Wiggle effect).
+  The rest of the look (`overfilm_captions::aep_look`, `CaptionPreset::template`,
+  `styles::caption_clip`): Glow → Wonder Glow, CC Light Sweep → **Text Light Sweep** (OverFilm's own
+  effect), Gaussian/Fast Blur, Directional Blur, Drop Shadow → the text's
+  shadow, Gradient Ramp → a gradient fill, Fill → the fill colour; their keyframes fitted into
+  each caption like the motion. Masks go on the caption clip's opacity; rectangle/ellipse shape
+  layers become shape layers (pinned to the text when sized to it); the other text layers' motion
+  moves the caption's second and later lines. Not carried over (listed in the import notes):
+  `sourceRectAtTime()`/`random()`/loops-in-code expressions, third-party plug-ins, free-form
+  path shapes, 3D/cameras/lights, track mattes and layer styles. Mask and effect positions are
+  measured from the text's centre at rest, so they are close but not exact. A template with no
+  readable keyframes falls back to a motion guessed from its names. Choosing a motion in the
+  dialog replaces the template's motion (its effects stay).
   The FlatBuffers layout was worked out from text styles
   people share publicly (14 `.prtextstyle` and 8 `.mogrt` files all read); unknown fields are
   skipped. No Adobe file is shipped or read by us: the user picks their own files. Upstream's

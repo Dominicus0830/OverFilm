@@ -30,7 +30,7 @@ use filmcraft_project::graphic::ensure_layer_uids;
 use filmcraft_project::{Track, TrackId, TrackKind};
 use filmcraft_time::TimeRange;
 use overfilm_captions::premiere;
-use overfilm_captions::styles::{CaptionPreset, Frame, Motion, PresetFile, builtin_presets, caption_layer, preset_from_layer};
+use overfilm_captions::styles::{CaptionPreset, Frame, Motion, PresetFile, builtin_presets, caption_clip, preset_from_layer};
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, always, bad, bool_p, has_seq, str_p};
@@ -340,10 +340,19 @@ fn stylize(s: &mut Session, p: &Value) -> Result<Value> {
             let dur = rate.snap(c.start + c.duration).max(start + rate.frame_duration()) - start;
             let Some(mut ti) = pr.make_track_item(src, TrackKind::Video, start, TimeRange::new(filmcraft_time::Tick::ZERO, dur), rate) else { continue };
             ti.name = c.text.lines().next().unwrap_or("자막").chars().take(40).collect();
-            let mut layer = caption_layer(&preset, &c.text, c.speaker.as_deref(), dur, frame);
-            filmcraft_project::resolve_auto_points(&mut layer, (w, h), (w, h));
-            ti.effects.push(layer);
+            let made = caption_clip(&preset, &c.text, c.speaker.as_deref(), dur, frame);
+            for mut layer in made.layers {
+                filmcraft_project::resolve_auto_points(&mut layer, (w, h), (w, h));
+                ti.effects.push(layer);
+            }
             ensure_layer_uids(&mut ti.effects);
+            // the template's glow, light sweep, blur … on the clip; its masks on the clip's opacity
+            ti.effects.extend(made.effects);
+            if !made.masks.is_empty()
+                && let Some(o) = ti.effects.iter_mut().find(|e| e.effect == "opacity")
+            {
+                o.masks.extend(made.masks);
+            }
             items.push(ti);
         }
         let track_id = TrackId(pr.alloc_id());
@@ -576,6 +585,74 @@ mod tests {
         assert_eq!(r["name"], "기본 (내 스타일)");
         assert!(s.execute("overfilm.captions.styleFromClip", json!({"name": "", "presets": file})).is_err());
         assert!(s.execute("overfilm.captions.styleFromClip", json!({"name": "y", "clip": 999999, "presets": file})).is_err());
+    }
+
+    #[test]
+    fn a_templates_effects_masks_and_shapes_land_on_each_caption_clip() {
+        use overfilm_captions::styles::{CaptionPreset, FxLook, FxParam, FxValue, MaskKey, MaskLook, ShapeLook, TemplateLook};
+        let mut s = session_with_captions();
+        let dir = crate::media_test_util::tmp_dir("overfilm-cap-template");
+        let file = dir.join("styles.json").to_string_lossy().into_owned();
+        let look = TemplateLook {
+            effects: vec![FxLook { effect: "text_light_sweep".into(), params: vec![FxParam { id: "width".into(), value: FxValue::Len(0.5), keys: vec![] }] }],
+            masks: vec![MaskLook {
+                mode: 1,
+                opacity: 100.0,
+                path: vec![MaskKey {
+                    t: 0.0,
+                    closed: true,
+                    vertices: vec![[-5.0, -2.0, 0.0, 0.0, 0.0, 0.0], [5.0, -2.0, 0.0, 0.0, 0.0, 0.0], [5.0, 2.0, 0.0, 0.0, 0.0, 0.0]],
+                    hold: false,
+                }],
+                ..MaskLook::default()
+            }],
+            shapes: vec![ShapeLook { size: [6.0, 1.4], fill: Some([20, 20, 20, 255]), fit_text: true, pad: [0.3, 0.2], ..ShapeLook::default() }],
+            ..TemplateLook::default()
+        };
+        let preset = CaptionPreset { name: "템플릿".into(), template: Some(look), ..CaptionPreset::default() };
+        s.execute("overfilm.captions.savePreset", json!({"presets": file, "preset": serde_json::to_value(&preset).unwrap()})).unwrap();
+        let r = s.execute("overfilm.captions.stylize", json!({"presets": file, "preset": "템플릿"})).unwrap();
+        assert_eq!(r["styled"], 2, "{r}");
+        let q = s.active_sequence().unwrap();
+        let t = q.video_tracks.iter().find(|t| t.name.starts_with(super::TRACK_PREFIX)).unwrap();
+        for it in &t.items {
+            let kinds: Vec<&str> = it.effects.iter().map(|e| e.effect.as_str()).collect();
+            let shape = kinds.iter().position(|k| *k == filmcraft_project::graphic::SHAPE_LAYER).unwrap();
+            let text = kinds.iter().position(|k| *k == filmcraft_project::graphic::TEXT_LAYER).unwrap();
+            assert!(shape < text, "the box is behind the text: {kinds:?}");
+            assert!(kinds.contains(&"text_light_sweep"), "{kinds:?}");
+            let opacity = it.effects.iter().find(|e| e.effect == "opacity").unwrap();
+            assert_eq!(opacity.masks.len(), 1);
+            let uid = it.effects[text].layer.as_ref().unwrap().uid;
+            assert_eq!(it.effects[shape].layer.as_ref().and_then(|l| l.pin.as_ref()).map(|p| p.to), Some(filmcraft_project::PinTarget::Layer(uid)));
+        }
+        // it renders
+        let png = dir.join("frame.png");
+        s.execute("file.exportFrame", json!({"target": "program", "path": png.to_string_lossy()})).unwrap();
+        assert!(std::fs::metadata(&png).unwrap().len() > 100);
+    }
+
+    /// Frames of captions styled by real templates, for looking at:
+    /// `OVERFILM_MOGRT=<dir of .mogrt> OVERFILM_SHOTS=<out dir> cargo test -p filmcraft-engine -- --ignored template_screenshots`.
+    #[test]
+    #[ignore]
+    fn template_screenshots() {
+        let (Ok(src), Ok(out)) = (std::env::var("OVERFILM_MOGRT"), std::env::var("OVERFILM_SHOTS")) else { return };
+        let dir = crate::media_test_util::tmp_dir("overfilm-cap-shots");
+        let file = dir.join("styles.json").to_string_lossy().into_owned();
+        let mut paths: Vec<_> = std::fs::read_dir(src).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        paths.sort();
+        for p in paths {
+            let mut s = session_with_captions();
+            let Ok(r) = s.execute("overfilm.captions.importStyle", json!({"path": p.to_string_lossy(), "presets": file})) else { continue };
+            let Some(name) = r["names"][0].as_str().map(str::to_owned) else { continue };
+            s.execute("overfilm.captions.stylize", json!({"presets": file, "preset": name})).unwrap();
+            for (i, t) in [0.3, 1.0, 2.8].iter().enumerate() {
+                s.set_playhead(filmcraft_time::Tick::from_seconds_f64(*t));
+                let png = std::path::Path::new(&out).join(format!("{}-{i}.png", p.file_stem().unwrap().to_string_lossy()));
+                s.execute("file.exportFrame", json!({"target": "program", "path": png.to_string_lossy()})).unwrap();
+            }
+        }
     }
 
     #[test]

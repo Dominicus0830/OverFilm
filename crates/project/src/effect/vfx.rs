@@ -13,6 +13,8 @@ use super::{
 
 const IMMERSIVE: &[&str] = &["Video Effects", "Immersive Video"];
 pub(super) const LIGHTS: &[&str] = &["Video Effects", "Lights & Glows"];
+/// OverFilm's own effects (added by caption templates; not in Premiere's list).
+const OVERFILM_LIGHTS: &[&str] = &["OverFilm", "Lights & Glows"];
 const TIME: &[&str] = &["Video Effects", "Time"];
 pub(super) const UTILITY: &[&str] = &["Video Effects", "Utility"];
 /// Hidden-in-Premiere effects that old projects still render (kept so they round-trip and render).
@@ -567,6 +569,24 @@ pub(super) fn defs() -> Vec<EffectDef> {
                 b("use_color", "Use Glow Color", false),
                 col("color", "Glow Color", [1.0, 0.8, 0.5, 1.0]),
                 ch("mode", "Blending Mode", &["Add", "Screen"], 0),
+            ],
+        ),
+        // OverFilm: what After Effects caption templates use to shine across their text; in its
+        // own folder so Premiere's Lights & Glows list stays as it is
+        video(
+            "text_light_sweep",
+            "Text Light Sweep",
+            OVERFILM_LIGHTS,
+            vec![
+                pt("center", "Center", f64::NAN, f64::NAN),
+                ang("direction", "Direction", -30.0),
+                ch("shape", "Shape", &["Linear", "Smooth", "Sharp"], 1),
+                px("width", "Width", 50.0, 2000.0, 400.0),
+                fs("sweep_intensity", "Sweep Intensity", 50.0, (0.0, 1000.0), (0.0, 200.0), "", 1),
+                fs("edge_intensity", "Edge Intensity", 100.0, (0.0, 1000.0), (0.0, 200.0), "", 1),
+                fs("edge_thickness", "Edge Thickness", 1.0, (0.0, 200.0), (0.0, 10.0), "", 2),
+                col("color", "Light Color", [1.0, 1.0, 1.0, 1.0]),
+                ch("reception", "Light Reception", &["Add", "Composite", "Cutout"], 0),
             ],
         ),
         // ---- Perspective ----

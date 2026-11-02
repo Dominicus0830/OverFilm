@@ -3804,3 +3804,9 @@
 	Saved the caption style "{name}"	자막 스타일 "{name}"을(를) 저장했어요
 	Imported caption style(s): {names}	자막 스타일을 가져왔어요: {names}
 	font(s) not installed: {fonts}	이 컴퓨터에 없는 글꼴: {fonts}
+	Text Light Sweep	글자 빛 지나가기
+	Sweep Intensity	빛 세기
+	Edge Intensity	가장자리 세기
+	Light Reception	빛 받는 방식
+	Sharp	날카롭게
+	Cutout	잘라내기
