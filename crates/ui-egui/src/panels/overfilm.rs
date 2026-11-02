@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use crate::FilmcraftApp;
 
-type Elems = Vec<(String, egui::Rect, String)>;
+pub(crate) type Elems = Vec<(String, egui::Rect, String)>;
 
 #[derive(Clone)]
 struct Draft {
@@ -53,6 +53,11 @@ fn prefix(command: &str) -> &'static str {
 
 /// Menu entry points: the OverFilm commands without parameters open their dialog.
 pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Value) -> Option<Result<Value, String>> {
+    // Cut and Caption in One Go from the menu: the OverFilm panel, where the steps are chosen
+    if id == "overfilm.flow.run" && params.as_object().is_none_or(|m| m.is_empty()) {
+        app.show_panel(crate::dock::PanelKind::OverFilm);
+        return Some(Ok(json!({"panel": "OverFilm"})));
+    }
     let command = COMMANDS.iter().copied().find(|c| *c == id)?;
     if !params.as_object().is_none_or(|m| m.is_empty()) {
         return None;
@@ -127,7 +132,7 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
     Some(Ok(json!({"dialog": prefix(command)})))
 }
 
-fn combo(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, options: &[(&str, String)]) {
+pub(crate) fn combo(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, options: &[(&str, String)]) {
     ui.label(label);
     let cur = v.as_str().unwrap_or_default().to_string();
     let shown = options.iter().find(|(k, _)| *k == cur).map(|(_, l)| l.clone()).unwrap_or_else(|| cur.clone());
@@ -145,14 +150,14 @@ fn combo(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut 
     ui.end_row();
 }
 
-fn check(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value) {
+pub(crate) fn check(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value) {
     let mut b = v.as_bool().unwrap_or(false);
     let r = ui.checkbox(&mut b, label);
     *v = json!(b);
     elems.push((id, r.rect, label.to_string()));
 }
 
-fn number(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, range: std::ops::RangeInclusive<f64>, suffix: &str) {
+pub(crate) fn number(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, range: std::ops::RangeInclusive<f64>, suffix: &str) {
     ui.label(label);
     let mut n = v.as_f64().unwrap_or(*range.start());
     // counts are whole numbers; seconds and rates keep one decimal
@@ -167,7 +172,7 @@ fn number(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut
     ui.end_row();
 }
 
-fn text(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, hint: &str) {
+pub(crate) fn text(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, hint: &str) {
     ui.label(label);
     let mut t = v.as_str().unwrap_or_default().to_string();
     let r = ui.add(egui::TextEdit::singleline(&mut t).hint_text(hint).desired_width(260.0));
@@ -318,7 +323,7 @@ fn screen_label(screen: &str) -> &'static str {
 
 /// An engine error in the user's words: the known OverFilm ones are said plainly (and translated);
 /// anything else keeps its text without the "invalid parameters for `…`:" lead.
-fn plain_error(e: &str) -> String {
+pub(crate) fn plain_error(e: &str) -> String {
     const KNOWN: &[(&str, &str)] = &[
         ("give `rects`", "Drag on the picture to draw at least one green box, then OK."),
         ("`rect` is [x, y, w, h]", "Draw one green box around the team's name plates."),
@@ -589,7 +594,12 @@ fn learn_call(d: &Draft) -> Option<(&'static str, Value)> {
 
 /// The command's parameters from the dialog's (empty choices left out).
 fn run_params(d: &Draft) -> Value {
-    let mut p = d.params.clone();
+    normalize(d.params.clone())
+}
+
+/// Dialog or panel choices as command parameters: empty choices left out, the speaker choice
+/// ("who") as `speakers` / `numSpeakers`, counts as whole numbers.
+pub(crate) fn normalize(mut p: Value) -> Value {
     if let Some(m) = p.as_object_mut() {
         m.remove("drawIgnore");
         m.remove("refresh");

@@ -329,3 +329,33 @@ fn hostile_answers_do_not_panic() {
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.execute("overfilm.review.cuts", json!({"all": true, "wait": true}))));
     assert!(r.unwrap().is_ok());
 }
+
+#[test]
+fn one_go_reviews_cuts_and_captions_once_each() {
+    // cuts: keep the silence; captions: keep them all
+    let f = fake(|q| {
+        let answers: Vec<Value> = if q.prompt.contains("구간 id=") {
+            q.prompt.split("구간 id=").skip(1).map(|x| json!({"id": x.split('\n').next().unwrap(), "decision": "keep", "reason": "말 있음"})).collect()
+        } else {
+            q.prompt.split("### 자막 id=").skip(1).map(|x| json!({"id": x.split(' ').next().unwrap(), "decision": "keep", "reason": "맞음"})).collect()
+        };
+        Ok(json!({"answers": answers}))
+    });
+    let mut s = session(&f);
+    // "on its own" too: the run must not ask a second time
+    s.execute("overfilm.review.settings", json!({"auto": true, "batch": 20})).unwrap();
+    let (_, end) = word_ms(&s, "들어가고");
+    add_cut(&mut s, end - 300, end + 3000);
+    let before = s.active_sequence().unwrap().duration();
+    let r = s.execute("overfilm.flow.run", json!({"autoCut": false, "reviewCuts": true, "captions": "reuse", "reviewCaptions": true, "wait": true})).unwrap();
+    assert_eq!(r["state"], "done", "{r}");
+    let steps: Vec<&str> = r["steps"].as_array().unwrap().iter().map(|s| s["step"].as_str().unwrap()).collect();
+    assert_eq!(steps, ["reviewCuts", "applyCuts", "captions", "reviewCaptions"], "{r}");
+    assert!(r["steps"].as_array().unwrap().iter().all(|s| s["state"] == "done" || s["state"] == "skipped"), "{r}");
+    let asked = lock(&f.asked).clone();
+    assert_eq!(asked.len(), 2, "one cut question, one caption question: {:?}", asked.iter().map(|q| q.prompt.len()).collect::<Vec<_>>());
+    // kept by Claude: nothing cut, the marker renamed
+    assert_eq!(s.active_sequence().unwrap().duration(), before);
+    assert!(markers(&s).iter().any(|m| m.name == MARK_KEEP));
+    assert!(!caption_texts(&s).is_empty());
+}
