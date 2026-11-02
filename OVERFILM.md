@@ -16,8 +16,8 @@ calling the caption layout) and listed in the table at the end.
 | `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`), in-game voice lines found by text (`voicelines`) |
 | `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels, overlapped speech with pyannote segmentation-3.0); next: `filmcraft_speech::Transcriber` |
 | `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out; caption styles and motion for the editor (`styles`), Premiere text styles and templates read into them (`premiere`) |
-| `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures), the auto-cut plan, deaths and ultimates from the HUD's player bars, who killed whom and ultimate kills from the kill feed; see "Auto cut" below |
-| `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the shared models folder |
+| `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures), the auto-cut plan, deaths and ultimates from the HUD's player bars, who killed whom and ultimate kills from the kill feed, heroes on the name plates (`heroes`) and teams and players from text read off the HUD (`lineup`); see "Auto cut" below |
+| `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the match prior and the built-in roster (`game`), HUD text reading (`ocr`, feature `ocr`), the shared models folder |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L1 | M6 | analysis behind the editing suggestions: loudness, silences, highlights (`overfilm.assist.suggest` in the engine), the learnt editing style (`style`) |
 | `overfilm-review` | L1 | M6 | Claude Code review: runs the local `claude -p` (the user's subscription, no API key) on unclear cuts and captions; questions, JSON schemas and checked answers; see "Claude Code review" below |
@@ -602,6 +602,61 @@ ultimate kills with their icon, and one kill counted twice when its row was lost
 behind a camera cut. Who is who is weaker there: the names are about 8 pixels high and blurred, so
 two names of a length (WUTIAN, FAITH, GAMJUNG) can share one "선수 N" until named. Ten minutes of
 the broadcast read in about 30 seconds on a CPU, decoding with ffmpeg included.
+
+## Teams, players and heroes on screen
+
+The kill scan (`overfilm.kills.scan`, `players=true` by default) also reads who plays what off the
+name plates, on the frames it decodes anyway, and OverFilm Captions uses it as a **soft prior**
+for team, player and hero names.
+
+- **Heroes** (`overfilm_vision::heroes`): each plate's hero portrait (right of the ultimate box;
+  `portrait` on a player bar when a broadcast puts it elsewhere) as a 6×6 colour grid, compared
+  scaled to its brightness (dark portraits differ in few levels). A new portrait counts once it has
+  stayed 12 s: a death grays the portrait for the respawn time, and the ultimate animation covers
+  it for a moment. The first hero of each stretch of play (between breaks of 2 s or more off the
+  game HUD) is a pick, later changes are swaps. Heroes are numbered ("영웅 3") until named in the
+  OverFilm panel ("이름판 영웅 이름 붙이기") or with `overfilm.heroes.name {id, name}`; the name and
+  grid go into the template file (`hero_names`), so later scans name the portrait themselves.
+- **Teams and players** (`overfilm_vision::lineup`, text read by `overfilm_pipeline::ocr`: the
+  ocrs models, about 12 MB, downloaded once into the models folder): the team name over each bar
+  and the names under the plates, read 2.5× enlarged every 2 s at the start of a stretch until each
+  plate has 6 readings, then every 30 s. Readings are only compared with the glossary's roster
+  (`players.tsv` sections under each team's heading; coaches and streamers left out): a side's
+  team is the one its readings match best overall (`D2 Blat` still votes for O2 Blast), and its
+  players are matched per plate per stretch against that team only, each player on one plate, so
+  substitutes and plates reordered between rounds are followed. One unread plate whose team is
+  otherwise unchanged is the player left over.
+- Markers (replaced by every scan): "OverFilm 경기: 로제 vs 오투 블래스트"; "OverFilm 선수" where the
+  plates change (comment: "로제: 태종, 킬로, …" per team; "OverFilm 선수 교체: 로제 A → B" for a
+  substitute); "OverFilm 영웅 선택" at each stretch's picks (comment "태종: 트레이서" per line, only
+  plates whose hero changed); "OverFilm 영웅 교체: 우톈 트레이서 → 겐지" at each swap.
+- **Captions**: `overfilm.captions.generate` reads those markers back (hand-corrected markers
+  count) into the clip's `MatchPrior`, moved through the clips of the media to its own clock.
+  The teams and players go first in the recogniser's context ("이번 경기: 로제 대 오투 블래스트.
+  출전 선수: …", before the long lists that the length cap cuts), and in the glossary correction the
+  names in play (and the named heroes in play during each piece of sound) win a tie with other
+  names and allow one more jamo edit at three syllables or more. Nothing else changes: a hero
+  nobody plays is corrected as before, since commentators talk about other heroes too. A
+  two-syllable player still needs `선수` after it to be corrected.
+- `overfilm.heroes.list {}`: the last scan's teams, players and heroes (number, name, first pick).
+
+Measured on the OWCS broadcast (720p, built-in template file, 2 fps, the 84 minutes there are):
+both teams right (RØDE ZANSIDE GAMING, O2 Blast), all ten players on every plate of all six
+stretches, including Kilo and Taejong trading plates between maps (checked on frames), in 135
+readings (2½ minutes of a 10-minute run on 4 CPU cores, decoding included). 14 swaps, 37 picks;
+the ones checked on frames are real (30:26 Heesung, 1:10:39 Homerunball, five O2 players
+changing heroes in the spawn room before 45:03). Before the brightness scaling, dark portraits of
+different heroes shared one number. No substitute in this video, so substitutes are tested only
+on made-up readings (`lineup_tests`). Evaluation tools: `heroes_raw` (vision) and `lineup_raw`,
+`recognise_raw` (pipeline) examples.
+
+Captions on 10 minutes of commentary (28:20–38:20, CPU, speaker split off), with the prior from
+that scan against without: "오토플라스트" became "오투 블래스트", "오브러/오픈" became "오프너"
+(1 → 5), "일리어" became "에일리언", "로드호그 게이밍" went away. The correction alone
+(`correct_raw`, same recogniser output) changes nothing but those names. The longer context also
+moves some unrelated words ("홈런볼" → "홈런 볼" twice, one "우텐" heard as "오투"), and WuTian is
+still often 우티언/우티안, so the prior helps team and player names most where they are spelled
+nearly right already.
 
 ## Claude Code review
 

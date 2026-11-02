@@ -111,7 +111,14 @@ fn names(g: &Glossary, category: &str) -> Vec<String> {
 
 /// Recognition context for `mode`, plus the user's extra terms (comma or line separated).
 pub fn context(g: &Glossary, mode: Mode, extra_terms: &str) -> String {
-    let mut s = CONTEXT.trim().to_string();
+    context_with(g, mode, extra_terms, "")
+}
+
+/// [`context`] after `first`: what the screen said about this match (see
+/// [`crate::game::MatchPrior::context`]), so the length cap never cuts it.
+pub fn context_with(g: &Glossary, mode: Mode, extra_terms: &str, first: &str) -> String {
+    let first = first.trim();
+    let mut s = if first.is_empty() { CONTEXT.trim().to_string() } else { format!("{first} {}", CONTEXT.trim()) };
     // The user's own terms go before the long team and player lists so the length cap never cuts them.
     let extra: Vec<&str> = extra_terms.split([',', '\n', ';']).map(str::trim).filter(|t| !t.is_empty()).collect();
     if !extra.is_empty() {
@@ -196,5 +203,8 @@ mod tests {
         assert!(comm.contains("팀: ") && comm.contains("추가 용어: 새 선수, 다른 팀"));
         assert!(comm.contains("치벅"), "team nicknames are context too");
         assert!(comm.chars().count() <= MAX_CONTEXT_CHARS);
+        let with = context_with(&g, Mode::Commentary, "", "이번 경기: 로제 대 오투 블래스트.");
+        assert!(with.starts_with("이번 경기: 로제 대 오투 블래스트. 오버워치 영웅"));
+        assert!(with.chars().count() <= MAX_CONTEXT_CHARS);
     }
 }

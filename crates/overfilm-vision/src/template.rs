@@ -69,6 +69,13 @@ pub struct TemplateSet {
     /// Names the user gave to players and heroes seen in the kill feed.
     #[serde(default, skip_serializing_if = "crate::feedrows::FeedNames::is_empty")]
     pub feed_names: crate::feedrows::FeedNames,
+    /// Names the user gave to the hero portraits on the name plates.
+    #[serde(default, skip_serializing_if = "crate::heroes::HeroNames::is_empty")]
+    pub hero_names: crate::heroes::HeroNames,
+    /// Where each team's name is written (team 1, team 2), when it is not right above the
+    /// team's player bar (see [`crate::lineup::team_rect`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub team_names: Vec<NRect>,
 }
 
 impl Part {

@@ -120,7 +120,7 @@ fn templates_go_to_the_users_own_file_and_import_merges() {
     std::fs::create_dir_all(&dir).unwrap();
     let theirs = dir.join("owcs.json");
     let mut set = TemplateSet::default();
-    set.bars.push(PlayerBar { team: 2, rect: NRect::new(0.7, 0.14, 0.27, 0.02), players: 5, alive_dark: vec![0.0; 5], ult: None });
+    set.bars.push(PlayerBar { team: 2, rect: NRect::new(0.7, 0.14, 0.27, 0.02), players: 5, alive_dark: vec![0.0; 5], ult: None, portrait: None });
     std::fs::write(&theirs, set.to_json()).unwrap();
     let mine = dir.join("mine.json").to_string_lossy().to_string();
     let r = s.execute("overfilm.screenTemplate.import", json!({"path": theirs.to_string_lossy(), "templates": mine})).unwrap();

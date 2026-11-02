@@ -966,7 +966,7 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
             r => r?,
         };
         for (raw, &(a, b)) in raws.into_iter().zip(&group) {
-            let text = (s.correct)(&raw.text);
+            let text = (s.correct)(&raw.text, ms_of_sample(a), ms_of_sample(b));
             scores.push(raw.words);
             let preview: String = text.chars().take(40).collect();
             chunks.push(ChunkText { start_ms: ms_of_sample(a), end_ms: ms_of_sample(b), text, words: Vec::new() });

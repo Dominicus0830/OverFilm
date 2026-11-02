@@ -29,7 +29,7 @@ pub mod digits;
 pub mod ko;
 pub mod voicelines;
 
-pub use correct::{Correction, Corrector};
+pub use correct::{Correction, Corrector, Preferred};
 
 /// The columns every table has, in order.
 pub const COLUMNS: [&str; 8] = ["id", "ko", "en", "aliases", "old", "misheard", "flags", "note"];

@@ -38,6 +38,7 @@ pub mod overfilm_autocut;
 pub mod overfilm_captions;
 pub mod overfilm_flow;
 pub mod overfilm_kills;
+pub mod overfilm_lineup;
 pub mod overfilm_reel;
 pub mod overfilm_review;
 pub mod overfilm_style;
@@ -497,6 +498,8 @@ pub struct Session {
     pub overfilm_kill_jobs: Vec<overfilm_kills::PendingKills>,
     /// The last kill feed reading (who killed whom), for naming its players and heroes.
     pub overfilm_feed: Option<overfilm_kills::FeedState>,
+    /// The last reading of teams, players and heroes off the name plates.
+    pub overfilm_lineup: Option<overfilm_lineup::LineupState>,
     /// Claude Code review (OverFilm): settings file, running reviews, pure recognition.
     pub overfilm_review: overfilm_review::ReviewState,
     /// OverFilm One Go: the run of cut, review and caption steps (the last one stays for its status).
@@ -611,6 +614,7 @@ impl Session {
             overfilm_assist_jobs: Vec::new(),
             overfilm_kill_jobs: Vec::new(),
             overfilm_feed: None,
+            overfilm_lineup: None,
             overfilm_review: Default::default(),
             overfilm_flow: None,
             presets: Default::default(),

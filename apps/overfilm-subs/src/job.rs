@@ -224,6 +224,7 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         num_speakers: o.num_speakers,
         known,
         skip_silence,
+        prior: None,
     };
     let rec = overfilm_pipeline::recognise::recognise(&audio, &req, &models, &mut |f, m| progress(0.1 + 0.88 * f, m))?;
     let overfilm_pipeline::recognise::Recognised { mut transcript, corrections, device, voice_lines, .. } = rec;
@@ -325,7 +326,7 @@ pub fn recognise_span(o: &Options, from_ms: i64, to_ms: i64, progress: Progress)
     let g = pack::glossary(o.glossary_dir.as_deref(), o.mask_profanity)?;
     let corrector = pack::corrector_with(&g, o.digits);
     let context = pack::context(&g, o.mode, &o.extra_terms);
-    let correct = |t: &str| corrector.apply(t).text;
+    let correct = |t: &str, _: i64, _: i64| corrector.apply(t).text;
     let settings = overfilm_asr::Settings {
         asr_dir: &overfilm_asr::catalogue::ASR.dir(&models),
         aligner_dir: &overfilm_asr::catalogue::ALIGNER.dir(&models),

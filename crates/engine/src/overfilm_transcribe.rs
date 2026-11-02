@@ -397,7 +397,9 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
         let source = overfilm_pipeline::recognise::SoundSource::of(src.info().has_video(), src.info().audio_streams.len());
         let skip = bool_p(p, "skipSilence").unwrap_or_else(|| overfilm_pipeline::recognise::skip_silence_default(source));
         let warn = skip && source == overfilm_pipeline::recognise::SoundSource::Embedded;
-        work.push((item, name, src, len, stream, channels, (skip, warn)));
+        // teams, players and heroes read off the screen (overfilm.kills.scan), on this clip's clock
+        let prior = crate::overfilm_lineup::prior_for(s, item);
+        work.push((item, name, src, len, stream, channels, (skip, warn), prior));
     }
     if work.is_empty() {
         return Err(bad(CMD, "nothing to recognise (put clips with sound in the sequence, or pass `items`)"));
@@ -427,7 +429,7 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
             let mut done_secs = 0u64;
             let mut items = Vec::new();
             let mut reports = Vec::new();
-            for (item, name, src, len, stream, channels, (skip, warn)) in &work {
+            for (item, name, src, len, stream, channels, (skip, warn), prior) in &work {
                 // the sound in one-minute pieces, so a long broadcast can be stopped
                 let step = 60 * sr as usize;
                 let mut audio = Vec::with_capacity(*len);
@@ -450,7 +452,7 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
                     continue;
                 }
                 let secs = audio.len() as u64 / u64::from(sr);
-                let req = Request { skip_silence: *skip, ..req.clone() };
+                let req = Request { skip_silence: *skip, prior: prior.clone(), ..req.clone() };
                 let rec = recognise(&audio, &req, &models, &mut |f, m| {
                     prog.done.store(done_secs + (f.clamp(0.0, 1.0) * secs as f32) as u64, Ordering::Relaxed);
                     *lock(&prog.status) = format!("{name}: {m}");
@@ -463,6 +465,7 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
                 reports.push(json!({"item": item.0, "words": t.words.len(), "speakers": t.speakers.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
                     "voiceLines": rec.voice_lines, "corrections": rec.corrections.len(), "device": rec.device,
                     "stages": rec.transcript.stage_summary(), "skipSilence": skip, "silenceSkipped": rec.transcript.silence_skipped,
+                    "matchNames": prior.as_ref().map(|p| p.teams.len() + p.players.len()).unwrap_or(0),
                     "warning": if *warn { overfilm_pipeline::recognise::SKIP_SILENCE_WARNING } else { "" }}));
                 items.push((*item, t));
             }

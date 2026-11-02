@@ -192,8 +192,9 @@ pub struct Settings<'a> {
     pub quantize: bool,
     pub context: &'a str,
     pub language: Option<&'a str>,
-    /// Applied to each chunk's text before alignment (glossary correction, profanity masking).
-    pub correct: &'a dyn Fn(&str) -> String,
+    /// Applied to each chunk's text before alignment (glossary correction, profanity masking),
+    /// with the chunk's start and end (ms from the first sample).
+    pub correct: &'a dyn Fn(&str, i64, i64) -> String,
     /// Use the GPU when there is one (falls back to the CPU).
     pub gpu: bool,
     /// Leave out quiet stretches of [`chunk::MIN_SILENCE_SEC`] or more (see

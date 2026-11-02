@@ -19,7 +19,7 @@ fn main() {
         quantize,
         context: ctx.trim(),
         language: Some("Korean"),
-        correct: &|t: &str| t.to_string(),
+        correct: &|t: &str, _, _| t.to_string(),
         gpu: a.iter().any(|s| s == "gpu"),
         skip_silence: a.iter().any(|s| s == "skip-silence"),
     };
