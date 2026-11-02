@@ -30,6 +30,9 @@ pub struct Request {
     pub num_speakers: Option<usize>,
     /// Enrolled voices to name speakers after.
     pub known: Vec<overfilm_asr::speakers::KnownVoice>,
+    /// Leave out long quiet stretches (see [`overfilm_asr::Settings::skip_silence`]; decide with
+    /// [`skip_silence_default`]).
+    pub skip_silence: bool,
 }
 
 impl Request {
@@ -38,6 +41,34 @@ impl Request {
         Self { mode, mask_profanity: true, digits: true, gpu: true, speakers: true, ..Default::default() }
     }
 }
+
+/// Where the sound to recognise comes from, for [`skip_silence_default`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SoundSource {
+    /// A video's only audio track: the voice is mixed with the game.
+    Embedded,
+    /// One of a video's several audio tracks (OBS-style: the microphone on a track of its own),
+    /// or a sound-only file.
+    Separate,
+}
+
+impl SoundSource {
+    /// From what a file holds: video or not, and how many audio tracks.
+    pub fn of(has_video: bool, audio_tracks: usize) -> Self {
+        if has_video && audio_tracks <= 1 { Self::Embedded } else { Self::Separate }
+    }
+}
+
+/// Whether to leave out long quiet stretches when the user has not said: on for a separate
+/// voice track (its quiet is real silence), off for sound inside the video (a soft voice under
+/// loud game sound could be taken for quiet).
+pub fn skip_silence_default(src: SoundSource) -> bool {
+    src == SoundSource::Separate
+}
+
+/// Shown when the user turns skipping silence on for sound inside the video.
+pub const SKIP_SILENCE_WARNING: &str =
+    "영상에 섞인 소리에서 무음 건너뛰기를 켰습니다. 게임 소리 밑의 작은 말소리까지 건너뛸 수 있으니, 말소리만 따로 녹음된 트랙에서 쓰는 것을 권합니다.";
 
 /// What came out.
 #[derive(Clone, Debug, Default)]
@@ -108,6 +139,7 @@ pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) 
         language: Some("Korean"),
         correct: &correct,
         gpu: r.gpu,
+        skip_silence: r.skip_silence,
     };
     let label_speakers = tell_apart(r);
     let rec_share = if label_speakers { 0.9 } else { 1.0 };
@@ -142,6 +174,15 @@ pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn silence_is_skipped_by_default_only_on_separate_sound() {
+        assert_eq!(SoundSource::of(true, 1), SoundSource::Embedded);
+        assert_eq!(SoundSource::of(true, 2), SoundSource::Separate);
+        assert_eq!(SoundSource::of(false, 1), SoundSource::Separate, "a sound-only file");
+        assert!(!skip_silence_default(SoundSource::Embedded));
+        assert!(skip_silence_default(SoundSource::Separate));
+    }
 
     #[test]
     fn one_speaker_skips_telling_voices_apart() {

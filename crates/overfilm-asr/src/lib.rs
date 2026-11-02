@@ -104,6 +104,9 @@ pub struct Transcript {
     /// How long each stage took, in the order the stages first ran (empty for old transcripts).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stages: Vec<Stage>,
+    /// Seconds of quiet left out of recognition ([`Settings::skip_silence`]).
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub silence_skipped: f32,
 }
 
 /// Time spent in one stage of a run (all of its pieces together).
@@ -119,6 +122,10 @@ pub struct Stage {
 
 fn is_zero(n: &usize) -> bool {
     *n == 0
+}
+
+fn is_zero_f32(n: &f32) -> bool {
+    *n == 0.0
 }
 
 /// One voice in the transcript.
@@ -189,6 +196,10 @@ pub struct Settings<'a> {
     pub correct: &'a dyn Fn(&str) -> String,
     /// Use the GPU when there is one (falls back to the CPU).
     pub gpu: bool,
+    /// Leave out quiet stretches of [`chunk::MIN_SILENCE_SEC`] or more (see
+    /// [`chunk::split_voiced`]). Safe on a voice-only track; on sound mixed with the game a soft
+    /// voice under loud game sound can be lost, so callers keep it off there unless asked.
+    pub skip_silence: bool,
 }
 
 #[cfg_attr(not(feature = "qwen"), allow(dead_code))]

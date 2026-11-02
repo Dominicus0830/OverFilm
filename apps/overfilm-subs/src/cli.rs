@@ -40,6 +40,8 @@ const USAGE: &str = "사용법:
       --only-voices  등록한 목소리(voice add)의 말만 자막으로 (스트리머 말만 등)
       --no-voices    등록한 목소리로 이름 붙이지 않기
       --clean        추임새(어, 음)와 말 더듬기(그 그게)를 자막에서 빼기 (단어 시간 파일에는 남음)
+      --skip-silence / --no-skip-silence   2초 넘는 무음 구간을 인식하지 않고 건너뛰기. 기본: 오디오 트랙이 분리된 영상·오디오 파일은 켜짐,
+                     영상에 섞인 소리는 꺼짐 (켜면 게임 소리 밑의 작은 말소리까지 건너뛸 수 있어 경고)
       --from 1:23 --to 4:56   이 구간만 인식 (자막 시간은 원본 기준)
   overfilm-subs review <자막.srt>
   overfilm-subs fix <자막.srt>      단어집 교정 적용 (원본은 .srt.bak)
@@ -97,6 +99,8 @@ fn extract(args: &[String]) -> Result<(), String> {
             "--only-voices" => o.only_voices = true,
             "--no-voices" => o.use_voices = false,
             "--clean" => o.clean_fillers = true,
+            "--skip-silence" => o.skip_silence = Some(true),
+            "--no-skip-silence" => o.skip_silence = Some(false),
             "--from" | "--to" => {
                 let v = val()?;
                 let t = voices::parse_time(&v).and_then(|t| i64::try_from(t).ok()).ok_or_else(|| format!("{a} 뒤에 시간 (예: 1:23)"))?;
@@ -120,6 +124,12 @@ fn extract(args: &[String]) -> Result<(), String> {
     println!("소리 {}초를 {}초 걸려 처리 ({}), 단어집 교정 {}곳", done.audio_seconds, done.seconds_taken, done.device, done.corrections.len());
     if !done.stages.is_empty() {
         println!("단계별 시간: {}", done.stages);
+    }
+    if done.silence_skipped >= 1.0 {
+        println!("무음 {:.0}초 건너뜀", done.silence_skipped);
+    }
+    if !done.note.is_empty() {
+        println!("참고: {}", done.note);
     }
     let who = job::speaker_summary(&done);
     if !who.is_empty() {

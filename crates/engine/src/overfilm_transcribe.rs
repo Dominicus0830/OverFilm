@@ -11,7 +11,11 @@
 //!   then lays the captions out as `overfilm.captions.fromTranscript` does. `audioTrack` (1 = A1)
 //!   recognises only the clips on that audio track, each with the audio stream and channels the
 //!   clip plays (a recording with the microphone on a track of its own, OBS-style), and captions
-//!   only those clips' media. `numSpeakers: 1` skips telling voices apart (faster). The time left
+//!   only those clips' media. `numSpeakers: 1` skips telling voices apart (faster).
+//!   `skipSilence` leaves quiet stretches of 2 s or more out of recognition; left out, it is on
+//!   for media whose sound is a track of its own (several audio tracks, or sound only) and off
+//!   for a video's only sound, where a soft voice under game sound could be skipped (turned on
+//!   there, the item's report carries a `warning`). The time left
 //!   is estimated from the average speed since recognition started (it moves in long steps).
 //! - `overfilm.captions.fromTranscript {gameVoice?, lineChars?, maxLines?, cleanFillers?}` lays
 //!   the sequence transcript out as Korean captions (two lines at most, natural breaks, a turn per
@@ -50,7 +54,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "OverFilm Captions (Korean)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"items":[id]?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"cleanFillers":bool=false,"wait":bool=false}"#,
+            params: r#"{"items":[id]?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"skipSilence":bool?,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"cleanFillers":bool=false,"wait":bool=false}"#,
             enabled: can_generate,
             run: generate,
             journal: true,
@@ -379,7 +383,12 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(bad(CMD, format!("{name} is longer than {MAX_HOURS} hours; cut it into parts first")));
         }
         let len = usize::try_from(dur.to_units_floor(i64::from(sr)).max(0)).unwrap_or(0);
-        work.push((item, name, src, len, stream, channels));
+        // long quiet stretches: skipped on a separate voice track, kept in a video's only sound
+        // unless asked (then with a warning in the report)
+        let source = overfilm_pipeline::recognise::SoundSource::of(src.info().has_video(), src.info().audio_streams.len());
+        let skip = bool_p(p, "skipSilence").unwrap_or_else(|| overfilm_pipeline::recognise::skip_silence_default(source));
+        let warn = skip && source == overfilm_pipeline::recognise::SoundSource::Embedded;
+        work.push((item, name, src, len, stream, channels, (skip, warn)));
     }
     if work.is_empty() {
         return Err(bad(CMD, "nothing to recognise (put clips with sound in the sequence, or pass `items`)"));
@@ -409,7 +418,7 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
             let mut done_secs = 0u64;
             let mut items = Vec::new();
             let mut reports = Vec::new();
-            for (item, name, src, len, stream, channels) in &work {
+            for (item, name, src, len, stream, channels, (skip, warn)) in &work {
                 // the sound in one-minute pieces, so a long broadcast can be stopped
                 let step = 60 * sr as usize;
                 let mut audio = Vec::with_capacity(*len);
@@ -432,6 +441,7 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
                     continue;
                 }
                 let secs = audio.len() as u64 / u64::from(sr);
+                let req = Request { skip_silence: *skip, ..req.clone() };
                 let rec = recognise(&audio, &req, &models, &mut |f, m| {
                     prog.done.store(done_secs + (f.clamp(0.0, 1.0) * secs as f32) as u64, Ordering::Relaxed);
                     *lock(&prog.status) = format!("{name}: {m}");
@@ -443,7 +453,8 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
                 lock(&raw_out).push((*item, crate::overfilm_review::raw_chunks(&rec)));
                 reports.push(json!({"item": item.0, "words": t.words.len(), "speakers": t.speakers.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
                     "voiceLines": rec.voice_lines, "corrections": rec.corrections.len(), "device": rec.device,
-                    "stages": rec.transcript.stage_summary()}));
+                    "stages": rec.transcript.stage_summary(), "skipSilence": skip, "silenceSkipped": rec.transcript.silence_skipped,
+                    "warning": if *warn { overfilm_pipeline::recognise::SKIP_SILENCE_WARNING } else { "" }}));
                 items.push((*item, t));
             }
             Ok((items, reports))

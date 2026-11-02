@@ -88,6 +88,7 @@ fn settings(app: &mut App, ui: &mut egui::Ui) {
             });
         });
     }
+    silence_setting(app, ui);
     let o = &mut app.prefs.options;
     setting(ui, "추가 이름·용어", "단어집에 없는 이름만 쉼표로", false, |ui| {
         ui.add(egui::TextEdit::singleline(&mut o.extra_terms).hint_text("예: 스트리머 이름, 팀 이름").desired_width(240.0));
@@ -243,6 +244,29 @@ fn footer(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
             });
         });
     });
+}
+
+/// Skip long quiet stretches: on by itself for a separate voice track, off for sound inside the
+/// video; turning it on there shows a warning.
+fn silence_setting(app: &mut App, ui: &mut egui::Ui) {
+    use overfilm_pipeline::recognise::{SKIP_SILENCE_WARNING, SoundSource, skip_silence_default};
+    let src = app.sound_source;
+    let separate = src == Some(SoundSource::Separate);
+    let auto = src.is_some_and(skip_silence_default);
+    let mut on = app.skip_silence.unwrap_or(auto);
+    let hint = match (separate, on) {
+        (true, true) => "오디오 트랙이 분리되어 있어 켜 두었습니다 (권장). 2초 넘는 무음은 인식하지 않아 빨라집니다",
+        (true, false) => "2초 넘는 무음을 인식하지 않아 빨라집니다. 분리된 트랙에서는 켜는 것을 권합니다",
+        (false, false) => "영상에 섞인 소리라 꺼 두었습니다. 말소리만 따로 녹음된 트랙에서 쓰는 것을 권합니다",
+        (false, true) => "영상에 섞인 소리에서 켰습니다",
+    };
+    let changed = setting(ui, "무음 구간 건너뛰기", hint, false, |ui| toggle(ui, &mut on).changed());
+    if changed {
+        app.skip_silence = (on != auto).then_some(on);
+    }
+    if on && !separate {
+        widgets::info_bar(ui, widgets::Severity::Warn, "작은 말소리를 놓칠 수 있습니다", SKIP_SILENCE_WARNING, |_| {});
+    }
 }
 
 #[cfg(test)]

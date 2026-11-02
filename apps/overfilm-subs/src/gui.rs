@@ -208,6 +208,11 @@ struct App {
     /// The input's audio tracks ("트랙 1 · 스테레오 · 48 kHz · aac") and the one to recognise.
     audio_tracks: Vec<String>,
     audio_track: usize,
+    /// Whether the sound is inside the video or a track of its own (`None`: not read yet).
+    sound_source: Option<overfilm_pipeline::recognise::SoundSource>,
+    /// Skip long quiet stretches for this file: `None` follows the source (see
+    /// [`overfilm_pipeline::recognise::skip_silence_default`]).
+    skip_silence: Option<bool>,
     output: Option<PathBuf>,
     prefs: Prefs,
     shared: Arc<Mutex<Shared>>,
@@ -258,6 +263,8 @@ impl App {
             input: None,
             audio_tracks: Vec::new(),
             audio_track: 0,
+            sound_source: None,
+            skip_silence: None,
             output: None,
             prefs: load_prefs(),
             shared: Arc::default(),
@@ -302,6 +309,7 @@ impl App {
         o.output = self.output.clone();
         o.only_voices = o.only_voices && o.speakers;
         o.audio_track = self.audio_track.min(self.audio_tracks.len().saturating_sub(1));
+        o.skip_silence = self.skip_silence;
         let d = mcp::user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         Some(o)
@@ -311,6 +319,8 @@ impl App {
         // a file that cannot be read shows its error when the run starts
         self.audio_tracks = overfilm_subs::media::audio_tracks(&p).unwrap_or_default();
         self.audio_track = 0;
+        self.sound_source = overfilm_subs::media::sound_source(&p).ok();
+        self.skip_silence = None;
         self.input = Some(p.clone());
         self.output = None;
         self.enroll_file = Some(p);

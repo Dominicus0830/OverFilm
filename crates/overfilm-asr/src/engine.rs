@@ -891,7 +891,19 @@ fn load_any<T>(gpu: &mut Option<Arc<Ctx>>, progress: Progress, load: impl Fn(Opt
 /// moves the rest of the work to the CPU.
 pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Transcript, AsrError> {
     let sr = SAMPLE_RATE as usize;
-    let spans = chunk::split(audio, sr, MAX_CHUNK_SECONDS, 5.0);
+    let spans = if s.skip_silence {
+        chunk::split_voiced(audio, sr, MAX_CHUNK_SECONDS, 5.0, chunk::MIN_SILENCE_SEC)
+    } else {
+        chunk::split(audio, sr, MAX_CHUNK_SECONDS, 5.0)
+    };
+    let silence_skipped = if s.skip_silence { chunk::skipped_seconds(&spans, audio.len(), sr) } else { 0.0 };
+    if spans.is_empty() {
+        // nothing but quiet
+        return Ok(Transcript { language: s.language.unwrap_or_default().to_string(), silence_skipped, ..Transcript::default() });
+    }
+    if silence_skipped >= 1.0 && !progress(0.0, &format!("무음 {silence_skipped:.0}초 건너뜀")) {
+        return Err(AsrError::Cancelled);
+    }
     let mut gpu = if s.gpu {
         match Ctx::new().and_then(|c| gpu::check::verify(&c).map(|()| c)) {
             Ok(c) => Some(c),
@@ -1012,6 +1024,7 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
     out.add_stage("시간 맞춤", (c.encode + c.prefill) as f32, 0);
     out.device = device;
     out.chunks = chunks;
+    out.silence_skipped = silence_skipped;
     Ok(out)
 }
 
