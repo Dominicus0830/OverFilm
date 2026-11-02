@@ -209,7 +209,8 @@ starts), so it has no text to learn. No pause happened in the clip, so pauses ar
 generated video. The run is decoding bound: the clip's file is opened once more per core (up to 4
 decoders) and each decodes 2-minute chunks, put back in time order so the samples are exactly
 those of one decoder (the frozen-picture check at a chunk's start compares with the previous
-chunk's last frame). On 4 cores (dev build) this took the 84 minutes from 1373 s to 796 s with the
+chunk's last frame), and each template compares a list of its cells made once per frame. On
+4 cores (dev build) this took the 84 minutes from 1373 s to 769 s with the
 same segments and cuts (`overfilm_autocut_e2e_on_a_broadcast`, ignored test).
 `cargo run -p overfilm-vision --release --example autocut_raw` runs templates and the plan on raw
 gray frames piped from ffmpeg (see its header).

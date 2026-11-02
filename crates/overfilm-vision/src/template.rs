@@ -147,23 +147,23 @@ impl Part {
         if tsd < 1e-3 {
             return 0.0;
         }
+        // the compared cells, in row order: where each sits in the grid (at offset 0) and the
+        // template's value there less its mean; made once, not once per offset
+        let cells: Vec<(usize, f32)> = (0..self.h)
+            .flat_map(|y| (0..self.w).map(move |x| (y, x)))
+            .filter(|&(y, x)| self.mask.get(y * self.w + x).copied().unwrap_or(0) != 0)
+            .map(|(y, x)| (y * SUB * gw + x * SUB, self.px.get(y * self.w + x).copied().unwrap_or(0) as f32 - tm))
+            .collect();
         // correlation at one offset (in half cells); None for a flat patch
         let ncc = |dx: usize, dy: usize| -> Option<f32> {
+            let base = dy * gw + dx;
             let (mut n, mut s, mut s2, mut st) = (0f32, 0f32, 0f32, 0f32);
-            for y in 0..self.h {
-                let grow = (y * SUB + dy) * gw + dx;
-                let trow = y * self.w;
-                for x in 0..self.w {
-                    if self.mask.get(trow + x).copied().unwrap_or(0) == 0 {
-                        continue;
-                    }
-                    let f = grid.get(grow + x * SUB).copied().unwrap_or(0.0);
-                    let t = self.px.get(trow + x).copied().unwrap_or(0) as f32 - tm;
-                    n += 1.0;
-                    s += f;
-                    s2 += f * f;
-                    st += f * t;
-                }
+            for &(at, t) in &cells {
+                let f = grid.get(base + at).copied().unwrap_or(0.0);
+                n += 1.0;
+                s += f;
+                s2 += f * f;
+                st += f * t;
             }
             if n < 1.0 {
                 return None;
