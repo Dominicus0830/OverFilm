@@ -36,6 +36,15 @@ pub struct Options {
     /// Lines per caption (1 or 2).
     #[serde(default = "two")]
     pub max_lines: u32,
+    /// Time a caption appears before its voice (ms).
+    #[serde(default = "lead")]
+    pub lead_ms: i64,
+    /// Time a caption stays after its voice (ms).
+    #[serde(default = "hold")]
+    pub hold_ms: i64,
+    /// Reading speed captions stay up for when there is room (letters per second; 0: off).
+    #[serde(default = "cps")]
+    pub reading_cps: u32,
     /// Use the GPU when there is one (Vulkan/DX12; falls back to the CPU).
     #[serde(default = "yes")]
     pub gpu: bool,
@@ -78,6 +87,15 @@ fn sixteen() -> u32 {
 fn two() -> u32 {
     2
 }
+fn lead() -> i64 {
+    Layout::default().lead_ms
+}
+fn hold() -> i64 {
+    Layout::default().hold_ms
+}
+fn cps() -> u32 {
+    Layout::default().reading_cps
+}
 
 impl Options {
     pub fn new(input: PathBuf) -> Self {
@@ -91,6 +109,9 @@ impl Options {
             glossary_dir: None,
             line_chars: 16,
             max_lines: 2,
+            lead_ms: lead(),
+            hold_ms: hold(),
+            reading_cps: cps(),
             gpu: true,
             speakers: true,
             num_speakers: None,
@@ -109,7 +130,14 @@ impl Options {
     }
 
     pub fn layout(&self) -> Layout {
-        Layout { max_line: self.line_chars.clamp(4, 60) * 2, max_lines: self.max_lines.clamp(1, 2), ..Layout::default() }
+        Layout {
+            max_line: self.line_chars.clamp(4, 60) * 2,
+            max_lines: self.max_lines.clamp(1, 2),
+            lead_ms: self.lead_ms.clamp(0, 1000),
+            hold_ms: self.hold_ms.clamp(0, 3000),
+            reading_cps: self.reading_cps.min(40),
+            ..Layout::default()
+        }
     }
 }
 

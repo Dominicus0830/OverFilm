@@ -162,6 +162,15 @@ fn settings(app: &mut App, ui: &mut egui::Ui) {
                 o.max_lines = if two { 2 } else { 1 };
             }
         });
+        setting(ui, "목소리보다 먼저", "자막이 말 시작보다 이만큼 먼저 뜹니다", true, |ui| {
+            ui.add(egui::DragValue::new(&mut o.lead_ms).range(0..=1000).speed(10).suffix("ms"));
+        });
+        setting(ui, "말 끝난 뒤 남기기", "다음 자막이 바로 오면 그 전에 사라집니다", true, |ui| {
+            ui.add(egui::DragValue::new(&mut o.hold_ms).range(0..=3000).speed(10).suffix("ms"));
+        });
+        setting(ui, "읽기 속도", "말이 빨라도 이 속도로 읽을 수 있게 조금 더 남깁니다 (0: 끔)", true, |ui| {
+            ui.add(egui::DragValue::new(&mut o.reading_cps).range(0..=40).prefix("초당 ").suffix("자"));
+        });
         setting(ui, "욕설은 초성으로", "씨발 → ㅅㅂ", true, |ui| {
             toggle(ui, &mut o.mask_profanity);
         });

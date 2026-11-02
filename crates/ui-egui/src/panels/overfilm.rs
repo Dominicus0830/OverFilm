@@ -91,7 +91,7 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
                 .unwrap_or_default();
             (
                 json!({"audioTrack": "", "mode": "general", "who": "auto", "gameVoice": "drop", "lineChars": 16, "maxLines": 2,
-                       "cleanFillers": false, "gpu": true, "extraTerms": ""}),
+                       "leadMs": 120, "holdMs": 400, "readingCps": 12, "cleanFillers": false, "gpu": true, "extraTerms": ""}),
                 json!({"tracks": tracks}),
             )
         }
@@ -469,6 +469,9 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                         combo(ui, &mut elems, format!("{pre}.who"), tl!("Speakers:"), &mut p["who"], &who);
                         number(ui, &mut elems, format!("{pre}.lineChars"), tl!("Characters per line:"), &mut p["lineChars"], 8.0..=30.0, "");
                         number(ui, &mut elems, format!("{pre}.maxLines"), tl!("Lines per caption:"), &mut p["maxLines"], 1.0..=2.0, "");
+                        number(ui, &mut elems, format!("{pre}.leadMs"), tl!("Shown before the voice:"), &mut p["leadMs"], 0.0..=1000.0, " ms");
+                        number(ui, &mut elems, format!("{pre}.holdMs"), tl!("Kept after the voice:"), &mut p["holdMs"], 0.0..=3000.0, " ms");
+                        number(ui, &mut elems, format!("{pre}.readingCps"), tl!("Reading speed (letters a second):"), &mut p["readingCps"], 0.0..=40.0, "");
                         text(ui, &mut elems, format!("{pre}.extraTerms"), tl!("Extra names and terms:"), &mut p["extraTerms"], tl!("comma separated"));
                     });
                     let p = &mut d.params;
@@ -672,7 +675,7 @@ pub(crate) fn normalize(mut p: Value) -> Value {
         if let Some(t) = m.get("audioTrack").and_then(Value::as_str).and_then(|t| t.parse::<u64>().ok()) {
             m.insert("audioTrack".into(), json!(t));
         }
-        for k in ["numSpeakers", "lineChars", "maxLines"] {
+        for k in ["numSpeakers", "lineChars", "maxLines", "leadMs", "holdMs", "readingCps"] {
             if let Some(n) = m.get(k).and_then(Value::as_f64) {
                 m.insert(k.into(), json!(n.round().max(0.0) as u64));
             }

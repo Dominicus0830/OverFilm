@@ -3627,6 +3627,9 @@
 	Break screen (countdown)	대기 화면(카운트다운)
 	Caption track:	자막 트랙:
 	Characters per line:	한 줄 글자 수:
+	Shown before the voice:	목소리보다 먼저:
+	Kept after the voice:	말 끝난 뒤 남기기:
+	Reading speed (letters a second):	읽기 속도 (초당 글자):
 	Cut right away	바로 자르기
 	Drag: what always looks the same	드래그: 이 화면에서 늘 똑같은 부분
 	Drag: what changes (ignore)	드래그: 바뀌는 부분(무시)
