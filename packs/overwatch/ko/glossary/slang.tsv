@@ -19,8 +19,8 @@ most	모스트						가장 많이 한 영웅
 ult_short	궁		궁각; 궁 각			noeval	궁극기 (한 글자라 채점 제외)
 teamfight_short	한타
 line_war	라인전						라인하르트끼리 맞붙기
-anchor	앵커링		눕다; 앵커			noeval	자리를 지키며 상대 진입을 받아 내기
-contest	비비기		홀딩; 터치			noeval	거점·화물에서 버티기
+anchor	앵커링		앵커			noeval	자리를 지키며 상대 진입을 받아 내기
+contest	비비기		홀딩; 터치; 비비다; 비벼야; 거점 비비기			noeval	거점·화물에서 버티기
 pull	당기기		당기다			noeval	탱커가 팀을 앞으로 끌어당기기
 regroup	리그룹
 variable	변수		변수 냈다			noeval	한타를 뒤집는 처치·스킬
@@ -29,7 +29,7 @@ baiting	베이팅
 main_body	본대					noeval
 flanking	플랭킹
 side_play	사이드 운영
-standoff	대치					noeval
+standoff	대치		대치하다			noeval	서로 진입하지 않고 버티기
 damage_angle	딜각		양각; 각을 벌린다
 seating	시팅						지원을 한 영웅에게 몰아주기
 turn	턴		리테이크			noeval
@@ -208,15 +208,33 @@ bunny_jump	점프 무빙		점프샷			noeval
 potg	팟지		POTG; 최고의 플레이				경기 끝 최고의 플레이
 damage_dealt	딜량		힐량; 막은 피해량			noeval	통계 수치
 stat_padding	킬딸		딜딸; 힐딸; 스탯딸				통계 수치만 챙기는 플레이
-cooldown_check	쿨 체크		쿨 돈다; 쿨 빠졌다			noeval	상대 기술 재사용 대기 확인
+cooldown_check	쿨 체크		쿨 돈다; 쿨 빠졌다; 쿨 돌다; 스킬 돈다; 스킬이 돌다			noeval	상대 기술 재사용 대기 확인
 survival_skill	생존기		이동기; 보호기; 진입기			noeval	살아남는·움직이는·들어가는 기술
 aggro	어그로		어그로 끌기			noeval	적의 시선·공격을 끌기
 tanking	탱킹		탱킹하다			noeval
 mind_game	수싸움					noeval
 numbers_adv	인원 우위		5대4; 6대5; 숫자 싸움			noeval	한 명 더 많은 상태
-first_pick	선픽		첫 킬; 퍼블			noeval	한타 첫 처치 (퍼스트 블러드)
+first_pick	선픽		첫 킬			noeval	한타 첫 처치 (퍼스트 블러드)
 spawn_door	스폰 문		공격 스폰; 수비 스폰			noeval
 last_point	막거점		마지막 거점; 1거점; 2거점			noeval
 cart_push	화물 밀기		화물 위; 화물 막기			noeval
 double_jump	2단점프		이단점프; 더블점프; 이단 점프			noeval	겐지·한조 공중에서 한 번 더 뛰기 (나무위키 겐지/운용)
 flat_map	평지맵		1층맵; 일층맵				고저차가 적고 좁은 전장 (나무위키 오버워치/용어, 2층맵의 반대)
+# 2026-11-02 사용자 제보: 해설에서 자주 틀리는 말
+prediction	승부 예측		승부예측			noeval	방송 승부 예측 이벤트
+zoom_in	줌인	Zoom in	줌 인; zoom in			noeval	화면 확대
+point_touch	거점 터치		거점터치			noeval	거점을 밟아 점령 진행 끊기
+rally_spoken	랠리	Rally			렐리	noeval	브리기테 궁극기 집결을 영어 이름으로 부르는 말
+first_blood	퍼블	First blood	퍼스트 블러드; 퍼스트 블레이드			noeval	한타 첫 처치
+push_verb	밀기		밀다; 밀어야; 밀든가; 밀거나; 밀고			noeval	화물·거점 앞으로 나아가기
+bite	물기		물다; 물었다; 무는; 물어; 물렸다			noeval	적 하나를 붙잡아 처치각 만들기 (물렸다 = 우리 쪽이 잡힘)
+lie_down	눕다		누웠다; 누워; 눕혔다; 눕히다			noeval	죽다 (눕히다 = 처치하다)
+cut_off	끊기		끊다; 끊었다; 끊어; 짜르다; 잘랐다			noeval	혼자 떨어진 적 처치
+melt	녹이기		녹이다; 녹였다; 녹아			noeval	빠르게 체력 깎아 처치
+bait_ult	궁 빼기		궁 빼다; 궁 뺐다; 궁을 빼			noeval	상대 궁극기를 먼저 쓰게 만들기
+waste_ult	궁 흘리기		궁 흘렸다; 궁을 흘려			noeval	궁극기를 헛되이 쓰기
+eat	먹기		먹다; 먹었다			noeval	디바 매트릭스·키리코 정화 등으로 기술 없애기
+ult_up	궁 돌다		궁 돌았다; 궁 돌아; 궁이 돌			noeval	궁극기가 다시 찼다
+dive_in	들어가기		들어가다; 들어갔다; 들어가야			noeval	진입
+fall_back	빠지기		빠지다; 빠졌다; 빠져야			noeval	후퇴
+skill_eaten	씹히다		씹혔다; 씹혀			noeval	기술이 막히거나 안 나감

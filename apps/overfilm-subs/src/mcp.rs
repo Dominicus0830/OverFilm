@@ -80,7 +80,7 @@ fn tools() -> Value {
             "per_speaker": {"type": "boolean", "description": "사람마다 SRT를 따로 저장 (이름.화자1.srt …, 기본 false)"},
             "only_voices": {"type": "boolean", "description": "등록한 목소리(add_voice)의 말만 자막으로, 예: 스트리머 말만 (기본 false)"},
             "use_voices": {"type": "boolean", "description": "등록한 목소리와 같은 사람이면 그 이름을 붙임 (기본 true)"},
-            "clean_fillers": {"type": "boolean", "description": "추임새(어, 음)와 말 더듬기(그 그게)를 자막에서 뺌 (기본 false, 단어 시간 파일에는 남음)"},
+            "clean_fillers": {"type": "boolean", "description": "추임새(어, 음)와 말 더듬기(그 그게)를 자막에서 뺌 (기본 true, 단어 시간 파일에는 남음)"},
             "from": {"type": "string", "description": "이 시간부터만 인식 (예: 00:01:23,000)"}, "to": {"type": "string", "description": "이 시간까지만 인식"},
             "audio_track": audio_track}}},
         {"name": "rerecognize_range", "description": "자막의 한 구간만 소리를 다시 인식해 바꿉니다 (다른 곳에서 고친 글자는 그대로). extra_terms로 그 구간에 나오는 이름을 알려 주면 더 정확합니다. 백그라운드로 돌고 job_status로 확인합니다.",
@@ -224,7 +224,7 @@ impl Server {
         o.per_speaker = a.get("per_speaker").and_then(Value::as_bool).unwrap_or(false);
         o.only_voices = a.get("only_voices").and_then(Value::as_bool).unwrap_or(false);
         o.use_voices = a.get("use_voices").and_then(Value::as_bool).unwrap_or(true);
-        o.clean_fillers = a.get("clean_fillers").and_then(Value::as_bool).unwrap_or(false);
+        o.clean_fillers = a.get("clean_fillers").and_then(Value::as_bool).unwrap_or(true);
         let t = |k: &str| s(a, k).map(|v| review::parse_clock(v).ok_or_else(|| format!("{k}: 시간 형식 (예: 00:01:23,000)"))).transpose();
         if let (from, to) = (t("from")?, t("to")?)
             && (from.is_some() || to.is_some())
@@ -281,7 +281,7 @@ impl Server {
         let mut o = Options::new(input);
         o.extra_terms = s(a, "extra_terms").unwrap_or_default().to_string();
         o.gpu = a.get("gpu").and_then(Value::as_bool).unwrap_or(true);
-        o.clean_fillers = a.get("clean_fillers").and_then(Value::as_bool).unwrap_or(false);
+        o.clean_fillers = a.get("clean_fillers").and_then(Value::as_bool).unwrap_or(true);
         let d = user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         let mut st = self.job.lock().unwrap_or_else(PoisonError::into_inner);
