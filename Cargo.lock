@@ -4792,6 +4792,7 @@ dependencies = [
  "filmcraft-geom",
  "filmcraft-project",
  "filmcraft-time",
+ "miniz_oxide 0.9.1",
  "serde",
  "serde_json",
 ]

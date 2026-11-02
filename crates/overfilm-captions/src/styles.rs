@@ -362,6 +362,70 @@ fn animate(e: &mut EffectInstance, preset: &CaptionPreset, text: &str, pos: Vec2
     keyed(e, "position", position);
 }
 
+/// The look of a text layer as a preset (the reverse of [`caption_layer`]): font, size, fill,
+/// outlines, box and shadow, sizes scaled back to 1080 lines; its place from where it sits; its
+/// motion from what is keyframed (text → typewriter, scale → pop, position → slide up, opacity
+/// alone → fade).
+pub fn preset_from_layer(e: &EffectInstance, name: &str, frame: Frame) -> CaptionPreset {
+    let base = CaptionPreset::default();
+    let h = frame.height.max(16) as f64;
+    let k = 1080.0 / h;
+    let val = |key: &str| e.params.get(key).map(|p| &p.value);
+    let num = |key: &str| val(key).and_then(ParamValue::as_f64).filter(|v| v.is_finite());
+    let on = |key: &str| val(key).and_then(ParamValue::as_bool).unwrap_or(false);
+    let rgba =
+        |key: &str| val(key).and_then(ParamValue::as_color).map(|c| c.map(|x| if x.is_finite() { (x.clamp(0.0, 1.0) * 255.0).round() as u8 } else { 0 }));
+    let text = |key: &str| match val(key) {
+        Some(ParamValue::Text(t)) => Some(t.clone()),
+        _ => None,
+    };
+    let px = |key: &str, default: f64| (num(key).unwrap_or(default) * k).clamp(0.0, 400.0) as f32;
+    let stroke = |on_key: &str, colour: &str, width: &str| {
+        on(on_key).then(|| Stroke { color: rgba(colour).unwrap_or([0, 0, 0, 255]), width: px(width, 4.0).min(100.0) })
+    };
+    let boxed = on("background").then(|| {
+        let mut color = rgba("background_color").unwrap_or([0, 0, 0, 255]);
+        color[3] = (num("background_opacity").unwrap_or(100.0).clamp(0.0, 100.0) * 2.55).round() as u8;
+        BoxStyle { color, padding: px("background_size", 0.0).min(200.0), radius: px("background_radius", 0.0).min(200.0) }
+    });
+    let y = val("position").and_then(ParamValue::as_vec2).map(|v| v.y).filter(|y| y.is_finite()).unwrap_or(h * 0.85) / h;
+    let place = if y < 0.34 {
+        Place::Top
+    } else if y < 0.66 {
+        Place::Middle
+    } else {
+        Place::Bottom
+    };
+    let keyed = |key: &str| e.params.get(key).is_some_and(|p| p.keyframes.len() >= 2);
+    let motion_in = if keyed("text") {
+        Motion::Typewriter
+    } else if keyed("scale") {
+        Motion::Pop
+    } else if keyed("position") {
+        Motion::SlideUp
+    } else if keyed("opacity") {
+        Motion::Fade
+    } else {
+        Motion::None
+    };
+    CaptionPreset {
+        name: name.to_string(),
+        font: text("font").unwrap_or_default(),
+        font_style: text("font_style").filter(|s| !s.is_empty()).unwrap_or_else(|| base.font_style.clone()),
+        size: px("size", 64.0 / k).max(8.0),
+        fill: rgba("fill_color").unwrap_or([255, 255, 255, 255]),
+        stroke: stroke("stroke", "stroke_color", "stroke_width"),
+        stroke2: stroke("stroke2", "stroke2_color", "stroke2_width"),
+        boxed,
+        shadow: on("shadow"),
+        place,
+        motion_in,
+        motion_out: if motion_in == Motion::None { Motion::None } else { Motion::Fade },
+        speaker_colors: Vec::new(),
+        ..base
+    }
+}
+
 /// Is `e` a text layer this module made (any text layer, really)?
 pub fn is_text_layer(e: &EffectInstance) -> bool {
     e.effect == TEXT_LAYER
@@ -411,6 +475,38 @@ mod tests {
         let e = caption_layer(&p, "어", None, secs(0.3), HD);
         let op = &e.params["opacity"].keyframes;
         assert_eq!(op[1].time, secs(0.3).mul_ratio(1, 3));
+    }
+
+    #[test]
+    fn a_styled_layer_reads_back_as_its_preset() {
+        let p = builtin_presets().into_iter().find(|p| p.name == "예능 노랑").unwrap();
+        let e = caption_layer(&p, "한방에 갑니다", None, secs(2.0), Frame { width: 3840, height: 2160 });
+        let back = preset_from_layer(&e, "다시", Frame { width: 3840, height: 2160 });
+        assert_eq!(back.name, "다시");
+        assert_eq!(back.font_style, p.font_style);
+        assert!((back.size - p.size).abs() < 0.01, "{} {}", back.size, p.size);
+        assert_eq!(back.fill, p.fill);
+        assert_eq!(back.stroke, p.stroke);
+        assert_eq!(back.stroke2, p.stroke2);
+        assert_eq!(back.boxed, None);
+        assert!(back.shadow);
+        assert_eq!(back.place, Place::Bottom);
+        assert_eq!(back.motion_in, Motion::Pop);
+        let b = builtin_presets().into_iter().find(|p| p.name == "박스").unwrap();
+        let back = preset_from_layer(&caption_layer(&b, "x", None, secs(2.0), HD), "b", HD);
+        assert_eq!(back.boxed.as_ref().map(|x| x.color), Some([0, 0, 0, 190]));
+        assert_eq!(back.motion_in, Motion::Fade);
+        // an empty layer still gives a usable preset
+        let empty = EffectInstance {
+            effect: TEXT_LAYER.into(),
+            enabled: true,
+            params: Default::default(),
+            masks: Vec::new(),
+            post_fader: false,
+            essential: false,
+            layer: None,
+        };
+        assert_eq!(preset_from_layer(&empty, "e", Frame { width: 0, height: 0 }).size, 64.0);
     }
 
     #[test]
