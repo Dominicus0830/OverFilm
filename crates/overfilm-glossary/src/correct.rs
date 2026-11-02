@@ -8,6 +8,9 @@
 //! - A form ending in `@픽` is a sound-alike that is also an ordinary word (`캐슬`), so it is replaced
 //!   only when a word about picking a hero follows (`캐슬 쓰게 되면` → `캣 쓰게 되면`, `캐슬을 픽하면`;
 //!   one particle may come between), and `캐슬` elsewhere is left alone.
+//! - A form ending in `@영웅` is a sound-alike of a hero nickname that is also an ordinary word
+//!   (`양이` for `냥이`): it is replaced only next to a hero name, the word before or after it
+//!   (`솜브라와 양이 캐서디 연계` → `냥이`), so `양이 많다` stays.
 //! - For entries flagged `mask` (profanity) the forms are replaced anywhere, also inside a word
 //!   (`씨발아` → `ㅅㅂ아`).
 //! - At each position the longest form wins (`개씨발` → `ㄱㅅㅂ` before `씨발` → `ㅅㅂ`), so overlapping
@@ -32,6 +35,37 @@ struct Rule {
     anywhere: bool,
     /// Only before a hero-pick word (`@픽` forms).
     pick: bool,
+    /// Only next to a hero name (`@영웅` forms).
+    hero: bool,
+}
+
+/// Marks a `misheard` form that is replaced only next to a hero name.
+const HERO_MARK: &str = "@영웅";
+/// Particles a hero name may carry before the word it is next to (`솜브라와 냥이`).
+const HERO_PARTICLES: [&str; 7] = ["이랑", "하고", "와", "과", "랑", "에", "의"];
+
+/// Whether the word after `rest`'s first `len` characters, or the word before `before`, is a hero
+/// name (with a particle).
+fn next_to_hero(before: &[char], rest: &[char], len: usize, heroes: &[Vec<char>]) -> bool {
+    let is_hero = |w: &[char]| {
+        heroes.iter().any(|h| {
+            w.starts_with(h)
+                && w.get(h.len()..).is_some_and(|tail| tail.is_empty() || HERO_PARTICLES.iter().any(|p| tail.iter().copied().eq(p.chars())) || tail.len() == 1)
+        })
+    };
+    // the next word, spaced or run together (`양이캐서디`)
+    let after = rest.get(len..).unwrap_or_default();
+    let next: Vec<char> = after.iter().copied().skip_while(|c| c.is_whitespace()).take_while(|c| c.is_alphanumeric()).collect();
+    if is_hero(&next) {
+        return true;
+    }
+    // the previous word
+    let prev: Vec<char> = {
+        let mut w: Vec<char> = before.iter().rev().skip_while(|c| c.is_whitespace()).take_while(|c| c.is_alphanumeric()).copied().collect();
+        w.reverse();
+        w
+    };
+    before.last().is_some_and(|c| c.is_whitespace()) && is_hero(&prev)
 }
 
 /// Marks a `misheard` form that is replaced only before a hero-pick word.
@@ -83,6 +117,8 @@ pub struct Corrector {
     by_first: HashMap<char, Vec<Rule>>,
     /// Names for fuzzy matching; empty unless [`Corrector::fuzzy`] was called.
     names: Vec<Name>,
+    /// Hero names and nicknames without spaces, for `@영웅` forms.
+    heroes: Vec<Vec<char>>,
     /// Every Hangul spelling in the name tables, which fuzzy matching leaves alone.
     known: std::collections::HashSet<String>,
     /// Words of multi-word spellings (`제트팩` of `제트팩 캣`): left alone only as a whole word
@@ -191,20 +227,30 @@ impl Corrector {
         for e in glossary.entries.iter().filter(|e| !e.ko.is_empty()) {
             let anywhere = e.has_flag("mask") || e.has_flag("inword");
             for m in e.misheard.iter().filter(|m| **m != e.ko) {
-                let (form, pick) = match m.strip_suffix(PICK_MARK) {
-                    Some(f) => (f.trim(), true),
-                    None => (m.as_str(), false),
+                let (form, pick, hero) = match (m.strip_suffix(PICK_MARK), m.strip_suffix(HERO_MARK)) {
+                    (Some(f), _) => (f.trim(), true, false),
+                    (_, Some(f)) => (f.trim(), false, true),
+                    _ => (m.as_str(), false, false),
                 };
                 let from: Vec<char> = form.chars().collect();
                 if let Some(&c) = from.first() {
-                    by_first.entry(c).or_default().push(Rule { from, to: e.ko.clone(), anywhere, pick });
+                    by_first.entry(c).or_default().push(Rule { from, to: e.ko.clone(), anywhere, pick, hero });
                 }
             }
         }
+        let mut heroes: Vec<Vec<char>> = glossary
+            .entries
+            .iter()
+            .filter(|e| e.category == "heroes")
+            .flat_map(|e| std::iter::once(&e.ko).chain(&e.aliases))
+            .map(|s| s.chars().filter(|c| !c.is_whitespace()).collect::<Vec<char>>())
+            .filter(|h| h.len() >= 2)
+            .collect();
+        heroes.sort_by_key(|h| std::cmp::Reverse(h.len()));
         for rules in by_first.values_mut() {
             rules.sort_by_key(|r| std::cmp::Reverse(r.from.len()));
         }
-        Corrector { by_first, ..Corrector::default() }
+        Corrector { by_first, heroes, ..Corrector::default() }
     }
 
     /// Also correct near-misses of names (see the module docs).
@@ -319,9 +365,12 @@ impl Corrector {
             let word_start = pos == 0 || chars.get(pos - 1).is_none_or(|p| !p.is_alphanumeric());
             let rest = chars.get(pos..).unwrap_or_default();
             let rule = self.by_first.get(&c).and_then(|rules| {
-                rules
-                    .iter()
-                    .find(|r| (r.anywhere || word_start) && rest.starts_with(&r.from) && (!r.pick || before_pick(rest.get(r.from.len()..).unwrap_or_default())))
+                rules.iter().find(|r| {
+                    (r.anywhere || word_start)
+                        && rest.starts_with(&r.from)
+                        && (!r.pick || before_pick(rest.get(r.from.len()..).unwrap_or_default()))
+                        && (!r.hero || next_to_hero(chars.get(..pos).unwrap_or_default(), rest, r.from.len(), &self.heroes))
+                })
             });
             let hit = rule.map(|r| (r.from.len(), r.to.as_str())).or_else(|| if word_start && !self.names.is_empty() { self.fuzzy_match(rest) } else { None });
             let hit = hit.filter(|(len, to)| rest.iter().take(*len).copied().ne(to.chars()));
@@ -358,6 +407,23 @@ mod tests {
         let r = c.apply("로도그가 갈고리, 로도 그 궁. 빨로도그");
         assert_eq!(r.text, "로드호그가 갈고리, 로드호그 궁. 빨로도그");
         assert_eq!(r.replaced, 2);
+    }
+
+    #[test]
+    fn hero_forms_only_next_to_a_hero() {
+        let mut g = Glossary::default();
+        g.add_table("heroes", "id\tko\ten\taliases\told\tmisheard\tflags\tnote\ncassidy\t캐서디\t\t\t\t\t\t\nsombra\t솜브라\t\t\t\t\t\t\n").unwrap();
+        g.add_table("spelling", "id\tko\ten\taliases\told\tmisheard\tflags\tnote\nnyangi\t냥이\t\t\t\t양이@영웅\tnoeval\t\n").unwrap();
+        let c = Corrector::new(&g);
+        // aichi tier list: "솜브라와 냥이 캐서디 연계"
+        assert_eq!(c.apply("솜브라와 양이 캐서디 연계").text, "솜브라와 냥이 캐서디 연계");
+        assert_eq!(c.apply("양이 캐서디랑").text, "냥이 캐서디랑");
+        // the recogniser ran them together in that video
+        assert_eq!(c.apply("양이캐서디 연계가").text, "냥이캐서디 연계가");
+        assert_eq!(c.apply("솜브라랑 양이가").text, "솜브라랑 냥이가");
+        for keep in ["양이 많다", "음식 양이 적어", "양이", "캐서디양이"] {
+            assert_eq!(c.apply(keep).text, keep, "{keep}");
+        }
     }
 
     #[test]

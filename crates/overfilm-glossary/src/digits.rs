@@ -13,6 +13,8 @@
 //! - A counter followed by a syllable that makes it another word is not a counter (`일 위험`,
 //!   `오 초반`, `세 개발자`).
 //! - Native numbers (`두`…`열`) only before `개`, `명`, `킬`, `판`, `마리`; `한` (one) stays a word.
+//! - English numbers after a name: `오버워치 투` → `오버워치 2`, `메인 딜러 투라고` → `메인 딜러
+//!   2라고`, `시즌 원` → `시즌 1`; `투` before another word means "two" and stays (`투 서브 딜러`).
 
 use crate::ko::Tidied;
 
@@ -153,7 +155,7 @@ pub fn write_digits(text: &str) -> Tidied {
     let mut i = 0;
     while let Some(&c) = chars.get(i) {
         let word_start = i == 0 || chars.get(i - 1).is_none_or(|p| !p.is_alphanumeric());
-        if word_start && let Some((len, written)) = number_at(chars.get(i..).unwrap_or_default()) {
+        if word_start && let Some((len, written)) = english_at(&chars, i).or_else(|| number_at(chars.get(i..).unwrap_or_default())) {
             changes.push((chars.iter().skip(i).take(len).collect(), written.clone()));
             out.push_str(&written);
             i += len;
@@ -163,6 +165,68 @@ pub fn write_digits(text: &str) -> Tidied {
         i += 1;
     }
     Tidied { text: out, changes }
+}
+
+/// Particles after a numbered name (`오버워치 투에서`, `메인 딜러 투라고`).
+const NAME_PARTICLES: &[&str] = &[
+    "에서",
+    "으로",
+    "라고",
+    "이라고",
+    "까지",
+    "부터",
+    "처럼",
+    "보다",
+    "이랑",
+    "입니다",
+    "이에요",
+    "예요",
+    "랑",
+    "는",
+    "은",
+    "가",
+    "이",
+    "를",
+    "을",
+    "에",
+    "로",
+    "의",
+    "도",
+    "만",
+    "와",
+    "과",
+    "다",
+];
+
+const ENGLISH_NUMBERS: [(&str, u32, bool); 3] = [("투", 2, false), ("원", 1, true), ("쓰리", 3, true)];
+
+/// English numbers said after a name (`오버워치 투` → `오버워치 2`, `메인 딜러 투라고` → `메인 딜러
+/// 2라고`, `시즌 원만` → `시즌 1만`): (characters used, written form). `투` is a numbered name only as
+/// the last word of the phrase, alone or with a particle; before another word it is "two" and stays
+/// (`투 서브 딜러`, `투 히트`), as do words that start with it (`투표`, `투자`). `원` (also won,
+/// circle) and `쓰리` only after `시즌`.
+fn english_at(chars: &[char], i: usize) -> Option<(usize, String)> {
+    let rest = chars.get(i..)?;
+    // a word before, then one space
+    let before: String = chars.get(..i)?.iter().rev().skip(1).take_while(|c| c.is_alphanumeric()).collect::<Vec<_>>().into_iter().rev().collect();
+    // counting out loud (`원 투 쓰리`) stays
+    if before.is_empty() || chars.get(i.checked_sub(1)?) != Some(&' ') || ENGLISH_NUMBERS.iter().any(|(w, _, _)| before == *w) {
+        return None;
+    }
+    for (word, n, season_only) in ENGLISH_NUMBERS {
+        if !starts_with(rest, word) || (season_only && before != "시즌") {
+            continue;
+        }
+        let p = word.chars().count();
+        let tail: String = rest.get(p..).unwrap_or_default().iter().take_while(|c| c.is_alphanumeric()).collect();
+        let particle = tail.is_empty() || NAME_PARTICLES.contains(&tail.as_str());
+        // another word right after (`투 서브`) means "two"
+        let then_word = tail.is_empty() && rest.get(p) == Some(&' ') && rest.get(p + 1).is_some_and(|c| c.is_alphanumeric());
+        if particle && !then_word {
+            return Some((p, n.to_string()));
+        }
+    }
+    None
 }
 
 /// A spoken number and its counter at the start of `rest`: (characters used, written form).
@@ -241,6 +305,21 @@ mod tests {
         assert_eq!(d("오십삼 프로니까"), "53%니까");
         // months: aichi tier list, "길게 육 개월치를 보면"
         assert_eq!(d("길게 육 개월치를 보면 십이개월"), "길게 6개월치를 보면 12개월");
+    }
+
+    #[test]
+    fn english_numbers_after_names() {
+        // aichi tier list
+        assert_eq!(d("그냥 메인 딜러 투라고 표기해 봤습니다."), "그냥 메인 딜러 2라고 표기해 봤습니다.");
+        assert_eq!(d("오버워치 투에서 키리코가"), "오버워치 2에서 키리코가");
+        assert_eq!(d("26년도 시즌 원만 보다"), "26년도 시즌 1만 보다");
+        assert_eq!(d("오버워치 투."), "오버워치 2.");
+        // "two" before a word, words starting with 투, sentence starts, 원 elsewhere
+        for s in
+            ["놓고 투 서브 딜러하는", "지금 투 서브 딜러가", "투 히트 조합", "이번 투표는", "돈을 투자해", "원 플러스 원", "백 원만", "투가 좋아", "시즌 원 투"]
+        {
+            assert_eq!(d(s), s, "{s}");
+        }
     }
 
     #[test]
