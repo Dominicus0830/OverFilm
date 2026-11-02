@@ -87,6 +87,12 @@ eight on the CPU (`CPU_BATCH`):
 - **The encoder front** (three 3×3 stride-2 convolutions over the mel chunks) gathers the input
   patches and runs one matrix product per group of chunks (`conv3x3s2`); candle's tiled
   convolution took 7 s of a 60-second piece's 11 s in the encoder.
+- **Element-wise work on all cores**: candle runs element-wise operations on one thread. gelu
+  (encoder), silu · up (decoder MLP) and the attention scores' scale, mask and softmax are one
+  parallel pass each (`gelu`, `silu_mul`, `scaled_softmax`), and grouped-query attention
+  multiplies the query heads of a group against their shared keys as one matrix instead of
+  copying the keys per head (`attend_grouped`). Two 60-second pieces on 4 cores: encoder
+  19.9 → 17 s, prompt pass 36.3 → 32.4 s, same captions.
 - **Loading**: the 8-bit decoder weights are cached next to the model (`overfilm-q8.cache`,
   `qcache.rs`; about 1.9 GB for the 1.7B model) after the first load, keyed by each shard's name,
   size and time, and used by both the CPU and the GPU load (the GPU took the same blocks from
