@@ -96,7 +96,7 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
                 .unwrap_or_default();
             (
                 json!({"audioTrack": "", "mode": "general", "who": "auto", "gameVoice": "drop", "lineChars": 16, "maxLines": 2,
-                       "leadMs": 120, "holdMs": 400, "readingCps": 12, "cleanFillers": true, "gpu": true, "extraTerms": ""}),
+                       "leadMs": 120, "holdMs": 400, "readingCps": 12, "cleanFillers": true, "gpu": true, "extraTerms": "", "silence": "auto"}),
                 json!({"tracks": tracks}),
             )
         }
@@ -500,7 +500,31 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                         number(ui, &mut elems, format!("{pre}.holdMs"), tl!("Kept after the voice:"), &mut p["holdMs"], 0.0..=3000.0, " ms");
                         number(ui, &mut elems, format!("{pre}.readingCps"), tl!("Reading speed (letters a second):"), &mut p["readingCps"], 0.0..=40.0, "");
                         text(ui, &mut elems, format!("{pre}.extraTerms"), tl!("Extra names and terms:"), &mut p["extraTerms"], tl!("comma separated"));
+                        combo(
+                            ui,
+                            &mut elems,
+                            format!("{pre}.silence"),
+                            tl!("Skip silence:"),
+                            &mut p["silence"],
+                            &[
+                                ("auto", tl!("Automatic (on for a separate voice track)").to_string()),
+                                ("on", tl!("On").to_string()),
+                                ("off", tl!("Off").to_string()),
+                            ],
+                        );
                     });
+                    match d.params["silence"].as_str() {
+                        Some("on") => {
+                            ui.colored_label(
+                                ui.visuals().warn_fg_color,
+                                tl!("On sound mixed with the game (a video's only audio track) this can skip quiet speech under loud game sound. Best on a voice-only track."),
+                            );
+                        }
+                        Some("off") => {}
+                        _ => {
+                            ui.weak(tl!("Quiet stretches of 2 s or more are skipped on a separate voice track (several audio tracks, or a sound file); a video's only sound is recognised whole."));
+                        }
+                    }
                     let p = &mut d.params;
                     check(ui, &mut elems, format!("{pre}.cleanFillers"), tl!("Leave out fillers and stutters (어, 음…)"), &mut p["cleanFillers"]);
                     check(ui, &mut elems, format!("{pre}.gpu"), tl!("Use the GPU"), &mut p["gpu"]);
@@ -747,6 +771,16 @@ pub(crate) fn normalize(mut p: Value) -> Value {
                 }
             }
         }
+        // the captions dialog's silence choice: automatic (left out), on or off
+        match m.remove("silence").as_ref().and_then(Value::as_str) {
+            Some("on") => {
+                m.insert("skipSilence".into(), json!(true));
+            }
+            Some("off") => {
+                m.insert("skipSilence".into(), json!(false));
+            }
+            _ => {}
+        }
         if let Some(t) = m.get("audioTrack").and_then(Value::as_str).and_then(|t| t.parse::<u64>().ok()) {
             m.insert("audioTrack".into(), json!(t));
         }
@@ -776,8 +810,12 @@ mod tests {
         assert_eq!(run_params(&d), json!({"lineChars": 16, "maxLines": 2, "mode": "general"}));
         // the captions dialog: the audio track and the speaker choice
         let mut d = d;
-        d.params = json!({"audioTrack": "2", "who": "3", "mode": "general"});
+        d.params = json!({"audioTrack": "2", "who": "3", "mode": "general", "silence": "auto"});
         assert_eq!(run_params(&d), json!({"audioTrack": 2, "speakers": true, "numSpeakers": 3, "mode": "general"}));
+        d.params = json!({"who": "auto", "silence": "on"});
+        assert_eq!(run_params(&d), json!({"speakers": true, "skipSilence": true}));
+        d.params = json!({"who": "auto", "silence": "off"});
+        assert_eq!(run_params(&d), json!({"speakers": true, "skipSilence": false}));
         d.params = json!({"audioTrack": "", "who": "off"});
         assert_eq!(run_params(&d), json!({"speakers": false}));
         d.params = json!({"who": "auto"});

@@ -50,6 +50,8 @@ enum Net {
 
 struct GpuNet {
     front: AudioFront,
+    /// the front's convolutions on the GPU (`None`: on the CPU, `OVERFILM_GPU_FRONT=cpu`)
+    gfront: Option<gpu::front::Front>,
     embed: Embedding,
     enc: gpu::Encoder,
     text: gpu::Text,
@@ -84,7 +86,17 @@ impl Net {
         match self {
             Net::Cpu(th) => Ok(th.audio.forward(&mel, frames, th.dtype, &th.dev)?),
             Net::Gpu(g) => {
-                let (h, _) = g.front.forward(&mel, frames, DType::F32, &Device::Cpu)?;
+                let h = match &g.gfront {
+                    Some(f) => {
+                        let m = g.front.chunks(&mel, frames)?;
+                        let v = f.forward(&m)?;
+                        let t = model::conv_out_len(m.width);
+                        let d = v.len() / (m.n * t).max(1);
+                        let x = Tensor::from_vec(v, (m.n, t, d), &Device::Cpu)?;
+                        g.front.finish(&x, &m.lens)?.0
+                    }
+                    None => g.front.forward(&mel, frames, DType::F32, &Device::Cpu)?.0,
+                };
                 let n = h.dim(0)?;
                 let out = g.enc.forward(&h.flatten_all()?.to_vec1::<f32>()?)?;
                 let cols = out.len() / n.max(1);
@@ -210,14 +222,22 @@ fn load_cpu(dir: &Path, cfg: &RootConfig, quantize: bool) -> Result<Thinker, Asr
     let dtype = DType::F32;
     let tc = &cfg.thinker_config.text_config;
     let (head_rows, tied) = head_of(cfg);
-    // a tied head is the embedding: skip the duplicate copy (1.2 GB in f32)
-    let keep = |n: &str| !(tied && n == "thinker.lm_head.weight");
+    let files = shards(dir)?;
+    let (key, cached) = cached_q8(dir, &files, quantize);
+    let fresh = cached.is_empty();
+    // a tied head is the embedding: skip the duplicate copy (1.2 GB in f32); cached 8-bit
+    // weights are not read from the checkpoint at all
+    let keep = |n: &str| !(tied && n == "thinker.lm_head.weight") && !cached.contains_key(n);
     let mut tensors = HashMap::new();
-    let mut qm = model::QMap::new();
-    for p in shards(dir)? {
-        weights::each(&p, dtype, &dev, &keep, &mut |name, t| {
+    let mut qm = cached.clone();
+    let t0 = std::time::Instant::now();
+    let mut quant_s = 0.0;
+    for p in &files {
+        weights::each(p, dtype, &dev, &keep, &mut |name, t| {
             if quantize && quantized_name(&name) {
+                let tq = std::time::Instant::now();
                 qm.insert(name, q8(&t)?);
+                quant_s += secs(tq);
             } else {
                 tensors.insert(name, t);
             }
@@ -226,11 +246,29 @@ fn load_cpu(dir: &Path, cfg: &RootConfig, quantize: bool) -> Result<Thinker, Asr
     }
     if quantize
         && tied
+        && !qm.contains_key("thinker.lm_head.weight")
         && let Some(e) = tensors.get("thinker.model.embed_tokens.weight")
     {
         qm.insert("thinker.lm_head.weight".into(), q8(e)?);
     }
+    if std::env::var_os("OVERFILM_ASR_TRACE").is_some() {
+        eprintln!("load: read {:.1}s, of which quantize {quant_s:.1}s, {} cached", secs(t0), cached.len());
+    }
+    if fresh && !key.is_empty() {
+        crate::qcache::write_later(dir, key, qm.clone());
+    }
     Ok(Thinker::new(&cfg.thinker_config.audio_config, tc, head_rows, tensors, &qm, dtype, &dev)?)
+}
+
+/// The cache key of the checkpoint `files` and its cached 8-bit weights (empty when not
+/// quantizing, or when there is no matching cache).
+fn cached_q8(dir: &Path, files: &[std::path::PathBuf], quantize: bool) -> (String, model::QMap) {
+    if !quantize || std::env::var_os("OVERFILM_NO_Q8_CACHE").is_some() {
+        return (String::new(), model::QMap::new());
+    }
+    let key = crate::qcache::key(files);
+    let cached = crate::qcache::read(dir, &key).unwrap_or_default();
+    (key, cached)
 }
 
 /// Stream the checkpoint to the GPU; only the convolutions and the embedding stay in memory.
@@ -239,14 +277,27 @@ fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Res
     let ac = &cfg.thinker_config.audio_config;
     let tc = &cfg.thinker_config.text_config;
     let (head_rows, tied) = head_of(cfg);
-    let keep = |n: &str| !(tied && n == "thinker.lm_head.weight");
+    let files = shards(dir)?;
+    let (key, cached) = cached_q8(dir, &files, quantize);
+    let fresh = cached.is_empty();
+    let keep = |n: &str| !(tied && n == "thinker.lm_head.weight") && !cached.contains_key(n);
     let embed_name = "thinker.model.embed_tokens.weight";
     let mut cpu = HashMap::new();
     let mut st = gpu::Store::new(if quantize { gpu::Fmt::Q8 } else { gpu::Fmt::F16 });
-    for p in shards(dir)? {
-        weights::each(&p, DType::F32, &dev, &keep, &mut |name, t| {
+    // 8-bit weights are quantized here rather than on upload so they can be cached
+    let mut made = model::QMap::new();
+    for (name, q) in &cached {
+        st.add_q8(ctx, name, q.clone())?;
+    }
+    for p in &files {
+        weights::each(p, DType::F32, &dev, &keep, &mut |name, t| {
             if name.starts_with("thinker.audio_tower.conv") || name == embed_name {
                 cpu.insert(name, t);
+            } else if quantize && quantized_name(&name) {
+                let q = q8(&t)?;
+                drop(t);
+                st.add_q8(ctx, &name, q.clone())?;
+                made.insert(name, q);
             } else {
                 let shape = t.dims().to_vec();
                 st.add(ctx, &name, &shape, t.flatten_all()?.to_vec1::<f32>()?)?;
@@ -254,12 +305,23 @@ fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Res
             Ok(())
         })?;
     }
-    if tied {
+    let head = "thinker.lm_head.weight";
+    if tied && !cached.contains_key(head) {
         let e = cpu.get(embed_name).ok_or_else(|| AsrError::Model("no token embedding".into()))?;
-        st.add_weight(ctx, "thinker.lm_head", &e.flatten_all()?.to_vec1::<f32>()?, tc.vocab_size, tc.hidden_size)?;
+        if quantize {
+            let q = q8(e)?;
+            st.add_q8(ctx, head, q.clone())?;
+            made.insert(head.into(), q);
+        } else {
+            st.add_weight(ctx, "thinker.lm_head", &e.flatten_all()?.to_vec1::<f32>()?, tc.vocab_size, tc.hidden_size)?;
+        }
+    }
+    if fresh && !key.is_empty() {
+        crate::qcache::write_later(dir, key, made);
     }
     let vb = VarBuilder::from_tensors(cpu, DType::F32, &dev);
     let front = AudioFront::new(ac, vb.pp("thinker.audio_tower"))?;
+    let gfront = if std::env::var("OVERFILM_GPU_FRONT").is_ok_and(|v| v == "cpu") { None } else { Some(gpu::front::Front::new(ctx, &front.weights()?)?) };
     let embed = candle_nn::embedding(tc.vocab_size, tc.hidden_size, vb.pp("thinker.model.embed_tokens"))?;
     let e = gpu::EncDims {
         d: ac.d_model,
@@ -280,9 +342,11 @@ fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Res
         eps: tc.rms_norm_eps as f32,
         theta: tc.rope_theta,
         head_rows,
+        // the recogniser decodes pieces side by side; the aligner (a classifier) runs one pass
+        kv_cap: if cfg.thinker_config.classify_num.is_some() { gpu::KV_CAP } else { gpu::KV_CAP_SIDE },
     };
     let text = gpu::Text::new(ctx, d, &mut st, "thinker")?;
-    Ok(GpuNet { front, embed, enc, text })
+    Ok(GpuNet { front, gfront, embed, enc, text })
 }
 
 fn special(tok: &Tokenizer, s: &str) -> Result<u32, AsrError> {
@@ -374,9 +438,10 @@ fn finish(tok: &Tokenizer, out: &[u32], probs: &[f32], language: Option<&str>) -
     Scored { text, words }
 }
 
-/// Pieces of sound recognised side by side on the GPU (see [`Asr::transcribe_many`]; four
-/// 60-second pieces fill its key/value cache).
-pub const BATCH: usize = 4;
+/// Pieces of sound recognised side by side on the GPU (see [`Asr::transcribe_many`]; eight
+/// 60-second pieces fill its key/value cache, [`gpu::KV_CAP_SIDE`], and one decoding step reads
+/// each weight once for all of them).
+pub const BATCH: usize = 8;
 
 /// Pieces of sound recognised side by side on the CPU. A decoding step there is bound by memory
 /// traffic (the 2 GB of 8-bit weights, then each piece's cache), so more pieces per weight pass
@@ -384,12 +449,30 @@ pub const BATCH: usize = 4;
 /// take about 170 MB per 60-second piece.
 pub const CPU_BATCH: usize = 8;
 
+/// Seconds a model has spent in each stage since it was loaded.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Clock {
+    /// the audio encoder (sound features)
+    pub encode: f64,
+    /// running the prompt and the audio through the decoder at once
+    pub prefill: f64,
+    /// generating text one token at a time
+    pub decode: f64,
+    /// tokens generated
+    pub tokens: usize,
+}
+
+fn secs(t: std::time::Instant) -> f64 {
+    t.elapsed().as_secs_f64()
+}
+
 /// Qwen3-ASR.
 pub struct Asr {
     m: Loaded,
     eos: Vec<u32>,
     /// key/value cache of the prompt up to the audio, for the last context used
     prefix: Option<(String, Prefix)>,
+    clock: Clock,
 }
 
 impl Asr {
@@ -404,11 +487,16 @@ impl Asr {
     pub fn load_on(dir: &Path, quantize: bool, gpu: Option<&Arc<Ctx>>) -> Result<Self, AsrError> {
         let m = load_dir(dir, quantize, gpu)?;
         let eos = vec![special(&m.tok, "<|im_end|>")?, special(&m.tok, "<|endoftext|>")?];
-        Ok(Self { m, eos, prefix: None })
+        Ok(Self { m, eos, prefix: None, clock: Clock::default() })
     }
 
     pub fn on_gpu(&self) -> bool {
         matches!(self.m.net, Net::Gpu(_))
+    }
+
+    /// Time spent so far, stage by stage.
+    pub fn clock(&self) -> Clock {
+        self.clock
     }
 
     /// Transcribe a piece (≤ [`MAX_CHUNK_SECONDS`]) of 16 kHz mono audio. `context`: text the model may lean on (term
@@ -421,6 +509,7 @@ impl Asr {
     pub fn transcribe_scored(&mut self, audio: &[f32], context: &str, language: Option<&str>, cancel: &mut dyn FnMut() -> bool) -> Result<Scored, AsrError> {
         let t0 = std::time::Instant::now();
         let feats = self.m.net.encode(audio)?;
+        self.clock.encode += secs(t0);
         let trace = std::env::var_os("OVERFILM_ASR_TRACE").is_some();
         if trace {
             eprintln!("encoder {:?}", t0.elapsed());
@@ -433,6 +522,7 @@ impl Asr {
         let x = net.inputs(&[], &feats, &after)?;
         let (first, mut p) = net.forward_p(&x, true, true)?;
         let mut next = first.first().copied().unwrap_or(self.eos[0]);
+        self.clock.prefill += secs(t1);
         if trace {
             eprintln!("prefill {} tokens {:?}", x.dim(0)?, t1.elapsed());
         }
@@ -451,6 +541,8 @@ impl Asr {
             p = np;
         }
         net.clear();
+        self.clock.decode += secs(t2);
+        self.clock.tokens = self.clock.tokens.saturating_add(out.len());
         if trace {
             eprintln!("decode {} tokens {:?}", out.len(), t2.elapsed());
         }
@@ -508,9 +600,11 @@ impl Asr {
                 return Err(AsrError::Cancelled);
             }
         }
+        self.clock.encode += secs(t0);
         if trace {
             eprintln!("encoder x{} {:?}", audios.len(), t0.elapsed());
         }
+        let tp = std::time::Instant::now();
         let Net::Cpu(th) = &mut self.m.net else { return Err(AsrError::Model("batched decoding needs the CPU model".into())) };
         let (first, mut seqs) = th.text.prefill_seqs(&xs)?;
         let first = first.to_dtype(DType::F32)?;
@@ -522,6 +616,7 @@ impl Asr {
             next.push(u32::try_from(best).unwrap_or(self.eos[0]));
             prob.push(top_probability(&row));
         }
+        self.clock.prefill += secs(tp);
         if trace {
             eprintln!("encoder+prefill x{} {:?}", audios.len(), t0.elapsed());
         }
@@ -565,6 +660,8 @@ impl Asr {
             }
         }
         self.m.net.clear();
+        self.clock.decode += secs(t1);
+        self.clock.tokens = self.clock.tokens.saturating_add(outs.iter().map(Vec::len).sum());
         if trace {
             eprintln!("decode x{} {} tokens {:?}", audios.len(), outs.iter().map(Vec::len).sum::<usize>(), t1.elapsed());
         }
@@ -577,7 +674,7 @@ impl Asr {
     /// [`Asr::transcribe_many`] on the GPU: the prompt prefix is cached once at the start of the
     /// key/value cache and every piece gets a region of its own after it; one decoder pass then
     /// produces the next token of every piece (the 8-bit product reads each weight row once for
-    /// up to four rows). Pieces that do not fit in the cache side by side run in turns.
+    /// up to eight rows). Pieces that do not fit in the cache side by side run in turns.
     fn transcribe_many_gpu(
         &mut self,
         audios: &[&[f32]],
@@ -592,12 +689,13 @@ impl Asr {
         for a in audios {
             feats.push(self.m.net.encode(a)?);
         }
+        self.clock.encode += secs(t0);
         let Net::Gpu(g) = &mut self.m.net else { return Err(AsrError::Model("not on the GPU".into())) };
         let plen = g.text.pos;
         let longest = feats.iter().map(|f| f.dim(0).unwrap_or(0)).max().unwrap_or(0);
         let limit = max_new_tokens(audios.iter().map(|a| a.len()).max().unwrap_or(0));
         let need = longest + after.len() + limit + 1;
-        let fit = gpu::KV_CAP.saturating_sub(plen) / need.max(1);
+        let fit = g.text.cap().saturating_sub(plen) / need.max(1);
         let side = fit.min(BATCH).min(audios.len());
         if trace {
             eprintln!("gpu: prefix {plen} tokens, {need} per piece, {side} side by side, encoder {:?}", t0.elapsed());
@@ -637,6 +735,7 @@ impl Asr {
                     return Err(AsrError::Cancelled);
                 }
             }
+            self.clock.prefill += secs(t1);
             if trace {
                 eprintln!("gpu prefill x{} {:?}", group.len(), t1.elapsed());
             }
@@ -679,6 +778,8 @@ impl Asr {
                     }
                 }
             }
+            self.clock.decode += secs(t2);
+            self.clock.tokens = self.clock.tokens.saturating_add(outs.iter().map(Vec::len).sum());
             if trace {
                 eprintln!("gpu decode x{} {} tokens {:?}", group.len(), outs.iter().map(Vec::len).sum::<usize>(), t2.elapsed());
             }
@@ -695,6 +796,7 @@ pub struct Aligner {
     ts_id: u32,
     /// milliseconds per timestamp class
     step_ms: f64,
+    clock: Clock,
 }
 
 impl Aligner {
@@ -709,11 +811,16 @@ impl Aligner {
             None => special(&m.tok, "<timestamp>")?,
         };
         let step_ms = m.cfg.timestamp_segment_time.unwrap_or(80.0);
-        Ok(Self { m, ts_id, step_ms })
+        Ok(Self { m, ts_id, step_ms, clock: Clock::default() })
     }
 
     pub fn on_gpu(&self) -> bool {
         matches!(self.m.net, Net::Gpu(_))
+    }
+
+    /// Time spent so far: `encode` for the audio encoder, `prefill` for the one decoder pass.
+    pub fn clock(&self) -> Clock {
+        self.clock
     }
 
     /// Start and end (milliseconds) of each unit of `units` (see [`text::align_units`]) in
@@ -738,6 +845,8 @@ impl Aligner {
         net.clear();
         let t1 = std::time::Instant::now();
         let ids = net.forward(&x, false, false)?;
+        self.clock.encode += t1.duration_since(t0).as_secs_f64();
+        self.clock.prefill += secs(t1);
         if std::env::var_os("OVERFILM_ASR_TRACE").is_some() {
             eprintln!("align: encoder {:?}, {} rows {:?}", t0.elapsed().saturating_sub(t1.elapsed()), x.dim(0)?, t1.elapsed());
         }
@@ -782,7 +891,19 @@ fn load_any<T>(gpu: &mut Option<Arc<Ctx>>, progress: Progress, load: impl Fn(Opt
 /// moves the rest of the work to the CPU.
 pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Transcript, AsrError> {
     let sr = SAMPLE_RATE as usize;
-    let spans = chunk::split(audio, sr, MAX_CHUNK_SECONDS, 5.0);
+    let spans = if s.skip_silence {
+        chunk::split_voiced(audio, sr, MAX_CHUNK_SECONDS, 5.0, chunk::MIN_SILENCE_SEC)
+    } else {
+        chunk::split(audio, sr, MAX_CHUNK_SECONDS, 5.0)
+    };
+    let silence_skipped = if s.skip_silence { chunk::skipped_seconds(&spans, audio.len(), sr) } else { 0.0 };
+    if spans.is_empty() {
+        // nothing but quiet
+        return Ok(Transcript { language: s.language.unwrap_or_default().to_string(), silence_skipped, ..Transcript::default() });
+    }
+    if silence_skipped >= 1.0 && !progress(0.0, &format!("무음 {silence_skipped:.0}초 건너뜀")) {
+        return Err(AsrError::Cancelled);
+    }
     let mut gpu = if s.gpu {
         match Ctx::new().and_then(|c| gpu::check::verify(&c).map(|()| c)) {
             Ok(c) => Some(c),
@@ -800,7 +921,12 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
     if !progress(0.0, &format!("음성 인식 모델 불러오는 중 ({})", label(&gpu))) {
         return Err(AsrError::Cancelled);
     }
+    let mut out = Transcript { language: s.language.unwrap_or_default().to_string(), ..Transcript::default() };
+    let t = std::time::Instant::now();
     let mut asr = load_any(&mut gpu, progress, |g| Asr::load_on(s.asr_dir, s.quantize, g))?;
+    out.add_stage("모델 불러오기", secs(t) as f32, 0);
+    // a model reloaded on the CPU after a GPU error starts a fresh clock: keep what came before
+    let mut asr_before = Clock::default();
     let mut chunks = Vec::with_capacity(spans.len());
     let mut scores: Vec<Vec<(String, f32)>> = Vec::with_capacity(spans.len());
     let n = spans.len().max(1) as f32;
@@ -830,8 +956,11 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
                 if !progress(0.8 * i as f32 / n, &format!("GPU 오류로 CPU에서 이어 합니다: {e}")) {
                     return Err(AsrError::Cancelled);
                 }
+                asr_before = add_clocks(asr_before, asr.clock());
                 drop(asr);
+                let t = std::time::Instant::now();
                 asr = Asr::load_on(s.asr_dir, s.quantize, None)?;
+                out.add_stage("모델 불러오기", secs(t) as f32, 0);
                 continue;
             }
             r => r?,
@@ -852,11 +981,18 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
         }
     }
     let device = label(&gpu);
+    let c = add_clocks(asr_before, asr.clock());
+    out.add_stage("소리 특징", c.encode as f32, 0);
+    out.add_stage("프롬프트 처리", c.prefill as f32, 0);
+    out.add_stage("글자 생성", c.decode as f32, c.tokens);
     drop(asr);
     if !progress(0.8, &format!("시간 맞춤 모델 불러오는 중 ({})", label(&gpu))) {
         return Err(AsrError::Cancelled);
     }
+    let t = std::time::Instant::now();
     let mut aligner = load_any(&mut gpu, progress, |g| Aligner::load_on(s.aligner_dir, s.quantize, g))?;
+    out.add_stage("시간 맞춤 모델 불러오기", secs(t) as f32, 0);
+    let mut align_before = Clock::default();
     for (i, (c, &(a, b))) in chunks.iter_mut().zip(&spans).enumerate() {
         let units = text::align_units(&c.text);
         let piece = audio.get(a..b).unwrap_or(&[]);
@@ -866,8 +1002,11 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
                 if !progress(0.8 + 0.2 * i as f32 / n, &format!("GPU 오류로 CPU에서 이어 합니다: {e}")) {
                     return Err(AsrError::Cancelled);
                 }
+                align_before = add_clocks(align_before, aligner.clock());
                 drop(aligner);
+                let t = std::time::Instant::now();
                 aligner = Aligner::load_on(s.aligner_dir, s.quantize, None)?;
+                out.add_stage("시간 맞춤 모델 불러오기", secs(t) as f32, 0);
                 aligner.align(piece, &units)?
             }
             r => r?,
@@ -881,7 +1020,16 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
         }
     }
     let _ = gpu;
-    Ok(Transcript { language: s.language.unwrap_or_default().to_string(), device, chunks, speakers: Vec::new() })
+    let c = add_clocks(align_before, aligner.clock());
+    out.add_stage("시간 맞춤", (c.encode + c.prefill) as f32, 0);
+    out.device = device;
+    out.chunks = chunks;
+    out.silence_skipped = silence_skipped;
+    Ok(out)
+}
+
+fn add_clocks(a: Clock, b: Clock) -> Clock {
+    Clock { encode: a.encode + b.encode, prefill: a.prefill + b.prefill, decode: a.decode + b.decode, tokens: a.tokens.saturating_add(b.tokens) }
 }
 
 /// The real model on the GPU against the CPU: encoder output for 3 s of noise, decoder scores

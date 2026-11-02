@@ -4770,6 +4770,7 @@ dependencies = [
 name = "overfilm-asr"
 version = "0.14.0"
 dependencies = [
+ "bytemuck",
  "candle-core",
  "candle-nn",
  "fancy-regex",

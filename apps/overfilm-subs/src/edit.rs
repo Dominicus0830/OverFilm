@@ -498,6 +498,8 @@ mod tests {
             device: "CPU".into(),
             chunks: vec![ChunkText { start_ms: 0, end_ms: 60_000, text: String::new(), words }],
             speakers: labels.iter().map(|l| Speaker { label: (*l).into(), seconds: 1.0, words: 1, game: false, enrolled: false }).collect(),
+            stages: Vec::new(),
+            silence_skipped: 0.0,
         }
     }
 

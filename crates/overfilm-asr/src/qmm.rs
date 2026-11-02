@@ -57,6 +57,23 @@ impl Q8 {
         (self.n, self.k)
     }
 
+    /// A weight from its parts (as [`Q8::scales`] and [`Q8::values`] gave them); `None` when
+    /// they do not fit `n × k`.
+    pub fn from_parts(n: usize, k: usize, d: Vec<f32>, qs: Vec<i8>) -> Option<Self> {
+        let len = n.checked_mul(k)?;
+        (n > 0 && k > 0 && k.is_multiple_of(QK) && qs.len() == len && d.len() == len / QK).then_some(Self { n, k, d, qs })
+    }
+
+    /// One scale per 32 values, row by row.
+    pub fn scales(&self) -> &[f32] {
+        &self.d
+    }
+
+    /// The 8-bit values, row-major.
+    pub fn values(&self) -> &[i8] {
+        &self.qs
+    }
+
     /// The weight back in f32, `(n, k)` (prefill: a dense product beats the 8-bit one there).
     pub fn dequantize(&self, dev: &Device) -> Result<Tensor> {
         let mut out = vec![0f32; self.n * self.k];

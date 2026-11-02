@@ -20,6 +20,7 @@ use wgpu::util::DeviceExt;
 
 use crate::AsrError;
 
+pub mod front;
 pub mod speaker;
 
 const MATMUL: &str = include_str!("matmul.wgsl");
@@ -31,15 +32,21 @@ const ATTN: &str = include_str!("attn.wgsl");
 const EW: &str = include_str!("ew.wgsl");
 const ARGMAX: &str = include_str!("argmax.wgsl");
 const CONV: &str = include_str!("conv.wgsl");
+const GATHER: &str = include_str!("gather.wgsl");
+const TILE16: &str = include_str!("tile16.wgsl");
 
-/// Rows up to which a product runs as matrix × vector (`mv` in `matmul.wgsl`).
-const MV_ROWS: usize = 4;
+/// Rows up to which a product runs as matrix × vector (`mv` in `matmul.wgsl`, which reads
+/// each weight once for all of them).
+const MV_ROWS: usize = 8;
 /// Rows per decoder or encoder pass (longer inputs run in several passes through the cache).
 pub const MAX_ROWS: usize = 1024;
-/// Positions in the decoder's key/value cache (prompt + audio + generated text): a 60 s piece
-/// takes about 1,800 with room for its text, so three or four fit side by side after the prompt
-/// (16-bit keys and values: about 0.9 GB for Qwen3-ASR's 28 layers).
+/// Positions in a decoder's key/value cache by default (the aligner: one pass over its audio
+/// and text; 16-bit keys and values, about 0.9 GB for 28 layers).
 pub const KV_CAP: usize = 8192;
+/// Positions in the recogniser's cache (prompt + audio + generated text per piece): a 60 s
+/// piece takes about 1,800 with room for its text, so eight fit side by side after the prompt
+/// (about 1.9 GB for Qwen3-ASR's 28 layers).
+pub const KV_CAP_SIDE: usize = 16_384;
 /// Sequences decoded side by side at most ([`Text::forward_seqs`]).
 pub const MAX_SEQS: usize = 8;
 /// Largest single buffer binding asked for (weights larger than this are split by rows).
@@ -75,12 +82,15 @@ struct Kernels {
     tile_q8: Kernel,
     mv_f16: Kernel,
     tile_f16: Kernel,
+    /// 16-bit tiled products (only when the GPU has shader-f16 and they compiled)
+    tile16: Option<(Kernel, Kernel)>,
     norm: Kernel,
     rope: Kernel,
     attn: Kernel,
     ew: Kernel,
     argmax: Kernel,
     conv: Kernel,
+    gather: Kernel,
 }
 
 fn layout(device: &wgpu::Device, kinds: &[B]) -> wgpu::BindGroupLayout {
@@ -140,6 +150,8 @@ pub struct Ctx {
     zero: wgpu::Buffer,
     /// the tiled product kernel matched the CPU (otherwise every product uses `mv`)
     tile: AtomicBool,
+    /// prefills use the 16-bit tiled kernel (it matched the CPU and was faster)
+    half: AtomicBool,
 }
 
 impl Ctx {
@@ -173,9 +185,15 @@ impl Ctx {
             max_buffer_size: max_bind.max(wgpu::Limits::default().max_buffer_size).min(al.max_buffer_size),
             ..wgpu::Limits::default()
         };
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { label: Some("overfilm-asr"), required_limits: limits, ..Default::default() }))
-                .map_err(gpu_err)?;
+        let prefill = std::env::var("OVERFILM_GPU_PREFILL").unwrap_or_default();
+        let features = if prefill != "f32" { adapter.features() & wgpu::Features::SHADER_F16 } else { wgpu::Features::empty() };
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("overfilm-asr"),
+            required_features: features,
+            required_limits: limits,
+            ..Default::default()
+        }))
+        .map_err(gpu_err)?;
         let err = Arc::new(Mutex::new(None));
         let sink = err.clone();
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
@@ -193,25 +211,67 @@ impl Ctx {
             tile_q8: kernel(&device, &q8, "tile", &mm),
             mv_f16: kernel(&device, &f16, "mv", &mm),
             tile_f16: kernel(&device, &f16, "tile", &mm),
+            tile16: None,
             norm: kernel(&device, NORM, "main", &layout(&device, &[B::U, B::U, B::R, B::R, B::R, B::W])),
             rope: kernel(&device, ROPE, "main", &layout(&device, &[B::U, B::U, B::R, B::R, B::R, B::W, B::W, B::W, B::R])),
             attn: kernel(&device, ATTN, "main", &layout(&device, &[B::U, B::U, B::R, B::R, B::R, B::W, B::R])),
             ew: kernel(&device, EW, "main", &layout(&device, &[B::U, B::U, B::R, B::W])),
             argmax: kernel(&device, ARGMAX, "main", &layout(&device, &[B::U, B::U, B::R, B::W])),
             conv: kernel(&device, CONV, "main", &layout(&device, &[B::U, B::R, B::R, B::R, B::R, B::W])),
+            gather: kernel(&device, GATHER, "main", &layout(&device, &[B::U, B::R, B::W])),
         };
         if let Some(Some(e)) = poll_now(scope.pop()) {
             return Err(gpu_err(format!("shaders: {e}")));
         }
+        let mut k = k;
+        if features.contains(wgpu::Features::SHADER_F16) {
+            // optional: a driver that rejects it just keeps the 32-bit kernel
+            let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+            let q8 = kernel(&device, &format!("enable f16;\n{MATMUL}\n{Q8}\n{TILE16}"), "tile16", &mm);
+            let f16 = kernel(&device, &format!("enable f16;\n{MATMUL}\n{F16}\n{TILE16}"), "tile16", &mm);
+            if let Some(None) = poll_now(scope.pop()) {
+                k.tile16 = Some((q8, f16));
+            }
+        }
         let zero =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("zero"), contents: &[0u8; 16], usage: wgpu::BufferUsages::STORAGE });
         let name = format!("{} ({:?}, {} {})", info.name, info.backend, info.driver, info.driver_info).replace(" ,", "").replace("  ", " ");
-        let ctx = Self { device, queue, err, max_bind, name, k, zero, tile: AtomicBool::new(true) };
+        let ctx = Self { device, queue, err, max_bind, name, k, zero, tile: AtomicBool::new(true), half: AtomicBool::new(false) };
         // Some drivers get the tiled kernel wrong; the row-by-row one then does whole prefills.
         if !ctx.scoped(|| check::tile_ok(&ctx)).unwrap_or(false) {
             ctx.tile.store(false, Ordering::Relaxed);
+        } else if ctx.k.tile16.is_some() {
+            // 16-bit prefills when they match the CPU and are measurably faster (software
+            // renderers skip the timing: `OVERFILM_GPU_PREFILL=f16` forces them, `f32` turns them off)
+            ctx.half.store(true, Ordering::Relaxed);
+            let ok = ctx.scoped(|| check::tile_ok(&ctx)).unwrap_or(false);
+            let faster = prefill == "f16" || (info.device_type != wgpu::DeviceType::Cpu && ctx.scoped(|| check::tile16_faster(&ctx)).unwrap_or(false));
+            ctx.half.store(ok && faster, Ordering::Relaxed);
         }
         Ok(Arc::new(ctx))
+    }
+
+    /// Which product kernel prefills use, for the user.
+    pub fn prefill_kind(&self) -> &'static str {
+        if !self.tiled() {
+            "row by row"
+        } else if self.half() {
+            "16-bit tiles"
+        } else if self.k.tile16.is_some() {
+            "32-bit tiles (16-bit available but not faster)"
+        } else {
+            "32-bit tiles"
+        }
+    }
+
+    /// Whether prefills use the 16-bit tiled kernel.
+    pub fn half(&self) -> bool {
+        self.tiled() && self.k.tile16.is_some() && self.half.load(Ordering::Relaxed)
+    }
+
+    /// Switch the 16-bit tiled kernel on or off (self-check and timing).
+    pub(crate) fn set_half(&self, on: bool) {
+        self.half.store(on, Ordering::Relaxed);
     }
 
     /// Whether prefills use the tiled product kernel (it failed the start-up comparison otherwise).
@@ -395,6 +455,27 @@ impl Weight {
         }
         Ok(Self { fmt, k, n, parts, bias: bias.map(|b| ctx.upload_f32(b)) })
     }
+
+    /// An 8-bit `n × k` weight already quantized (the same blocks [`quantize_rows`] makes).
+    pub fn from_q8(ctx: &Ctx, qs: &[i8], sc: &[f32], n: usize, k: usize) -> Result<Self, AsrError> {
+        if n == 0 || k == 0 || !k.is_multiple_of(32) || qs.len() != n.saturating_mul(k) || sc.len() != qs.len() / 32 {
+            return Err(gpu_err(format!("8-bit weight {n}×{k} with {} values", qs.len())));
+        }
+        let rows = usize::try_from(ctx.max_bind / k as u64).unwrap_or(usize::MAX) / 64 * 64;
+        if rows == 0 {
+            return Err(gpu_err(format!("weight row of {k} does not fit a binding")));
+        }
+        let mut parts = Vec::new();
+        let mut off = 0;
+        while off < n {
+            let pn = rows.min(n - off);
+            let q = qs.get(off * k..(off + pn) * k).ok_or_else(|| gpu_err("weight slice"))?;
+            let s = sc.get(off * k / 32..(off + pn) * k / 32).ok_or_else(|| gpu_err("scale slice"))?;
+            parts.push(Part { qs: ctx.upload(bytemuck::cast_slice(q)), sc: ctx.upload_f32(s), off, n: pn });
+            off += pn;
+        }
+        Ok(Self { fmt: Fmt::Q8, k, n, parts, bias: None })
+    }
 }
 
 /// A product bound to its input and output buffers.
@@ -438,11 +519,14 @@ impl Lin {
     fn record(&self, ctx: &Ctx, pass: &mut wgpu::ComputePass, rows: usize) {
         let rows = if self.rows1 { 1 } else { rows };
         let small = rows <= MV_ROWS || !ctx.tiled();
-        let k = match (self.fmt, small) {
-            (Fmt::Q8, true) => &ctx.k.mv_q8,
-            (Fmt::Q8, false) => &ctx.k.tile_q8,
-            (Fmt::F16, true) => &ctx.k.mv_f16,
-            (Fmt::F16, false) => &ctx.k.tile_f16,
+        let half = if small || !ctx.half() { None } else { ctx.k.tile16.as_ref() };
+        let k = match (self.fmt, small, half) {
+            (Fmt::Q8, false, Some((q8, _))) => q8,
+            (Fmt::F16, false, Some((_, f16))) => f16,
+            (Fmt::Q8, true, _) => &ctx.k.mv_q8,
+            (Fmt::Q8, false, None) => &ctx.k.tile_q8,
+            (Fmt::F16, true, _) => &ctx.k.mv_f16,
+            (Fmt::F16, false, None) => &ctx.k.tile_f16,
         };
         pass.set_pipeline(&k.pipe);
         for (bg, n) in &self.parts {
@@ -461,9 +545,15 @@ impl Lin {
 /// into one product once all their pieces have arrived.
 pub struct Store {
     dec_fmt: Fmt,
-    pending: HashMap<String, (Vec<usize>, Vec<f32>)>,
+    pending: HashMap<String, (Vec<usize>, Pending)>,
     weights: HashMap<String, Weight>,
     vectors: HashMap<String, Vec<f32>>,
+}
+
+/// A tensor waiting for the rest of its fused product.
+enum Pending {
+    F32(Vec<f32>),
+    Q8(std::sync::Arc<crate::qmm::Q8>),
 }
 
 /// The fused product a weight or bias belongs to, and every tensor it needs.
@@ -495,22 +585,51 @@ impl Store {
 
     /// Take one tensor (row-major f32).
     pub fn add(&mut self, ctx: &Ctx, name: &str, shape: &[usize], data: Vec<f32>) -> Result<(), AsrError> {
-        let Some((key, members)) = group(name) else {
+        if group(name).is_none() {
             self.vectors.insert(name.to_string(), data);
             return Ok(());
+        }
+        self.add_pending(ctx, name, shape, Pending::F32(data))
+    }
+
+    /// Take one decoder weight already in 8 bits (from the weight cache, or quantized on the CPU
+    /// while loading so it can be cached).
+    pub fn add_q8(&mut self, ctx: &Ctx, name: &str, q: std::sync::Arc<crate::qmm::Q8>) -> Result<(), AsrError> {
+        let (n, k) = q.dims();
+        self.add_pending(ctx, name, &[n, k], Pending::Q8(q))
+    }
+
+    fn add_pending(&mut self, ctx: &Ctx, name: &str, shape: &[usize], data: Pending) -> Result<(), AsrError> {
+        let Some((key, members)) = group(name) else {
+            return Err(gpu_err(format!("{name}: not part of a product")));
         };
         self.pending.insert(name.to_string(), (shape.to_vec(), data));
         if !members.iter().all(|m| self.pending.contains_key(m)) {
             return Ok(());
         }
         let (mut w, mut b, mut n, mut k) = (Vec::new(), Vec::new(), 0usize, 0usize);
+        let (mut qs, mut sc): (Vec<i8>, Vec<f32>) = (Vec::new(), Vec::new());
         for m in &members {
             let Some((shape, v)) = self.pending.remove(m) else { continue };
+            let v = match v {
+                Pending::F32(v) => v,
+                Pending::Q8(q) => {
+                    let (rows, cols) = q.dims();
+                    if (k != 0 && cols != k) || !w.is_empty() || m.ends_with(".bias") {
+                        return Err(gpu_err(format!("{m}: cannot fuse 8-bit {rows}×{cols} here")));
+                    }
+                    k = cols;
+                    n += rows;
+                    qs.extend_from_slice(q.values());
+                    sc.extend_from_slice(q.scales());
+                    continue;
+                }
+            };
             if m.ends_with(".bias") {
                 b.extend_from_slice(&v);
             } else {
                 let (&rows, &cols) = (shape.first().unwrap_or(&0), shape.get(1).unwrap_or(&0));
-                if k != 0 && cols != k {
+                if k != 0 && cols != k || !qs.is_empty() {
                     return Err(gpu_err(format!("{m}: {cols} columns, expected {k}")));
                 }
                 k = cols;
@@ -518,8 +637,15 @@ impl Store {
                 w.extend_from_slice(&v);
             }
         }
-        let fmt = if key.contains("audio_tower") { Fmt::F16 } else { self.dec_fmt };
-        let weight = Weight::new(ctx, &w, n, k, fmt, (!b.is_empty()).then_some(&b[..]))?;
+        let weight = if qs.is_empty() {
+            let fmt = if key.contains("audio_tower") { Fmt::F16 } else { self.dec_fmt };
+            Weight::new(ctx, &w, n, k, fmt, (!b.is_empty()).then_some(&b[..]))?
+        } else {
+            if !b.is_empty() {
+                return Err(gpu_err(format!("{key}: 8-bit weight with a bias")));
+            }
+            Weight::from_q8(ctx, &qs, &sc, n, k)?
+        };
         self.weights.insert(key, weight);
         Ok(())
     }
@@ -573,6 +699,8 @@ pub struct TextDims {
     pub eps: f32,
     pub theta: f64,
     pub head_rows: usize,
+    /// key/value cache positions ([`KV_CAP`] or [`KV_CAP_SIDE`])
+    pub kv_cap: usize,
 }
 
 struct DecLayer {
@@ -633,8 +761,8 @@ impl Text {
         let mid = c.floats(r * d.inter);
         let half = d.dh / 2;
         let inv: Vec<f32> = (0..half).map(|i| (1.0 / d.theta.powf(2.0 * i as f64 / d.dh as f64)) as f32).collect();
-        let mut table = Vec::with_capacity(KV_CAP * half * 2);
-        for p in 0..KV_CAP {
+        let mut table = Vec::with_capacity(d.kv_cap * half * 2);
+        for p in 0..d.kv_cap {
             for w in &inv {
                 let a = p as f32 * w;
                 table.push(a.cos());
@@ -644,7 +772,7 @@ impl Text {
         let cs = c.upload_f32(&table);
         // per-row position, cache region and prefix length when rows are different sequences
         let ri = c.storage((r * 16) as u64);
-        let kv_words = (d.hkv * KV_CAP * half) as u64 * 4;
+        let kv_words = (d.hkv * d.kv_cap * half) as u64 * 4;
         let mut keep = vec![hn.clone(), qkv.clone(), q.clone(), o.clone(), gu.clone(), mid.clone(), cs.clone()];
         let mut layers = Vec::with_capacity(d.layers);
         let lin = |w: &Weight, x: &wgpu::Buffer, y: &wgpu::Buffer, ldy: usize, acc: bool| Lin::new(c, w, LinSpec { x, y, step: &step, ldy, acc, rows1: false });
@@ -663,8 +791,8 @@ impl Text {
             if w_qkv.n != qkv_n || w_qkv.k != d.hidden || w_gu.n != 2 * d.inter || w_down.k != d.inter {
                 return Err(gpu_err(format!("layer {i}: unexpected weight sizes")));
             }
-            let ru = c.uniform(&[d.hq as u32, d.hkv as u32, d.dh as u32, KV_CAP as u32, 0, d.eps.to_bits(), 0, 0]);
-            let au = c.uniform(&[d.hq as u32, d.hkv as u32, d.dh as u32, KV_CAP as u32, 0, ((d.dh as f32).powf(-0.5)).to_bits(), 0, 0]);
+            let ru = c.uniform(&[d.hq as u32, d.hkv as u32, d.dh as u32, d.kv_cap as u32, 0, d.eps.to_bits(), 0, 0]);
+            let au = c.uniform(&[d.hq as u32, d.hkv as u32, d.dh as u32, d.kv_cap as u32, 0, ((d.dh as f32).powf(-0.5)).to_bits(), 0, 0]);
             let eu = c.uniform(&[d.inter as u32, 0, 0, 0]);
             layers.push(DecLayer {
                 ln1: norm_bg(c, &step, d.hidden, false, false, d.eps, [&h, &ln1w, &c.zero, &hn]),
@@ -709,6 +837,11 @@ impl Text {
 
     /// Run `x` (`t × hidden`, row-major) after the cached tokens (`cached`) or from position 0;
     /// returns the argmax class of the last row (`last_only`) or of every row.
+    /// Positions the key/value cache holds.
+    pub fn cap(&self) -> usize {
+        self.d.kv_cap
+    }
+
     pub fn forward(&mut self, x: &[f32], cached: bool, last_only: bool) -> Result<Vec<u32>, AsrError> {
         let c = self.ctx.clone();
         let d = self.d;
@@ -717,8 +850,8 @@ impl Text {
             return Err(gpu_err("input size"));
         }
         let start = if cached { self.pos } else { 0 };
-        if start + t > KV_CAP {
-            return Err(gpu_err(format!("{} tokens exceed the cache ({KV_CAP})", start + t)));
+        if start + t > d.kv_cap {
+            return Err(gpu_err(format!("{} tokens exceed the cache ({})", start + t, d.kv_cap)));
         }
         if !last_only && self.all.is_none() {
             return Err(gpu_err("per-row output not available for this head"));
@@ -799,8 +932,8 @@ impl Text {
         }
         for &(pos, base, plen) in rows {
             let place = if pos < plen { pos } else { base.saturating_add(pos - plen) };
-            if pos >= KV_CAP || place >= KV_CAP || plen > KV_CAP {
-                return Err(gpu_err(format!("position {pos} (cache place {place}) outside the cache ({KV_CAP})")));
+            if pos >= d.kv_cap || place >= d.kv_cap || plen > d.kv_cap {
+                return Err(gpu_err(format!("position {pos} (cache place {place}) outside the cache ({})", d.kv_cap)));
             }
         }
         let mut out = Vec::new();

@@ -64,6 +64,7 @@ fn tools() -> Value {
     let index = json!({"type": "integer", "minimum": 1, "description": "자막 번호 (1부터)"});
     let audio_track =
         json!({"type": "integer", "minimum": 1, "maximum": 64, "description": "인식할 오디오 트랙 번호 (1부터, 기본 1). OBS에서 마이크를 따로 녹음한 트랙 등"});
+    let skip_silence = json!({"type": "boolean", "description": "2초 넘는 무음 구간을 인식하지 않고 건너뜀. 생략하면 자동: 오디오 트랙이 분리된 영상·오디오 파일은 켜짐, 영상에 섞인 소리는 꺼짐 (켜면 게임 소리 밑의 작은 말소리까지 건너뛸 수 있어 결과에 경고가 붙음)"});
     json!([
         {"name": "extract_subtitles", "description": "영상/오디오 파일에서 한국어 자막(SRT)을 뽑습니다. 몇 분 걸리므로 바로 돌아오고, job_status로 진행을 확인합니다. 결과는 입력 파일 옆 .srt와 .overfilm.json(단어 시간)입니다.",
          "inputSchema": {"type": "object", "required": ["input"], "properties": {
@@ -82,7 +83,8 @@ fn tools() -> Value {
             "use_voices": {"type": "boolean", "description": "등록한 목소리와 같은 사람이면 그 이름을 붙임 (기본 true)"},
             "clean_fillers": {"type": "boolean", "description": "추임새(어, 음)와 말 더듬기(그 그게)를 자막에서 뺌 (기본 true, 단어 시간 파일에는 남음)"},
             "from": {"type": "string", "description": "이 시간부터만 인식 (예: 00:01:23,000)"}, "to": {"type": "string", "description": "이 시간까지만 인식"},
-            "audio_track": audio_track}}},
+            "audio_track": audio_track,
+            "skip_silence": skip_silence}}},
         {"name": "rerecognize_range", "description": "자막의 한 구간만 소리를 다시 인식해 바꿉니다 (다른 곳에서 고친 글자는 그대로). extra_terms로 그 구간에 나오는 이름을 알려 주면 더 정확합니다. 백그라운드로 돌고 job_status로 확인합니다.",
          "inputSchema": {"type": "object", "required": ["path", "from", "to"], "properties": {"path": path, "from": {"type": "string", "description": "시작 (예: 00:01:23,000)"}, "to": {"type": "string", "description": "끝"},
             "input": {"type": "string", "description": "원본 영상 (기본: SRT와 같은 이름의 영상)"}, "extra_terms": {"type": "string"}, "gpu": {"type": "boolean"}, "clean_fillers": {"type": "boolean"}}}},
@@ -225,6 +227,7 @@ impl Server {
         o.only_voices = a.get("only_voices").and_then(Value::as_bool).unwrap_or(false);
         o.use_voices = a.get("use_voices").and_then(Value::as_bool).unwrap_or(true);
         o.clean_fillers = a.get("clean_fillers").and_then(Value::as_bool).unwrap_or(true);
+        o.skip_silence = a.get("skip_silence").and_then(Value::as_bool);
         let t = |k: &str| s(a, k).map(|v| review::parse_clock(v).ok_or_else(|| format!("{k}: 시간 형식 (예: 00:01:23,000)"))).transpose();
         if let (from, to) = (t("from")?, t("to")?)
             && (from.is_some() || to.is_some())

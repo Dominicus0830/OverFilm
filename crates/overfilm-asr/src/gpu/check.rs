@@ -118,29 +118,69 @@ fn product_err(c: &Ctx, rng: &mut Rng, fmt: Fmt, n: usize, k: usize, rows: usize
     Ok(max_rel(&got, &want))
 }
 
-/// Whether the tiled product kernel matches the CPU on this device (checked once at start-up).
+/// Error limit of the products: the 16-bit tiles round inputs and short sums to f16.
+fn product_tol(c: &Ctx) -> f32 {
+    if c.half() { 2e-3 } else { 1e-3 }
+}
+
+/// Whether the tiled product kernel (the 16-bit one when switched on) matches the CPU on this
+/// device (checked once at start-up).
 pub(super) fn tile_ok(c: &Ctx) -> Result<bool, AsrError> {
     let mut rng = Rng(0x7_11E5);
     for fmt in [Fmt::F16, Fmt::Q8] {
-        if product_err(c, &mut rng, fmt, 200, 512, 70)? > 1e-3 {
+        if product_err(c, &mut rng, fmt, 200, 512, 70)? > product_tol(c) {
             return Ok(false);
         }
     }
     Ok(true)
 }
 
+/// Whether the 16-bit tiled kernel does a prefill-sized product (512 rows of a 2048 × 2048 8-bit
+/// weight, eight times in one submission) at least 10 % faster than the 32-bit one. Leaves the
+/// 16-bit kernel switched off.
+pub(super) fn tile16_faster(c: &Ctx) -> Result<bool, AsrError> {
+    let (n, k, rows) = (2048usize, 2048usize, 512usize);
+    let mut rng = Rng(0x7_11E6);
+    let weight = Weight::new(c, &rng.vec(n * k, 0.05), n, k, Fmt::Q8, None)?;
+    let step = c.uniform(&[rows as u32, 0, 0, 0]);
+    let xb = c.upload_f32(&rng.vec(rows * k, 1.0));
+    let y = c.floats(rows * n);
+    let lin = Lin::new(c, &weight, LinSpec { x: &xb, y: &y, step: &step, ldy: n, acc: false, rows1: false });
+    let mut best = [f64::INFINITY; 2];
+    for round in 0..3 {
+        for (i, half) in [false, true].into_iter().enumerate() {
+            c.set_half(half);
+            let t = std::time::Instant::now();
+            run(c, |p| {
+                for _ in 0..8 {
+                    lin.record(c, p, rows);
+                }
+            })?;
+            read(c, &y, 1)?;
+            // the first round warms up (pipeline creation, caches)
+            if round > 0 {
+                best[i] = best[i].min(t.elapsed().as_secs_f64());
+            }
+        }
+    }
+    c.set_half(false);
+    Ok(best[1] < best[0] * 0.9)
+}
+
 fn products(c: &Ctx, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), AsrError> {
     let (n, k) = (1000, 2048);
     for fmt in [Fmt::F16, Fmt::Q8] {
-        for rows in [1usize, 3, 150] {
+        for rows in [1usize, 3, 8, 150] {
             let kind = if rows <= super::MV_ROWS {
                 "vec"
+            } else if c.half() {
+                "tile16"
             } else if c.tiled() {
                 "tile"
             } else {
                 "vec(prefill)"
             };
-            out.push(Report { name: format!("matmul {fmt:?} {kind} rows {rows}"), err: product_err(c, rng, fmt, n, k, rows)?, tol: 1e-3 });
+            out.push(Report { name: format!("matmul {fmt:?} {kind} rows {rows}"), err: product_err(c, rng, fmt, n, k, rows)?, tol: product_tol(c) });
         }
     }
     Ok(())
@@ -507,6 +547,7 @@ fn decoder(c: &Arc<Ctx>, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), Asr
         eps: tc.rms_norm_eps as f32,
         theta: tc.rope_theta,
         head_rows,
+        kv_cap: super::KV_CAP,
     };
     let mut gpu = Text::new(c, d, &mut st, "thinker")?;
     let h = tc.hidden_size;

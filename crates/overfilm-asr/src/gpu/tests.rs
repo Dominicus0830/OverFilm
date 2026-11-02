@@ -55,6 +55,25 @@ fn self_check_passes_without_tiles() {
     assert!(r.iter().any(|x| x.name.contains("vec(prefill)")));
 }
 
+/// With the 16-bit tiled kernel switched on (when the device has shader-f16), prefills, the tiny
+/// decoder and encoder still match the CPU.
+#[test]
+fn self_check_passes_with_16_bit_tiles() {
+    let Some(c) = ctx() else { return };
+    if c.k.tile16.is_none() {
+        eprintln!("skipped: no shader-f16");
+        return;
+    }
+    c.set_half(true);
+    assert!(check::tile_ok(&c).unwrap());
+    let r = check::report(&c);
+    for x in &r {
+        eprintln!("{x}");
+    }
+    assert!(r.iter().all(check::Report::ok));
+    assert!(r.iter().any(|x| x.name.contains("tile16")));
+}
+
 /// One product through both kernels, both formats, split into parts, against f32.
 #[test]
 fn products_match() {
@@ -63,7 +82,7 @@ fn products_match() {
     let (n, k) = (200, 96);
     let w = rng.vec(n * k, 0.5);
     let bias = rng.vec(n, 0.5);
-    for rows in [1usize, 3, 70] {
+    for rows in [1usize, 3, 6, 8, 70] {
         let x = rng.vec(rows * k, 1.0);
         let (xr, wr) = (&x, &w);
         let want: Vec<f32> = (0..rows).flat_map(|r| (0..n).map(move |j| (0..k).map(|i| xr[r * k + i] * wr[j * k + i]).sum::<f32>())).collect();
@@ -160,6 +179,7 @@ fn decoder_matches() {
         eps: tc.rms_norm_eps as f32,
         theta: tc.rope_theta,
         head_rows,
+        kv_cap: KV_CAP,
     };
     let mut gpu = Text::new(&c, d, &mut st, "thinker").unwrap();
     let h = tc.hidden_size;
@@ -296,6 +316,7 @@ fn gpu_rows_of_different_sequences() {
         eps: tc.rms_norm_eps as f32,
         theta: tc.rope_theta,
         head_rows,
+        kv_cap: KV_CAP,
     };
     let mut gpu = Text::new(&c, d, &mut st, "thinker").unwrap();
     let prefix = rng.vec(5 * h, 1.0);
@@ -387,6 +408,22 @@ fn encoder_matches() {
     let vb = VarBuilder::from_tensors(map, DType::F32, &dev).pp("thinker.audio_tower");
     let cpu = AudioEncoder::new(&ac, vb.clone()).unwrap();
     let front = AudioFront::new(&ac, vb).unwrap();
+    // the front's convolutions on the GPU, in one pass and in passes of a few chunks
+    for cap in [u64::MAX, 200_000] {
+        let gf = front::Front::with_cap(&c, &front.weights().unwrap(), cap).unwrap();
+        for frames in [37, 1250, 10_000] {
+            let mel = rng.vec(16 * frames, 1.0);
+            let (want, _) = front.forward(&mel, frames, DType::F32, &dev).unwrap();
+            let m = front.chunks(&mel, frames).unwrap();
+            let v = gf.forward(&m).unwrap();
+            let t = model::conv_out_len(m.width);
+            let x = Tensor::from_vec(v, (m.n, t, 64), &dev).unwrap();
+            let (got, _) = front.finish(&x, &m.lens).unwrap();
+            assert_eq!(got.dims(), want.dims());
+            let (g, w) = (got.flatten_all().unwrap().to_vec1::<f32>().unwrap(), want.flatten_all().unwrap().to_vec1::<f32>().unwrap());
+            assert!(max_rel(&g, &w) < 1e-2, "front, {frames} frames, cap {cap}: {}", max_rel(&g, &w));
+        }
+    }
     let mut st = Store::new(Fmt::F16);
     for (n, s, d) in data.iter().filter(|(n, ..)| !n.contains(".conv")) {
         st.add(&c, n, s, d.clone()).unwrap();

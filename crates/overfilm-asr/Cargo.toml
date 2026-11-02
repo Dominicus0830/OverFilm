@@ -13,7 +13,7 @@ workspace = true
 [features]
 default = []
 # The models themselves (candle on the CPU, wgpu on the GPU). Off in wasm builds.
-qwen = ["dep:candle-core", "dep:candle-nn", "dep:wgpu", "dep:pollster", "dep:half", "dep:rayon", "dep:pulp"]
+qwen = ["dep:candle-core", "dep:candle-nn", "dep:wgpu", "dep:pollster", "dep:half", "dep:rayon", "dep:pulp", "dep:bytemuck"]
 # Model downloads over HTTPS (filmcraft-speech's pure-Rust downloader).
 download = ["filmcraft-speech/download"]
 
@@ -27,6 +27,8 @@ half = { version = "2", optional = true }
 rayon = { workspace = true, optional = true }
 # safe SIMD for the 8-bit product (already in the tree through candle's gemm)
 pulp = { version = "0.22", optional = true }
+# reading and writing the 8-bit weight cache without copies
+bytemuck = { version = "1", optional = true }
 fancy-regex = "0.14"
 unicode-normalization = "0.1"
 serde = { workspace = true }
@@ -42,4 +44,8 @@ required-features = ["qwen"]
 
 [[example]]
 name = "speakers"
+required-features = ["qwen"]
+
+[[example]]
+name = "asr_load"
 required-features = ["qwen"]
