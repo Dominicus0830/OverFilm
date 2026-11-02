@@ -81,6 +81,9 @@ fn waiting_time_and_words_are_left_alone() {
         comment: String::new(),
         kind: MarkerKind::Comment,
         color: Label::Rose,
+        url: String::new(),
+        author: String::new(),
+        custom_color: None,
     });
     s.project = Arc::new(p);
     let mut l = levels();

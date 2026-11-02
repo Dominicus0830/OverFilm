@@ -75,6 +75,9 @@ fn learn_saves_a_style_that_steers_the_reel_and_the_highlights() {
                 comment: String::new(),
                 kind: filmcraft_project::MarkerKind::Comment,
                 color: filmcraft_project::Label::Green,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
             });
         }
     }

@@ -97,6 +97,9 @@ fn add_cut(s: &mut Session, a: i64, b: i64) -> u64 {
             comment: "조용함".into(),
             kind: MarkerKind::Comment,
             color: Label::Brown,
+            url: String::new(),
+            author: String::new(),
+            custom_color: None,
         });
         Ok(id)
     })
