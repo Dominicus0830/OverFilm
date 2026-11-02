@@ -15,7 +15,7 @@ calling the caption layout) and listed in the table at the end.
 |---|---|---|---|
 | `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`), in-game voice lines found by text (`voicelines`) |
 | `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels, overlapped speech with pyannote segmentation-3.0); next: `filmcraft_speech::Transcriber` |
-| `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out; caption styles and motion for the editor (`styles`) |
+| `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out; caption styles and motion for the editor (`styles`), Premiere text styles and templates read into them (`premiere`) |
 | `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures), the auto-cut plan, deaths and ultimates from the HUD's player bars, ultimate kills from the kill feed; see "Auto cut" below |
 | `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the shared models folder |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
@@ -288,7 +288,43 @@ track. Then:
   (a colour per speaker: 화자1 sky blue, 화자2 orange, 화자3 green; slides up), 강조 (big red,
   middle of the frame, bounce), 한 글자씩 (typewriter). A leading `(화자1)` label written by
   OverFilmSubs picks the speaker's colour and is dropped from the text.
-  `overfilm.captions.savePreset` adds the user's own (`<project>.overfilm-caption-styles.json`).
+  `overfilm.captions.savePreset` adds the user's own (`<project>.overfilm-caption-styles.json`,
+  or the user's `overfilm-caption-styles.json` for an unsaved project).
+- **Premiere styles** (`overfilm_captions::premiere`, `overfilm.captions.importStyle {path}`; the
+  dialog's **Import Premiere Style…**): the user's own `.prtextstyle` (Premiere: right-click a
+  caption style ▸ Export Text Style), `.mogrt`, `.prproj` or Premiere XML becomes OverFilm styles
+  in the user's `overfilm-caption-styles.json` (beside the OverFilm models, shared by every
+  project). From a Premiere text style: font, size, fill, outline, background box (colour,
+  opacity, size, corner radius) and shadow on/off; fonts are matched to installed families and
+  the ones not installed are reported. From an After Effects `.mogrt`: the first text control's
+  font and size (scaled to 1080 lines) and the colours its control names place (text, stroke,
+  background; a gradient's start colour as the fill), and its **motion**: the `.aep` inside
+  (`overfilm_captions::aep`, a bounds-checked RIFX walker) gives the text layer's scale,
+  position, opacity and rotation keyframes; the keys before the longest still stretch become
+  the caption's custom motion in, the keys after it the motion out (`CaptionPreset::custom_motion`,
+  values relative to the rest pose, eased or linear per key), sped up so in and out take at most
+  60 % of a caption. A per-character text animator becomes the typewriter. The text is measured
+  through its parents and the precompositions that show it, and expressions are evaluated
+  (`overfilm_captions::aep_expr`: variables, if/else, Math, ease/linear/clamp, effect controls,
+  other layers' transforms, valueAtTime, loopOut; `wiggle()` becomes the Wiggle effect).
+  The rest of the look (`overfilm_captions::aep_look`, `CaptionPreset::template`,
+  `styles::caption_clip`): Glow → Wonder Glow, CC Light Sweep → **Text Light Sweep** (OverFilm's own
+  effect), Gaussian/Fast Blur, Directional Blur, Drop Shadow → the text's
+  shadow, Gradient Ramp → a gradient fill, Fill → the fill colour; their keyframes fitted into
+  each caption like the motion. Masks go on the caption clip's opacity; rectangle/ellipse shape
+  layers become shape layers (pinned to the text when sized to it); the other text layers' motion
+  moves the caption's second and later lines. Not carried over (listed in the import notes):
+  `sourceRectAtTime()`/`random()`/loops-in-code expressions, third-party plug-ins, free-form
+  path shapes, 3D/cameras/lights, track mattes and layer styles. Mask and effect positions are
+  measured from the text's centre at rest, so they are close but not exact. A template with no
+  readable keyframes falls back to a motion guessed from its names. Choosing a motion in the
+  dialog replaces the template's motion (its effects stay).
+  The FlatBuffers layout was worked out from text styles
+  people share publicly (14 `.prtextstyle` and 8 `.mogrt` files all read); unknown fields are
+  skipped. No Adobe file is shipped or read by us: the user picks their own files. Upstream's
+  `.fcgt` templates still refuse `.mogrt`; this is a separate OverFilm reader.
+- **Save Selected Caption's Look** (`overfilm.captions.styleFromClip {name, clip?}`): a caption
+  restyled in Effect Controls is saved back as a style (`styles::preset_from_layer`).
 - **Motion** in and out: fade, pop (scale 70 → 108 → 100), slide up, bounce, typewriter (Source
   Text held per character, at most 60 ms each). Motion lasts `motion_secs` (0.2 s), at most a
   third of the caption.
@@ -570,4 +606,4 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `crates/ui-egui/src/panels.rs`, `menus.rs`, `panels/dialogs.rs` | `mod overfilm`, its `route` before the menu dialogs, its `show` |
 | `crates/ui-egui/src/i18n/ko.tsv` | Korean labels of the OverFilm menu items and dialogs (appended) |
 | `crates/engine/src/overfilm_autocut.rs` (+ `tests.rs`) | new file: Auto Cut commands (frames in, cuts out); `dissolve_at` is shared with the reel |
-| `crates/engine/src/overfilm_captions.rs` | new file: styled captions and the Premiere Pro export |
+| `crates/engine/src/overfilm_captions.rs` | new file: styled captions, Premiere styles in, and the Premiere Pro export |

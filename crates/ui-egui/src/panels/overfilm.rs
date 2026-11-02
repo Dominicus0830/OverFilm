@@ -5,6 +5,10 @@
 //!   (all, or one of A1, A2…), video kind, the number of speakers (off, counted, or a number),
 //!   game voice, line length, extra terms.
 //! - **Styled Captions (OverFilm)…** (`overfilm.captions.stylize`): caption track, style, motion.
+//!   **Import Premiere Style…** takes the styles of a Premiere file (`overfilm.captions.importStyle`:
+//!   `.prtextstyle`, `.mogrt`, `.prproj`, Premiere XML); **Save Selected Caption's Look** saves the
+//!   look of the caption selected on the timeline, as changed in Effect Controls, under the name
+//!   typed beside it (`overfilm.captions.styleFromClip`). Either one picks the new style.
 //! - **Auto Cut Waiting and Pauses (OverFilm)…** (`overfilm.autoCut`): template file, time kept
 //!   before the start, mark or cut.
 //! - **Learn Screen Template (OverFilm)…** (`overfilm.screenTemplate.learn`): the Program frame at
@@ -18,7 +22,8 @@
 //!   round one ultimate kill's icon), for ultimate kills on broadcasts that show the feed.
 //!
 //! Automation ids: `overfilm.<dialog>.ok`, `.cancel` and `overfilm.<dialog>.<param>` for each
-//! control (`<dialog>` = captions, style, autoCut, learn); `overfilm.learn.frame` is the picture.
+//! control (`<dialog>` = captions, style, autoCut, learn); `overfilm.learn.frame` is the picture;
+//! `overfilm.style.importPremiere`, `overfilm.style.saveName` and `overfilm.style.saveFromClip`.
 
 use serde_json::{Value, json};
 
@@ -389,6 +394,24 @@ fn import_button(ui: &mut egui::Ui, elems: &mut Elems, pre: &str, d: &mut Draft,
     }
 }
 
+/// The file kinds Import Premiere Style opens.
+fn overfilm_captions_premiere_extensions() -> &'static [&'static str] {
+    &["prtextstyle", "mogrt", "prproj", "xml"]
+}
+
+/// Read the style list again (after an import or a save) and pick a style that is new.
+fn refresh_styles(app: &mut FilmcraftApp, d: &mut Draft) {
+    let Ok(v) = app.session.execute("overfilm.captions.presets", json!({})) else { return };
+    let names =
+        |p: &Value| -> Vec<String> { p.as_array().map(|a| a.iter().filter_map(|x| x["name"].as_str().map(str::to_string)).collect()).unwrap_or_default() };
+    let before = names(&d.info["presets"]);
+    let after = names(&v["presets"]);
+    if let Some(new) = after.iter().find(|n| !before.contains(n)) {
+        d.params["preset"] = json!(new);
+    }
+    d.info["presets"] = v["presets"].clone();
+}
+
 /// Whether the template list has something Auto Cut can cut by.
 fn has_break_templates(info: &Value) -> bool {
     info["list"].as_array().is_some_and(|l| l.iter().any(|t| matches!(t["screen"].as_str(), Some("standby" | "setup" | "pause"))))
@@ -404,13 +427,17 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
         _ => tl!("Learn Screen Template (OverFilm)"),
     };
     let mut elems: Elems = Vec::new();
-    let (mut close, mut apply, mut import) = (false, false, false);
+    let (mut close, mut apply, mut import, mut import_premiere) = (false, false, false, false);
     // an import finished: read the template list again
     if d.params["refresh"].as_bool() == Some(true) && !app.native_dialog_open() {
         d.params["refresh"] = json!(false);
-        let t = d.params["templates"].as_str().filter(|t| !t.is_empty()).map(|t| json!({"templates": t})).unwrap_or(json!({}));
-        if let Ok(v) = app.session.execute("overfilm.screenTemplate.list", t) {
-            d.info = v;
+        if d.command == "overfilm.captions.stylize" {
+            refresh_styles(app, &mut d);
+        } else {
+            let t = d.params["templates"].as_str().filter(|t| !t.is_empty()).map(|t| json!({"templates": t})).unwrap_or(json!({}));
+            if let Ok(v) = app.session.execute("overfilm.screenTemplate.list", t) {
+                d.info = v;
+            }
         }
     }
     egui::Window::new(title)
@@ -497,6 +524,36 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                     ui.weak(tl!(
                         "Each caption becomes a graphic clip on a new video track; fill, outline, position and keyframes stay editable in Effect Controls."
                     ));
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        let r = ui.button(tl!("Import Premiere Style…"));
+                        elems.push((format!("{pre}.importPremiere"), r.rect, "Import Premiere Style…".into()));
+                        if r.clicked() {
+                            import_premiere = true;
+                            d.params["refresh"] = json!(true);
+                        }
+                    });
+                    ui.weak(tl!("A .prtextstyle (Premiere: right-click a caption style ▸ Export Text Style), a .mogrt, a .prproj or a Premiere XML."));
+                    ui.horizontal(|ui| {
+                        let mut name = d.info["saveName"].as_str().unwrap_or_default().to_string();
+                        let t = ui.add(egui::TextEdit::singleline(&mut name).hint_text(tl!("new style name")).desired_width(150.0));
+                        elems.push((format!("{pre}.saveName"), t.rect, name.clone()));
+                        d.info["saveName"] = json!(name);
+                        let b = ui.add_enabled(!name.trim().is_empty(), egui::Button::new(tl!("Save Selected Caption's Look")));
+                        elems.push((format!("{pre}.saveFromClip"), b.rect, "Save Selected Caption's Look".into()));
+                        if b.clicked() {
+                            match app.session.execute("overfilm.captions.styleFromClip", json!({"name": name.trim()})) {
+                                Ok(v) => {
+                                    app.ui.status = tlf!("Saved the caption style \"{name}\"", name = v["name"].as_str().unwrap_or_default());
+                                    d.error.clear();
+                                    d.info["saveName"] = json!("");
+                                    refresh_styles(app, &mut d);
+                                    d.params["preset"] = v["name"].clone();
+                                }
+                                Err(e) => d.error = plain_error(&e.to_string()),
+                            }
+                        }
+                    });
                 }
                 "overfilm.autoCut" => {
                     egui::Grid::new("overfilm-autocut").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
@@ -570,6 +627,24 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
             }
             app.ui.status = match app.session.execute("overfilm.screenTemplate.import", p) {
                 Ok(v) => tlf!("Imported {n} template(s) and {b} player bar(s)", n = v["added"], b = v["bars"]),
+                Err(e) => plain_error(&e.to_string()),
+            };
+        });
+    }
+    if import_premiere {
+        app.pick_ui(crate::native_dialogs::FileDialog::open_file("Premiere", overfilm_captions_premiere_extensions()), move |app, paths| {
+            let Some(path) = paths.into_iter().next() else { return };
+            app.ui.status = match app.session.execute("overfilm.captions.importStyle", json!({"path": path})) {
+                Ok(v) => {
+                    let names: Vec<&str> = v["names"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+                    let missing: Vec<&str> = v["missingFonts"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+                    let mut msg = tlf!("Imported caption style(s): {names}", names = names.join(", "));
+                    if !missing.is_empty() {
+                        msg.push_str(" · ");
+                        msg.push_str(&tlf!("font(s) not installed: {fonts}", fonts = missing.join(", ")));
+                    }
+                    msg
+                }
                 Err(e) => plain_error(&e.to_string()),
             };
         });
