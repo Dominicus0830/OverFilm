@@ -99,6 +99,7 @@ const NEW_IDS: &[&str] = &[
     "rgb_split",
     "volumetric_rays",
     "wonder_glow",
+    "text_light_sweep",
     "long_shadow",
     "brush_strokes",
     "color_emboss",
@@ -1190,4 +1191,24 @@ fn transform_shutter_uses_the_sequence_frame_rate_without_env() {
     for frame in [60, 90, 120] {
         assert!(delta(frame) > 1e-3, "frame {frame} moves but is sharp");
     }
+}
+
+#[test]
+fn light_sweep_lights_a_band_inside_the_alpha_only() {
+    // an opaque grey square on transparency
+    let mut img = Image::new(64, 32);
+    for y in 4..28 {
+        for x in 4..60 {
+            img.px[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4].copy_from_slice(&[0.2, 0.2, 0.2, 1.0]);
+        }
+    }
+    let mut e = inst("text_light_sweep");
+    set(&mut e, "center", ParamValue::Vec2(Vec2::new(20.0, 16.0)));
+    setf(&mut e, "direction", 0.0);
+    setf(&mut e, "width", 6.0);
+    setf(&mut e, "edge_intensity", 0.0);
+    let o = run("text_light_sweep", &e, &img, &cx());
+    assert!(o.get(20, 16)[0] > 0.3, "the band is lit {:?}", o.get(20, 16));
+    assert!(close(o.get(40, 16)[0], 0.2, 1e-4), "away from the band unchanged {:?}", o.get(40, 16));
+    assert_eq!(o.get(20, 1), [0.0; 4], "nothing lands on transparency");
 }
