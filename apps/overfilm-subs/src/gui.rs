@@ -602,7 +602,12 @@ fn main() -> eframe::Result {
             .with_title("OverFilm 자막 추출")
             .with_inner_size([1040.0, 720.0])
             .with_min_inner_size([760.0, 520.0])
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true)
+            // The OverFilm icon (the editor's, `assets/app-icon/`): window, taskbar and Alt-Tab.
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("../../../assets/app-icon/hicolor/256x256/apps/ai.storyteller.filmcraft.png"))
+                    .unwrap_or_default(),
+            ),
         ..Default::default()
     };
     eframe::run_native(
