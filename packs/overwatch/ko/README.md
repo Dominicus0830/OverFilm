@@ -34,6 +34,9 @@ One TSV table per category, all with the columns described in `crates/overfilm-g
 - A `misheard` form ending in `@픽` is an ordinary word that sounds like a hero (`캐슬` for `캣`): it is
   replaced only when a hero-pick word follows (`쓰`, `픽`, `꺼내`, `하면`…), so `캐슬 쓰게 되면` → `캣 쓰게 되면`
   but `모래 캐슬` stays.
+- A `misheard` form ending in `@영웅` is an ordinary word that sounds like a hero nickname (`양이` for
+  `냥이`): it is replaced only right before or after a hero name (`솜브라와 양이 캐서디 연계`, also run
+  together as `양이캐서디`), so `양이 많다` stays.
 - Before `선수`, `감독`, `코치`, player names are matched more loosely: two-syllable names too, one more
   edit, `ㅔ`/`ㅐ` alike and a doubled consonant once (`백기 선수` → `베키 선수`).
 
