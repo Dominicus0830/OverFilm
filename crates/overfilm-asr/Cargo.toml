@@ -13,7 +13,7 @@ workspace = true
 [features]
 default = []
 # The models themselves (candle on the CPU, wgpu on the GPU). Off in wasm builds.
-qwen = ["dep:candle-core", "dep:candle-nn", "dep:wgpu", "dep:pollster", "dep:half", "dep:rayon"]
+qwen = ["dep:candle-core", "dep:candle-nn", "dep:wgpu", "dep:pollster", "dep:half", "dep:rayon", "dep:pulp"]
 # Model downloads over HTTPS (filmcraft-speech's pure-Rust downloader).
 download = ["filmcraft-speech/download"]
 
@@ -25,6 +25,8 @@ wgpu = { version = "30", default-features = false, features = ["wgsl", "vulkan",
 pollster = { version = "1", optional = true }
 half = { version = "2", optional = true }
 rayon = { workspace = true, optional = true }
+# safe SIMD for the 8-bit product (already in the tree through candle's gemm)
+pulp = { version = "0.22", optional = true }
 fancy-regex = "0.14"
 unicode-normalization = "0.1"
 serde = { workspace = true }

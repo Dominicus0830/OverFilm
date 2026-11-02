@@ -170,6 +170,8 @@ mod tests {
         assert_eq!(c.apply("티온이 동커퀸 아이언발드 백기 선수").text, "티원이 정커퀸 아이헨발데 베키 선수");
         // Quick speech (the M1 aichi video at 1.35x): a known word running into the rest of a name.
         assert_eq!(c.apply("솜브라 로더그가 사기였던 제트팩킷").text, "솜브라 로드호그가 사기였던 제트팩 캣");
+        // aichi tier list: "히트박스 패치로 꿀을 빨고 있었던"
+        assert_eq!(c.apply("패치로 꼴을 빨고 있었던").text, "패치로 꿀을 빨고 있었던");
     }
 
     #[test]

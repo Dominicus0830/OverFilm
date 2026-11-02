@@ -59,7 +59,8 @@ cargo run -p overfilm-eval -- --terms terms.txt --json refs/ hyps/
 ## Recognition speed and piece length
 
 `overfilm_asr::transcribe` cuts the sound at quiet points into pieces of at most 60 s
-(`MAX_CHUNK_SECONDS`) and recognises them four at a time (`BATCH`):
+(`MAX_CHUNK_SECONDS`) and recognises them side by side: four at a time on the GPU (`BATCH`),
+eight on the CPU (`CPU_BATCH`):
 
 - **Side by side**: generating text is one decoder pass per token, and that pass is bound by
   reading the 2 GB of 8-bit weights. The pieces of a group share each pass: on the CPU the 8-bit
@@ -70,7 +71,22 @@ cargo run -p overfilm-eval -- --terms terms.txt --json refs/ hyps/
   `mv` kernel reads each weight once for up to four rows (`Text::forward_seqs`). Pieces that do
   not fit in the GPU cache side by side (8192 positions) run in turns. Greedy decoding per piece
   is unchanged: on the GPU the same 65 s gave the same text, character for character, as the CPU.
-- **The CPU cache** grows in place (256 positions at a time) instead of being copied every step.
+- **A CPU decoding step** is bound by memory traffic, not arithmetic: the 2 GB of weights, then
+  each piece's key/value cache (about 1,400 positions × 28 layers). So:
+  - attention is a plain loop over the cache (`DecoderLayer::forward_rows`, parallel over piece ×
+    key/value head; the two query heads of a key/value head read each position once). As
+    separate candle operations (rotary, narrow, slice_set, two small matmuls, softmax) per piece
+    and layer, the set-up cost was half of each step;
+  - the cache is appended in place and kept in 16-bit floats (`Kv`; more precision than the
+    model's own bf16), half the bytes per step;
+  - the 8-bit product (`qmm.rs`) has its own block format (f32 scale + 32 values) and an AVX2
+    kernel through `pulp` (safe SIMD; |w| and sign(x, w), unsigned × signed byte products in
+    pairs, four accumulators); a scalar loop elsewhere;
+  - eight pieces per weight pass on the CPU instead of four: the weights are read once either way,
+    so each token costs less (the caches take about 170 MB per 60-second piece).
+- **The encoder front** (three 3×3 stride-2 convolutions over the mel chunks) gathers the input
+  patches and runs one matrix product per group of chunks (`conv3x3s2`); candle's tiled
+  convolution took 7 s of a 60-second piece's 11 s in the encoder.
 - **Piece length**: the models take up to 3 minutes (the reference toolkit uses 180 s pieces
   when it needs word times). Longer pieces give the recogniser more of the sentence around each
   word and fewer cuts inside one. M1 aichi, CPU, same build:
@@ -87,7 +103,13 @@ cargo run -p overfilm-eval -- --terms terms.txt --json refs/ hyps/
   13.05 % WER, 97 substitutions (before this work: 6.56 %, 14.37 %, 120).
 - **Time** for the 12:45 aichi video on 4 CPU cores (`--speakers 1`, `target-cpu=x86-64-v3`):
   about 38 minutes before (text generation 0.30 s per token, 68 % of the time) → 24.4 minutes
-  (0.16 s per token of each piece). Not timed on a real GPU (the build container has none); there
+  with four pieces side by side (0.16 s per token of each piece) → 18.8 minutes with the cache,
+  attention, product and batch changes above (0.075 s per token: 3161 tokens of eight pieces in
+  237 s). Same video: 6.03 % CER, 12.83 % WER (two spelling rows from it: `꼴을 빨` → `꿀을
+  빨`, and `개월` as a number counter, `육 개월` → `6개월`). Where the time goes now (CPU): model
+  loading about 50 s, encoders about 11 s per minute of sound for the recogniser and 7.5 s for
+  the aligner, prompt prefill about 20 s per piece and the aligner's pass about 14 s per piece
+  (both dense f32 products, bound by arithmetic), text generation about 400 s. Not timed on a real GPU (the build container has none); there
   token passes are bound by memory reads, which the side-by-side pieces share.
 
 ## Speakers and game voice

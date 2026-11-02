@@ -18,6 +18,9 @@ use std::sync::Arc;
 
 use candle_core::{D, DType, Device, Module, Result, Tensor};
 use candle_nn::{Conv2d, Conv2dConfig, Embedding, LayerNorm, Linear, RmsNorm, VarBuilder};
+use half::f16;
+use half::slice::HalfFloatSliceExt;
+use rayon::prelude::*;
 
 use crate::qmm::Q8;
 
@@ -230,9 +233,9 @@ impl AudioFront {
             }
         }
         let x = Tensor::from_vec(buf, (n_chunks, 1, self.n_mels, padded), dev)?.to_dtype(dtype)?;
-        let x = self.conv1.forward(&x)?.gelu_erf()?;
-        let x = self.conv2.forward(&x)?.gelu_erf()?;
-        let x = self.conv3.forward(&x)?.gelu_erf()?;
+        let x = conv3x3s2(&x, &self.conv1)?.gelu_erf()?;
+        let x = conv3x3s2(&x, &self.conv2)?.gelu_erf()?;
+        let x = conv3x3s2(&x, &self.conv3)?.gelu_erf()?;
         let (b, c, f, t) = x.dims4()?;
         let x = x.permute((0, 3, 1, 2))?.contiguous()?.reshape((b, t, c * f))?;
         let x = self.conv_out.forward(&x)?.broadcast_add(&self.pos.narrow(0, 0, t)?.unsqueeze(0)?)?;
@@ -242,6 +245,58 @@ impl AudioFront {
         }
         Ok((Tensor::cat(&rows, 0)?, t * WINDOW_CHUNKS))
     }
+}
+
+/// Input positions gathered per product in [`conv3x3s2`] (bounds the gathered copy: 6400
+/// positions × 480 channels × 9 taps is 110 MB).
+const CONV_POSITIONS: usize = 6400;
+
+/// A 3×3 convolution with stride 2 and padding 1 (the encoder front): `x` (b, cin, h, w) →
+/// (b, cout, ⌈h/2⌉, ⌈w/2⌉). The input patches are gathered into rows and multiplied with the
+/// kernel in one matrix product per group of chunks; candle's own tiled convolution took 7 s of
+/// a 60-second piece's 11 s in the encoder, this takes well under one.
+fn conv3x3s2(x: &Tensor, conv: &Conv2d) -> Result<Tensor> {
+    let (b, cin, h, w) = x.dims4()?;
+    let k = conv.weight();
+    let (cout, kin, kh, kw) = k.dims4()?;
+    if kin != cin || kh != 3 || kw != 3 {
+        candle_core::bail!("conv3x3s2: kernel {:?} for {cin} channels", k.dims());
+    }
+    let half = |l: usize| l.div_ceil(2);
+    let (ho, wo) = (half(h), half(w));
+    let xs = x.to_dtype(DType::F32)?.flatten_all()?.to_vec1::<f32>()?;
+    let km = k.to_dtype(DType::F32)?.reshape((cout, cin * 9))?;
+    let bias = conv.bias().map(|b| b.to_dtype(DType::F32)?.reshape((1, cout, 1))).transpose()?;
+    let per = (ho * wo).max(1);
+    let group = (CONV_POSITIONS / per).max(1);
+    let mut outs = Vec::with_capacity(b.div_ceil(group));
+    for b0 in (0..b).step_by(group) {
+        let nb = group.min(b - b0);
+        // (nb, cin·9, positions): one row per input channel and tap, so the product with the
+        // (cout, cin·9) kernel comes out in the (cout, positions) order the next layer reads
+        let mut cols = vec![0f32; nb * cin * 9 * per];
+        cols.par_chunks_mut(per).enumerate().for_each(|(row, line)| {
+            let (bi, t) = (b0 + row / (cin * 9), row % (cin * 9));
+            let (c, ky, kx) = (t / 9, t % 9 / 3, t % 3);
+            let plane = (bi * cin + c) * h * w;
+            for (oy, out) in line.chunks_mut(wo.max(1)).enumerate() {
+                let Some(iy) = (2 * oy + ky).checked_sub(1).filter(|&v| v < h) else { continue };
+                let Some(src) = xs.get(plane + iy * w..plane + (iy + 1) * w) else { continue };
+                for (ox, d) in out.iter_mut().enumerate() {
+                    if let Some(&v) = (2 * ox + kx).checked_sub(1).and_then(|ix| src.get(ix)) {
+                        *d = v;
+                    }
+                }
+            }
+        });
+        let cols = Tensor::from_vec(cols, (nb, cin * 9, per), x.device())?;
+        let mut y = km.broadcast_matmul(&cols)?;
+        if let Some(bias) = &bias {
+            y = y.broadcast_add(bias)?;
+        }
+        outs.push(y.reshape((nb, cout, ho, wo))?);
+    }
+    Tensor::cat(&outs, 0)?.to_dtype(x.dtype())
 }
 
 pub struct AudioEncoder {
@@ -351,58 +406,120 @@ impl DecoderLayer {
 
 impl DecoderLayer {
     /// One new token for each of several independent sequences: `x` (n, 1, hidden), row `i` at
-    /// position `pos[i]` of its own cache `caches[i]`. The products run on all rows at once (one
-    /// pass over the weights); attention runs per row against that row's cache.
-    fn forward_rows(&self, x: &Tensor, rope: &[(Tensor, Tensor)], lens: &[usize], caches: &mut [Option<(Tensor, Tensor)>]) -> Result<Tensor> {
+    /// position `kvs[i].len()` of its own cache. The products run on all rows at once (one pass
+    /// over the weights); rotary positions and attention are plain loops over the rows' caches,
+    /// in parallel over (row, key/value head): one step needs a handful of small products per row
+    /// and layer, and as separate tensor operations their set-up cost was half of each step.
+    fn forward_rows(&self, x: &Tensor, inv_freq: &[f32], kvs: &mut [&mut Kv]) -> Result<Tensor> {
         let (n, t, _) = x.dims3()?;
-        if t != 1 || rope.len() != n || caches.len() != n || lens.len() != n {
-            candle_core::bail!("batched step: {n} rows, {} positions, {} caches", rope.len(), caches.len());
+        if t != 1 || kvs.len() != n {
+            candle_core::bail!("batched step: {n} rows, {} caches", kvs.len());
         }
+        let dh = self.head_dim;
+        let (heads, kvh) = (self.heads, self.kv_heads.max(1));
         let h = self.ln1.forward(x)?;
-        let shape = |y: Tensor, k: usize| y.reshape((n, 1, k, self.head_dim));
-        let q = self.q_norm.forward(&shape(self.q.forward(&h)?, self.heads)?)?.transpose(1, 2)?.contiguous()?;
-        let k = self.k_norm.forward(&shape(self.k.forward(&h)?, self.kv_heads)?)?.transpose(1, 2)?.contiguous()?;
-        let v = shape(self.v.forward(&h)?, self.kv_heads)?.transpose(1, 2)?.contiguous()?;
-        let rep = self.heads / self.kv_heads.max(1);
-        let scale = (self.head_dim as f64).powf(-0.5);
-        let mut outs = Vec::with_capacity(n);
-        for (i, (((cos, sin), cache), &len)) in rope.iter().zip(caches.iter_mut()).zip(lens).enumerate() {
-            let qi = candle_nn::rotary_emb::rope(&q.narrow(0, i, 1)?.contiguous()?, cos, sin)?;
-            let ki = candle_nn::rotary_emb::rope(&k.narrow(0, i, 1)?.contiguous()?, cos, sin)?;
-            let vi = v.narrow(0, i, 1)?.contiguous()?;
-            // the cache is a buffer with room to spare: the new position is written in place
-            // instead of copying the whole cache every step
-            let (kb, vb) = match cache.take() {
-                Some((pk, pv)) if pk.dim(2)? > len => (pk, pv),
-                Some((pk, pv)) => {
-                    let (_, kvh, have, dh) = pk.dims4()?;
-                    let room = have.max(len) + CACHE_GROW;
-                    let kb = Tensor::zeros((1, kvh, room, dh), pk.dtype(), pk.device())?;
-                    let vb = Tensor::zeros((1, kvh, room, dh), pv.dtype(), pv.device())?;
-                    kb.slice_set(&pk.narrow(2, 0, len.min(have))?.contiguous()?, 2, 0)?;
-                    vb.slice_set(&pv.narrow(2, 0, len.min(have))?.contiguous()?, 2, 0)?;
-                    (kb, vb)
-                }
-                None => {
-                    let shape = (1, self.kv_heads, len + CACHE_GROW, self.head_dim);
-                    (Tensor::zeros(shape, ki.dtype(), ki.device())?, Tensor::zeros(shape, vi.dtype(), vi.device())?)
-                }
-            };
-            kb.slice_set(&ki, 2, len)?;
-            vb.slice_set(&vi, 2, len)?;
-            let (kc, vc) = (kb.narrow(2, 0, len + 1)?, vb.narrow(2, 0, len + 1)?);
-            // grouped-query attention without copying the cache per query head: the `rep` query
-            // heads of one key/value head become `rep` query rows of it
-            let qg = qi.reshape((1, self.kv_heads, rep, self.head_dim))?;
-            let o = attend(&qg, &kc, &vc, scale, None)?;
-            outs.push(o.reshape((1, 1, self.heads * self.head_dim))?);
-            *cache = Some((kb, vb));
+        let shape = |y: Tensor, k: usize| y.reshape((n, 1, k, dh));
+        let flat = |y: Tensor| -> Result<Vec<f32>> { y.flatten_all()?.to_dtype(DType::F32)?.to_vec1::<f32>() };
+        let mut q = flat(self.q_norm.forward(&shape(self.q.forward(&h)?, heads)?)?)?;
+        let mut k = flat(self.k_norm.forward(&shape(self.k.forward(&h)?, kvh)?)?)?;
+        let v = flat(shape(self.v.forward(&h)?, kvh)?)?;
+        let (qw, kw) = (heads * dh, kvh * dh);
+        if q.len() != n * qw || k.len() != n * kw || v.len() != n * kw {
+            candle_core::bail!("batched step: projection sizes");
         }
-        let o = Tensor::cat(&outs, 0)?;
+        for (r, kv) in kvs.iter_mut().enumerate() {
+            let pos = kv.len(kw);
+            if let Some(qr) = q.get_mut(r * qw..(r + 1) * qw) {
+                rope_rows(qr, dh, pos, inv_freq);
+            }
+            if let Some(kr) = k.get_mut(r * kw..(r + 1) * kw) {
+                rope_rows(kr, dh, pos, inv_freq);
+                kv.k.extend(kr.iter().map(|&x| f16::from_f32(x)));
+            }
+            if let Some(vr) = v.get(r * kw..(r + 1) * kw) {
+                kv.v.extend(vr.iter().map(|&x| f16::from_f32(x)));
+            }
+        }
+        let rep = heads / kvh;
+        let scale = (dh as f32).powf(-0.5);
+        let mut out = vec![0f32; n * qw];
+        let kvs: Vec<&Kv> = kvs.iter().map(|k| &**k).collect();
+        out.par_chunks_mut(rep * dh).enumerate().for_each(|(task, o)| {
+            let (r, g) = (task / kvh, task % kvh);
+            let (Some(kv), Some(qr)) = (kvs.get(r), q.get(r * qw..(r + 1) * qw)) else { return };
+            let len = kv.len(kw);
+            // the `rep` query heads of this key/value head read each cached position once
+            let Some(qg) = qr.get(g * rep * dh..(g + 1) * rep * dh) else { return };
+            let mut w = vec![0f32; rep * len];
+            let mut buf = vec![0f32; dh];
+            for p in 0..len {
+                let at = p * kw + g * dh;
+                // (always dh long: the cache holds len whole positions)
+                let Some(kp) = kv.k.get(at..at + dh) else { continue };
+                kp.convert_to_f32_slice(&mut buf);
+                for (j, qh) in qg.chunks_exact(dh).enumerate() {
+                    if let Some(wp) = w.get_mut(j * len + p) {
+                        *wp = dot(qh, &buf) * scale;
+                    }
+                }
+            }
+            for wj in w.chunks_mut(len.max(1)) {
+                let top = wj.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                let mut sum = 0f32;
+                for wp in wj.iter_mut() {
+                    *wp = (*wp - top).exp();
+                    sum += *wp;
+                }
+                let inv = if sum > 0.0 { 1.0 / sum } else { 0.0 };
+                for wp in wj.iter_mut() {
+                    *wp *= inv;
+                }
+            }
+            for p in 0..len {
+                let at = p * kw + g * dh;
+                let Some(vp) = kv.v.get(at..at + dh) else { continue };
+                vp.convert_to_f32_slice(&mut buf);
+                for (j, oh) in o.chunks_mut(dh).enumerate() {
+                    let c = w.get(j * len + p).copied().unwrap_or(0.0);
+                    for (a, b) in oh.iter_mut().zip(&buf) {
+                        *a += c * b;
+                    }
+                }
+            }
+        });
+        let o = Tensor::from_vec(out, (n, 1, qw), x.device())?.to_dtype(x.dtype())?;
         let x = (x + self.o.forward(&o)?)?;
         let h = self.ln2.forward(&x)?;
         let m = self.down.forward(&(self.gate.forward(&h)?.silu()? * self.up.forward(&h)?)?)?;
         x + m
+    }
+}
+
+/// Dot product in eight running sums, so it vectorises (a single running sum must add in order).
+fn dot(a: &[f32], b: &[f32]) -> f32 {
+    let mut s = [0f32; 8];
+    let (a8, b8) = (a.chunks_exact(8), b.chunks_exact(8));
+    let tail: f32 = a8.remainder().iter().zip(b8.remainder()).map(|(x, y)| x * y).sum();
+    for (x, y) in a8.zip(b8) {
+        for ((s, x), y) in s.iter_mut().zip(x).zip(y) {
+            *s += x * y;
+        }
+    }
+    s.iter().sum::<f32>() + tail
+}
+
+/// Rotary positions (the rotate-half form of [`candle_nn::rotary_emb::rope`]) on one row of
+/// heads `x` (heads · dh) at position `pos`.
+fn rope_rows(x: &mut [f32], dh: usize, pos: usize, inv_freq: &[f32]) {
+    let half = dh / 2;
+    for head in x.chunks_mut(dh) {
+        let (a, b) = head.split_at_mut(half.min(head.len()));
+        for ((x1, x2), w) in a.iter_mut().zip(b.iter_mut()).zip(inv_freq) {
+            let (sin, cos) = (pos as f32 * w).sin_cos();
+            let (u, v) = (*x1, *x2);
+            *x1 = u * cos - v * sin;
+            *x2 = v * cos + u * sin;
+        }
     }
 }
 
@@ -458,14 +575,34 @@ impl DecoderLayer {
     }
 }
 
-/// Positions added to a sequence's key/value buffer when it is full.
-const CACHE_GROW: usize = 256;
+/// One layer's keys and values for [`TextModel::forward_rows`], position after position
+/// (`[pos][kv head][head dim]`), so a new token is appended in place. Kept in 16-bit floats
+/// (more precision than the model's own bf16): reading them is most of a decoding step's
+/// attention time, so half the bytes is half that time.
+#[derive(Clone, Default)]
+pub struct Kv {
+    k: Vec<f16>,
+    v: Vec<f16>,
+}
+
+impl Kv {
+    /// From a cache tensor pair (1, kv heads, positions, head dim).
+    fn from_tensors(k: &Tensor, v: &Tensor) -> Result<Self> {
+        let flat = |t: &Tensor| -> Result<Vec<f16>> { t.transpose(1, 2)?.contiguous()?.flatten_all()?.to_dtype(DType::F16)?.to_vec1::<f16>() };
+        Ok(Self { k: flat(k)?, v: flat(v)? })
+    }
+
+    /// Positions held, for rows of `width` (kv heads · head dim) values.
+    fn len(&self, width: usize) -> usize {
+        self.k.len() / width.max(1)
+    }
+}
 
 /// One sequence's key/value cache for [`TextModel::forward_rows`]: per layer the keys and values
-/// of positions `0 .. pos` (the buffers may be longer; the rest is room for the next tokens).
+/// of positions `0 .. pos`.
 #[derive(Clone, Default)]
 pub struct SeqCache {
-    pub layers: Vec<Option<(Tensor, Tensor)>>,
+    pub layers: Vec<Kv>,
     pub pos: usize,
 }
 
@@ -556,17 +693,15 @@ impl TextModel {
         let dtype = xs.first().map_or(DType::F32, Tensor::dtype);
         let dev = xs.first().map_or(Device::Cpu, |x| x.device().clone());
         let rope = segs.iter().map(|&(_, n)| self.rope(prefix, n, dtype, &dev)).collect::<Result<Vec<_>>>()?;
-        let mut seqs: Vec<SeqCache> = segs.iter().map(|_| SeqCache { layers: self.layers.iter().map(|l| l.cache.clone()).collect(), pos: prefix }).collect();
+        let mut seqs: Vec<SeqCache> = segs.iter().map(|_| SeqCache { layers: Vec::with_capacity(self.layers.len()), pos: prefix }).collect();
         let mut h = Tensor::cat(xs, 0)?.unsqueeze(0)?;
-        for (li, l) in self.layers.iter().enumerate() {
-            let mut caches: Vec<Option<(Tensor, Tensor)>> = seqs.iter_mut().map(|s| s.layers.get_mut(li).and_then(Option::take)).collect();
-            let r = l.forward_segments(&h, &segs, &rope, &mut caches);
+        for l in &self.layers {
+            let mut caches: Vec<Option<(Tensor, Tensor)>> = segs.iter().map(|_| l.cache.clone()).collect();
+            h = l.forward_segments(&h, &segs, &rope, &mut caches)?;
             for (s, c) in seqs.iter_mut().zip(caches) {
-                if let Some(slot) = s.layers.get_mut(li) {
-                    *slot = c;
-                }
+                let Some((k, v)) = c else { candle_core::bail!("prefill left no cache") };
+                s.layers.push(Kv::from_tensors(&k, &v)?);
             }
-            h = r?;
         }
         let mut lasts = Vec::with_capacity(segs.len());
         for (s, &(start, n)) in seqs.iter_mut().zip(&segs) {
@@ -584,18 +719,13 @@ impl TextModel {
         if seqs.len() != n {
             candle_core::bail!("{n} rows for {} sequences", seqs.len());
         }
-        let rope = seqs.iter().map(|s| self.rope(s.pos, 1, x.dtype(), x.device())).collect::<Result<Vec<_>>>()?;
-        let lens: Vec<usize> = seqs.iter().map(|s| s.pos).collect();
         let mut h = x.unsqueeze(1)?;
         for (li, l) in self.layers.iter().enumerate() {
-            let mut caches: Vec<Option<(Tensor, Tensor)>> = seqs.iter_mut().map(|s| s.layers.get_mut(li).and_then(Option::take)).collect();
-            let r = l.forward_rows(&h, &rope, &lens, &mut caches);
-            for (s, c) in seqs.iter_mut().zip(caches) {
-                if let Some(slot) = s.layers.get_mut(li) {
-                    *slot = c;
-                }
+            let mut kvs: Vec<&mut Kv> = seqs.iter_mut().filter_map(|s| s.layers.get_mut(li)).collect();
+            if kvs.len() != n {
+                candle_core::bail!("a sequence cache is missing layer {li}");
             }
-            h = r?;
+            h = l.forward_rows(&h, &self.inv_freq, &mut kvs)?;
         }
         for s in seqs.iter_mut() {
             s.pos += 1;
@@ -685,5 +815,24 @@ mod tests {
             assert_eq!(audio_tokens(n), reference(n), "{n}");
         }
         assert_eq!(conv_out_len(128), 16);
+    }
+
+    #[test]
+    fn front_convolution_matches_candle() {
+        let dev = Device::Cpu;
+        let val = |n: usize, seed: usize| -> Vec<f32> { (0..n).map(|i| (((i + seed) * 7919 % 211) as f32 - 105.0) / 70.0).collect() };
+        // odd sizes, more chunks than one gathered group holds
+        for (b, cin, h, w, cout) in [(3usize, 1usize, 9usize, 7usize, 5usize), (2, 4, 6, 11, 3), (CONV_POSITIONS / 12 + 2, 2, 5, 5, 2)] {
+            let x = Tensor::from_vec(val(b * cin * h * w, 1), (b, cin, h, w), &dev).unwrap();
+            let k = Tensor::from_vec(val(cout * cin * 9, 2), (cout, cin, 3, 3), &dev).unwrap();
+            let bias = Tensor::from_vec(val(cout, 3), cout, &dev).unwrap();
+            let conv = Conv2d::new(k, Some(bias), Conv2dConfig { padding: 1, stride: 2, ..Default::default() });
+            let want = conv.forward(&x).unwrap();
+            let got = conv3x3s2(&x, &conv).unwrap();
+            assert_eq!(got.dims(), want.dims());
+            let (g, wv) = (got.flatten_all().unwrap().to_vec1::<f32>().unwrap(), want.flatten_all().unwrap().to_vec1::<f32>().unwrap());
+            let err = g.iter().zip(&wv).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+            assert!(err < 1e-4, "{b}×{cin}×{h}×{w}: {err}");
+        }
     }
 }

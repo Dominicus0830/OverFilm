@@ -4776,6 +4776,7 @@ dependencies = [
  "filmcraft-speech",
  "half",
  "pollster 1.0.1",
+ "pulp",
  "rayon",
  "serde",
  "serde_json",
