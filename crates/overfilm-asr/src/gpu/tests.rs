@@ -387,6 +387,22 @@ fn encoder_matches() {
     let vb = VarBuilder::from_tensors(map, DType::F32, &dev).pp("thinker.audio_tower");
     let cpu = AudioEncoder::new(&ac, vb.clone()).unwrap();
     let front = AudioFront::new(&ac, vb).unwrap();
+    // the front's convolutions on the GPU, in one pass and in passes of a few chunks
+    for cap in [u64::MAX, 200_000] {
+        let gf = front::Front::with_cap(&c, &front.weights().unwrap(), cap).unwrap();
+        for frames in [37, 1250, 10_000] {
+            let mel = rng.vec(16 * frames, 1.0);
+            let (want, _) = front.forward(&mel, frames, DType::F32, &dev).unwrap();
+            let m = front.chunks(&mel, frames).unwrap();
+            let v = gf.forward(&m).unwrap();
+            let t = model::conv_out_len(m.width);
+            let x = Tensor::from_vec(v, (m.n, t, 64), &dev).unwrap();
+            let (got, _) = front.finish(&x, &m.lens).unwrap();
+            assert_eq!(got.dims(), want.dims());
+            let (g, w) = (got.flatten_all().unwrap().to_vec1::<f32>().unwrap(), want.flatten_all().unwrap().to_vec1::<f32>().unwrap());
+            assert!(max_rel(&g, &w) < 1e-2, "front, {frames} frames, cap {cap}: {}", max_rel(&g, &w));
+        }
+    }
     let mut st = Store::new(Fmt::F16);
     for (n, s, d) in data.iter().filter(|(n, ..)| !n.contains(".conv")) {
         st.add(&c, n, s, d.clone()).unwrap();

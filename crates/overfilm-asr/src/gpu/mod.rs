@@ -20,6 +20,7 @@ use wgpu::util::DeviceExt;
 
 use crate::AsrError;
 
+pub mod front;
 pub mod speaker;
 
 const MATMUL: &str = include_str!("matmul.wgsl");
@@ -31,6 +32,7 @@ const ATTN: &str = include_str!("attn.wgsl");
 const EW: &str = include_str!("ew.wgsl");
 const ARGMAX: &str = include_str!("argmax.wgsl");
 const CONV: &str = include_str!("conv.wgsl");
+const GATHER: &str = include_str!("gather.wgsl");
 
 /// Rows up to which a product runs as matrix × vector (`mv` in `matmul.wgsl`).
 const MV_ROWS: usize = 4;
@@ -81,6 +83,7 @@ struct Kernels {
     ew: Kernel,
     argmax: Kernel,
     conv: Kernel,
+    gather: Kernel,
 }
 
 fn layout(device: &wgpu::Device, kinds: &[B]) -> wgpu::BindGroupLayout {
@@ -199,6 +202,7 @@ impl Ctx {
             ew: kernel(&device, EW, "main", &layout(&device, &[B::U, B::U, B::R, B::W])),
             argmax: kernel(&device, ARGMAX, "main", &layout(&device, &[B::U, B::U, B::R, B::W])),
             conv: kernel(&device, CONV, "main", &layout(&device, &[B::U, B::R, B::R, B::R, B::R, B::W])),
+            gather: kernel(&device, GATHER, "main", &layout(&device, &[B::U, B::R, B::W])),
         };
         if let Some(Some(e)) = poll_now(scope.pop()) {
             return Err(gpu_err(format!("shaders: {e}")));

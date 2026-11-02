@@ -87,6 +87,12 @@ eight on the CPU (`CPU_BATCH`):
 - **The encoder front** (three 3×3 stride-2 convolutions over the mel chunks) gathers the input
   patches and runs one matrix product per group of chunks (`conv3x3s2`); candle's tiled
   convolution took 7 s of a 60-second piece's 11 s in the encoder.
+  On the GPU the same products run there (`gpu/front.rs`: `gather.wgsl` lays out the patches,
+  applying the previous convolution's GELU as it reads, then the encoder's 16-bit product
+  kernels), in passes of at most 256 MB of patches; only the positions and the per-chunk
+  trimming stay on the CPU. Before, GPU mode still spent about 4 s of CPU time per 60-second
+  piece here. `OVERFILM_GPU_FRONT=cpu` keeps the front on the CPU. `gpu-check` compares the
+  whole encoder, front included, against the CPU.
 - **Element-wise work on all cores**: candle runs element-wise operations on one thread. gelu
   (encoder), silu · up (decoder MLP) and the attention scores' scale, mask and softmax are one
   parallel pass each (`gelu`, `silu_mul`, `scaled_softmax`), and grouped-query attention

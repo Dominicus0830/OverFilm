@@ -304,6 +304,20 @@ impl AudioFront {
     /// `mel`: `n_mels × frames` row-major. Returns (audio_tokens(frames), d_model) and the
     /// attention window in rows.
     pub fn forward(&self, mel: &[f32], frames: usize, dtype: DType, dev: &Device) -> Result<(Tensor, usize)> {
+        let chunks = self.chunks(mel, frames)?;
+        let x = Tensor::from_vec(chunks.buf.clone(), (chunks.n, 1, self.n_mels, chunks.width), dev)?.to_dtype(dtype)?;
+        let x = gelu(&conv3x3s2(&x, &self.conv1)?)?;
+        let x = gelu(&conv3x3s2(&x, &self.conv2)?)?;
+        let x = gelu(&conv3x3s2(&x, &self.conv3)?)?;
+        let (b, c, f, t) = x.dims4()?;
+        let x = x.permute((0, 3, 1, 2))?.contiguous()?.reshape((b, t, c * f))?;
+        let x = self.conv_out.forward(&x)?;
+        self.finish(&x, &chunks.lens)
+    }
+
+    /// The mel spectrogram cut into chunks of [`CHUNK`] frames (the last one padded with zeros
+    /// when there are several).
+    pub fn chunks(&self, mel: &[f32], frames: usize) -> Result<MelChunks> {
         if frames == 0 || mel.len() != self.n_mels * frames {
             return Err(candle_core::Error::Msg(format!("mel has {} values for {frames} frames", mel.len())));
         }
@@ -323,19 +337,57 @@ impl AudioFront {
                 }
             }
         }
-        let x = Tensor::from_vec(buf, (n_chunks, 1, self.n_mels, padded), dev)?.to_dtype(dtype)?;
-        let x = gelu(&conv3x3s2(&x, &self.conv1)?)?;
-        let x = gelu(&conv3x3s2(&x, &self.conv2)?)?;
-        let x = gelu(&conv3x3s2(&x, &self.conv3)?)?;
-        let (b, c, f, t) = x.dims4()?;
-        let x = x.permute((0, 3, 1, 2))?.contiguous()?.reshape((b, t, c * f))?;
-        let x = self.conv_out.forward(&x)?.broadcast_add(&self.pos.narrow(0, 0, t)?.unsqueeze(0)?)?;
-        let mut rows = Vec::with_capacity(n_chunks);
+        Ok(MelChunks { buf, n: n_chunks, width: padded, lens })
+    }
+
+    /// After `conv_out` (`x`: (chunks, t, d_model)): add the positions and keep each chunk's
+    /// real rows (`lens`: frames per chunk). Returns the rows and the attention window.
+    pub fn finish(&self, x: &Tensor, lens: &[usize]) -> Result<(Tensor, usize)> {
+        let (_, t, _) = x.dims3()?;
+        let x = x.broadcast_add(&self.pos.narrow(0, 0, t)?.unsqueeze(0)?.to_dtype(x.dtype())?)?;
+        let mut rows = Vec::with_capacity(lens.len());
         for (i, &len) in lens.iter().enumerate() {
             rows.push(x.get(i)?.narrow(0, 0, conv_out_len(len).min(t))?);
         }
         Ok((Tensor::cat(&rows, 0)?, t * WINDOW_CHUNKS))
     }
+
+    /// The front's weights as plain arrays for the GPU: the three convolutions (weight
+    /// `(cout, cin·9)`, bias) and `conv_out` `(d_model, channels · frequencies)`.
+    pub fn weights(&self) -> Result<FrontWeights> {
+        let flat = |t: &Tensor| -> Result<Vec<f32>> { t.to_dtype(DType::F32)?.flatten_all()?.to_vec1::<f32>() };
+        let conv = |c: &Conv2d| -> Result<(Vec<f32>, Vec<f32>, usize, usize)> {
+            let (cout, cin, _, _) = c.weight().dims4()?;
+            let b = c.bias().map(flat).transpose()?.unwrap_or_else(|| vec![0.0; cout]);
+            Ok((flat(c.weight())?, b, cout, cin))
+        };
+        let (d, k) = self.conv_out.weight().dims2()?;
+        Ok(FrontWeights {
+            convs: [conv(&self.conv1)?, conv(&self.conv2)?, conv(&self.conv3)?],
+            out: flat(self.conv_out.weight())?,
+            d_model: d,
+            out_in: k,
+            n_mels: self.n_mels,
+        })
+    }
+}
+
+/// See [`AudioFront::chunks`]: `(n, 1, n_mels, width)` row-major.
+pub struct MelChunks {
+    pub buf: Vec<f32>,
+    pub n: usize,
+    pub width: usize,
+    /// real frames per chunk
+    pub lens: Vec<usize>,
+}
+
+/// See [`AudioFront::weights`]. `convs`: (weight, bias, cout, cin) each.
+pub struct FrontWeights {
+    pub convs: [(Vec<f32>, Vec<f32>, usize, usize); 3],
+    pub out: Vec<f32>,
+    pub d_model: usize,
+    pub out_in: usize,
+    pub n_mels: usize,
 }
 
 /// Input positions gathered per product in [`conv3x3s2`] (bounds the gathered copy: 6400

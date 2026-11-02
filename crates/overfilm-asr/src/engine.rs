@@ -50,6 +50,8 @@ enum Net {
 
 struct GpuNet {
     front: AudioFront,
+    /// the front's convolutions on the GPU (`None`: on the CPU, `OVERFILM_GPU_FRONT=cpu`)
+    gfront: Option<gpu::front::Front>,
     embed: Embedding,
     enc: gpu::Encoder,
     text: gpu::Text,
@@ -84,7 +86,17 @@ impl Net {
         match self {
             Net::Cpu(th) => Ok(th.audio.forward(&mel, frames, th.dtype, &th.dev)?),
             Net::Gpu(g) => {
-                let (h, _) = g.front.forward(&mel, frames, DType::F32, &Device::Cpu)?;
+                let h = match &g.gfront {
+                    Some(f) => {
+                        let m = g.front.chunks(&mel, frames)?;
+                        let v = f.forward(&m)?;
+                        let t = model::conv_out_len(m.width);
+                        let d = v.len() / (m.n * t).max(1);
+                        let x = Tensor::from_vec(v, (m.n, t, d), &Device::Cpu)?;
+                        g.front.finish(&x, &m.lens)?.0
+                    }
+                    None => g.front.forward(&mel, frames, DType::F32, &Device::Cpu)?.0,
+                };
                 let n = h.dim(0)?;
                 let out = g.enc.forward(&h.flatten_all()?.to_vec1::<f32>()?)?;
                 let cols = out.len() / n.max(1);
@@ -309,6 +321,7 @@ fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Res
     }
     let vb = VarBuilder::from_tensors(cpu, DType::F32, &dev);
     let front = AudioFront::new(ac, vb.pp("thinker.audio_tower"))?;
+    let gfront = if std::env::var("OVERFILM_GPU_FRONT").is_ok_and(|v| v == "cpu") { None } else { Some(gpu::front::Front::new(ctx, &front.weights()?)?) };
     let embed = candle_nn::embedding(tc.vocab_size, tc.hidden_size, vb.pp("thinker.model.embed_tokens"))?;
     let e = gpu::EncDims {
         d: ac.d_model,
@@ -331,7 +344,7 @@ fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Res
         head_rows,
     };
     let text = gpu::Text::new(ctx, d, &mut st, "thinker")?;
-    Ok(GpuNet { front, embed, enc, text })
+    Ok(GpuNet { front, gfront, embed, enc, text })
 }
 
 fn special(tok: &Tokenizer, s: &str) -> Result<u32, AsrError> {
