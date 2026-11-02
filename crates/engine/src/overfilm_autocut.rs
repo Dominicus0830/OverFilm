@@ -176,6 +176,13 @@ fn rects_p(p: &Value, k: &str, cmd: &str) -> Result<Vec<NRect>> {
 
 /// The frame at sequence time `t` of `clip` (or of the topmost video clip there), as analysis luma.
 pub(crate) fn frame_at(s: &Session, clip: Option<ClipId>, t: Tick) -> Result<Luma> {
+    let (rgba, w, h) = rgba_at(s, clip, t, WIDTH)?;
+    Luma::from_rgba(&rgba, w, h, WIDTH).ok_or_else(|| EngineError::Other("empty frame".into()))
+}
+
+/// The frame at sequence time `t` of `clip` (or of the topmost video clip there) as RGBA, decoded
+/// at most `max_width` wide: (pixels, width, height).
+pub(crate) fn rgba_at(s: &Session, clip: Option<ClipId>, t: Tick, max_width: usize) -> Result<(Vec<u8>, usize, usize)> {
     let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
     let it = match clip {
         Some(c) => q.find_item(c).map(|(_, it)| it).ok_or_else(|| EngineError::Other(format!("no clip {}", c.0)))?,
@@ -189,11 +196,11 @@ pub(crate) fn frame_at(s: &Session, clip: Option<ClipId>, t: Tick) -> Result<Lum
     };
     let src = s.source(it.item).ok_or_else(|| EngineError::Other("the clip has no media".into()))?;
     let v = src.info().video.clone().ok_or_else(|| EngineError::Other("the clip has no video".into()))?;
-    let scale = (WIDTH as f64 / v.width.max(1) as f64).min(1.0) as f32;
+    let scale = (max_width as f64 / v.width.max(1) as f64).min(1.0) as f32;
     let f = src
         .video_frame(filmcraft_media::FrameRequest { time: it.source_time_at(t.clamp(it.start, it.end())), scale })
         .map_err(|e| EngineError::Other(format!("can't decode the frame: {e}")))?;
-    Luma::from_rgba(&f.to_rgba8(), f.width as usize, f.height as usize, WIDTH).ok_or_else(|| EngineError::Other("empty frame".into()))
+    Ok((f.to_rgba8(), f.width as usize, f.height as usize))
 }
 
 fn learn(s: &mut Session, p: &Value) -> Result<Value> {

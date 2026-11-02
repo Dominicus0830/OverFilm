@@ -72,3 +72,51 @@ fn deaths_close_together_are_a_fight() {
     assert_eq!(f, vec![Fight { start: 0, end: 9_000, dead: [1, 2] }, Fight { start: 60_000, end: 61_000, dead: [0, 2] }]);
     assert!(fights(&[], 10_000, 2).is_empty());
 }
+
+/// The strip under team 1's plates (100×10): white health segments under each plate, or a red
+/// cross under the `crossed` ones, over a dark game.
+fn strip(crossed: &[u8], segments: bool) -> Rgb {
+    let (w, h) = (100usize, 10usize);
+    let mut px = [40u8, 30, 30].repeat(w * h);
+    for k in 0..5u8 {
+        let x0 = k as usize * 20;
+        for y in 2..8 {
+            for x in x0 + 3..x0 + 17 {
+                let c = if crossed.contains(&(k + 1)) {
+                    // the cross: two red diagonals in the plate's middle
+                    let (cx, cy) = (x as i32 - (x0 as i32 + 10), y as i32 - 5);
+                    ((cx - cy).abs() <= 1 || (cx + cy).abs() <= 1).then_some([220, 40, 50])
+                } else {
+                    (segments && x % 3 != 0 && (3..6).contains(&y)).then_some([240, 240, 240])
+                };
+                if let Some(c) = c {
+                    let i = (y * w + x) * 3;
+                    px[i..i + 3].copy_from_slice(&c);
+                }
+            }
+        }
+    }
+    Rgb::from_rgb(px, w, h).unwrap()
+}
+
+#[test]
+fn a_dark_plate_over_health_is_a_hero_change() {
+    let b = bars();
+    assert_eq!(b[0].health(&strip(&[3], true)), [true, true, false, true, true]);
+    // nothing under the plates (no segments): a dark plate stays a death
+    assert_eq!(b[0].health(&strip(&[], false)), [false; 5]);
+    let mut t = DeathTracker::new(b.clone(), 2, 0);
+    // 1-2 changes hero (dark plate, segments under it), 1-3 dies (dark plate, cross)
+    for at in 0..3 {
+        let health = vec![b[0].health(&strip(&[3], true)), Vec::new()];
+        t.push_with(at, &frame(&[(1, 2), (1, 3)]), true, &health);
+    }
+    assert_eq!(t.into_deaths(), vec![Death { at: 0, team: 1, player: 3 }]);
+    // nothing to tell them apart (no strip): both read dead, as before
+    let mut t = DeathTracker::new(b, 2, 0);
+    for at in 0..3 {
+        t.push(at, &frame(&[(1, 2), (1, 3)]), true);
+    }
+    assert_eq!(t.into_deaths().len(), 2);
+    assert_eq!(bars()[0].health(&Rgb::from_rgb(vec![0; 3], 1, 1).unwrap()).len(), 5, "a tiny strip reads nothing, never fails");
+}

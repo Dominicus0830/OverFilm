@@ -11,7 +11,7 @@
 use std::io::Read;
 
 use filmcraft_time::{TICKS_PER_SECOND, Tick};
-use overfilm_vision::{DeathTracker, Luma, NRect, TemplateSet, UltIcon, UltTracker, ults};
+use overfilm_vision::{DeathTracker, Luma, NRect, Rgb, TemplateSet, UltIcon, UltTracker, ults};
 
 fn clock(ms: i64) -> String {
     overfilm_vision::plan::clock(Tick(ms.saturating_mul(TICKS_PER_SECOND / 1000)))
@@ -77,6 +77,8 @@ fn main() {
             let start: f64 = get(6).parse().unwrap_or(0.0);
             let confirm = (fps / 2.0).ceil().max(2.0) as u8;
             let mut deaths = DeathTracker::new(set.bars.clone(), confirm, 8_000);
+            // without looking under the plates: what a hero change used to count as a death
+            let mut plain = DeathTracker::new(set.bars.clone(), confirm, 8_000);
             let mut uses = UltTracker::new(set.bars.clone(), confirm);
             let has_live = set.templates.iter().any(|t| t.screen == overfilm_vision::Screen::Live);
             let mut buf = vec![0u8; w * h * 4];
@@ -86,12 +88,35 @@ fn main() {
                 let at = ((start + k as f64 / fps) * 1000.0) as i64;
                 if let Some(f) = Luma::from_rgba(&buf, w, h, w) {
                     let live = !has_live || set.live(&f);
-                    deaths.push(at, &f, live);
+                    let health: Vec<Vec<bool>> =
+                        set.bars.iter().map(|b| Rgb::crop_rgba(&buf, w, h, b.under_rect(), 1024).map(|r| b.health(&r)).unwrap_or_default()).collect();
+                    if std::env::var_os("PLATE_TRACE").is_some() {
+                        // PLATE_TRACE=1: per sample, d = dark plate, h = health segments under it
+                        let line: Vec<String> = set
+                            .bars
+                            .iter()
+                            .zip(&health)
+                            .map(|(b, hl)| {
+                                b.dead(&f)
+                                    .iter()
+                                    .zip(hl)
+                                    .map(|(d, h)| format!("{}{}", if *d { 'd' } else { '.' }, if *h { 'h' } else { '.' }))
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                            })
+                            .collect();
+                        eprintln!("{} {}", clock(at), line.join(" | "));
+                    }
+                    deaths.push_with(at, &f, live, &health);
+                    plain.push(at, &f, live);
                     uses.push(at, &f, live);
                 }
                 k += 1;
             }
             let d = deaths.into_deaths();
+            for x in plain.into_deaths().iter().filter(|p| !d.iter().any(|q| q.team == p.team && q.player == p.player && (q.at - p.at).abs() <= 1_000)) {
+                println!("SWAP {} {}팀 {}번 (dark plate over health: not a death)", clock(x.at), x.team, x.player);
+            }
             let u = ults::without_deaths(&uses.into_uses(), &d, 1_500);
             for x in &u {
                 println!("ULT  {} {}팀 {}번", clock(x.at), x.team, x.player);

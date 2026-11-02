@@ -83,7 +83,7 @@ fn ultimate_icons_are_found_and_portraits_and_reticles_are_not() {
     assert!(KillFeed::learn(&f, NRect::new(0.0, 0.0, 0.3, 0.3), icon).is_err());
     assert!(KillFeed::learn(&f, NRect::new(f32::NAN, 0.0, 0.3, 0.3), icon).is_err());
     // a damaged radius reads nothing
-    let bad = KillFeed { rect: feed_rect(), radius: f32::NAN };
+    let bad = KillFeed { rect: feed_rect(), radius: f32::NAN, row: 0.0 };
     assert!(bad.icons(&f).is_empty());
 }
 

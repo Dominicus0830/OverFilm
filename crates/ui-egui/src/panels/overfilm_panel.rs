@@ -6,7 +6,10 @@
 //! Automation ids: `overfilm.panel.<param>` for each control (`autoCut`, `templates`,
 //! `keepBefore`, `applyCuts`, `reviewCuts`, `captions`, `audioTrack`, `mode`, `who`, `gameVoice`,
 //! `reviewCaptions`), `overfilm.panel.run`, `overfilm.panel.stop`, `overfilm.panel.step.<n>` for
-//! each step of the run, `overfilm.panel.reviewSettings`, `overfilm.panel.tool.<command id>`.
+//! each step of the run, `overfilm.panel.reviewSettings`, `overfilm.panel.tool.<command id>`,
+//! `overfilm.panel.kill.<n>` for each kill in the kill list (click: go there),
+//! `overfilm.panel.name.<player|hero>.<id>` and `overfilm.panel.name.<player|hero>.<id>.save` to
+//! name a player or hero read off the kill feed.
 
 use egui::{Rect, RichText, vec2};
 use serde_json::{Value, json};
@@ -111,6 +114,8 @@ struct Facts {
     review_on: bool,
     has_words: bool,
     tools: Vec<(&'static str, bool)>,
+    /// `overfilm.killFeed.list`: the kills and who is who.
+    kills: Value,
 }
 
 fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
@@ -120,6 +125,8 @@ fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
     if let Some(f) = ctx.data(|m| m.get_temp::<Facts>(id)).filter(|f| f.revision == revision && (now - f.at).abs() < 1.5) {
         return f;
     }
+    let kills =
+        if app.session.active_sequence().is_some() { app.session.execute("overfilm.killFeed.list", json!({})).unwrap_or_default() } else { Value::Null };
     let s = &app.session;
     let f = Facts {
         at: now,
@@ -127,6 +134,7 @@ fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
         review_on: filmcraft_engine::overfilm_review::settings(s).enabled,
         has_words: !filmcraft_engine::transcript::sequence_words(s).is_empty(),
         tools: TOOLS.iter().map(|(k, _)| (*k, s.is_enabled(k))).collect(),
+        kills,
     };
     ctx.data_mut(|m| m.insert_temp(id, f.clone()));
     f
@@ -163,6 +171,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         })
         .unwrap_or_default();
     let (mut run, mut stop, mut settings, mut tool) = (false, false, false, None::<&'static str>);
+    let (mut seek, mut name) = (None::<i64>, None::<(&'static str, u64, String)>);
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(10.0, 8.0))));
     let ui = &mut child;
     egui::ScrollArea::vertical().id_salt("overfilm-panel-scroll").auto_shrink([false, false]).show(ui, |ui| {
@@ -316,6 +325,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 }
             }
         });
+        kill_list(ui, &mut elems, &facts.kills, &mut p, &mut seek, &mut name, t);
     });
     for (id, r, l) in elems {
         app.auto.add(&id, r, &l);
@@ -327,6 +337,20 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         && let Err(e) = crate::menus::invoke(app, &ctx, id, json!({}))
     {
         app.ui.status = plain_error(&e);
+    }
+    if let Some(time) = seek
+        && let Err(e) = app.session.execute("playhead.set", json!({"time": time}))
+    {
+        app.ui.status = plain_error(&e.to_string());
+    }
+    if let Some((kind, id, n)) = name {
+        match app.session.execute("overfilm.killFeed.name", json!({"kind": kind, "id": id, "name": n})) {
+            Ok(_) => {
+                // read the list again now, not in a second and a half
+                ctx.data_mut(|m| m.remove::<Facts>(egui::Id::unique("overfilm-panel-facts")));
+            }
+            Err(e) => app.ui.status = plain_error(&e.to_string()),
+        }
     }
     if stop && let Err(e) = app.session.execute("overfilm.flow.stop", json!({})) {
         app.ui.status = plain_error(&e.to_string());
@@ -342,6 +366,77 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
     ctx.data_mut(|m| m.insert_temp(state_id(), p));
+}
+
+/// The kills found on the sequence (kill feed: who killed whom; else the name plates' deaths),
+/// each a link to its time, and the kill feed's players and heroes to name.
+fn kill_list(
+    ui: &mut egui::Ui,
+    elems: &mut Elems,
+    kills: &Value,
+    p: &mut Value,
+    seek: &mut Option<i64>,
+    name: &mut Option<(&'static str, u64, String)>,
+    t: crate::theme::Tokens,
+) {
+    let Some(list) = kills["kills"].as_array().filter(|l| !l.is_empty()) else { return };
+    ui.add_space(10.0);
+    ui.separator();
+    ui.label(RichText::new(tlf!("Kills ({n})", n = list.len())).strong());
+    if kills["source"] == "plates" {
+        ui.label(RichText::new(tl!("Who died, from the name plates. Learn the kill feed to see who killed whom.")).color(t.text_dim).size(11.0));
+    }
+    egui::ScrollArea::vertical().id_salt("overfilm-panel-kills").max_height(260.0).show(ui, |ui| {
+        for (n, k) in list.iter().enumerate() {
+            let line = format!("{}  {}", k["clock"].as_str().unwrap_or_default(), k["text"].as_str().unwrap_or_default());
+            let color = if k["ult"].as_bool().unwrap_or(false) { t.accent } else { t.text };
+            let mut r = ui.selectable_label(false, RichText::new(&line).color(color));
+            elems.push((format!("{PRE}.kill.{n}"), r.rect, line.clone()));
+            if let Some(c) = k["comment"].as_str().filter(|c| !c.is_empty()) {
+                r = r.on_hover_text(c);
+            }
+            if r.clicked() {
+                *seek = k["time"].as_i64();
+            }
+        }
+    });
+    let players = kills["players"].as_array().cloned().unwrap_or_default();
+    let heroes = kills["heroes"].as_array().cloned().unwrap_or_default();
+    if players.is_empty() && heroes.is_empty() {
+        return;
+    }
+    egui::CollapsingHeader::new(tl!("Name players and heroes")).id_salt("overfilm-panel-names").show(ui, |ui| {
+        ui.label(
+            RichText::new(tl!("Click a kill to see it, then type the name. OverFilm knows the name or picture again in later videos."))
+                .color(t.text_dim)
+                .size(11.0),
+        );
+        for (kind, items) in [("player", &players), ("hero", &heroes)] {
+            egui::Grid::new(format!("overfilm-panel-names-{kind}")).num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
+                for it in items {
+                    let id = it["id"].as_u64().unwrap_or(0);
+                    let shown = it["name"].as_str().unwrap_or_default();
+                    ui.label(shown);
+                    let key = format!("{kind}.{id}");
+                    let mut v = p["names"][&key].as_str().unwrap_or_default().to_string();
+                    let hint = if kind == "player" { tl!("player name") } else { tl!("hero name") };
+                    let r = ui.add(egui::TextEdit::singleline(&mut v).hint_text(hint).desired_width(140.0));
+                    elems.push((format!("{PRE}.name.{key}"), r.rect, v.clone()));
+                    let b = ui.add_enabled(!v.trim().is_empty(), egui::Button::new(tl!("Save")));
+                    elems.push((format!("{PRE}.name.{key}.save"), b.rect, "Save".into()));
+                    if b.clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !v.trim().is_empty()) {
+                        *name = Some((if kind == "player" { "player" } else { "hero" }, id, v.trim().to_string()));
+                        v.clear();
+                    }
+                    if !p["names"].is_object() {
+                        p["names"] = json!({});
+                    }
+                    p["names"][&key] = json!(v);
+                    ui.end_row();
+                }
+            });
+        }
+    });
 }
 
 #[cfg(test)]

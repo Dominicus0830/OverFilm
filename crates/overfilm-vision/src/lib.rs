@@ -21,6 +21,7 @@ pub mod builtin {
     /// both teams' name plates.
     pub const OWCS_KOREA_2026: &str = include_str!("../data/owcs-korea-2026.overfilm-screens.json");
 }
+pub mod feedrows;
 pub mod killfeed;
 pub mod kills;
 pub mod luma;
@@ -30,9 +31,10 @@ pub mod ults;
 
 use serde::{Deserialize, Serialize};
 
+pub use feedrows::{FeedEvent, FeedNames, FeedReader, FeedScan, Side, Who};
 pub use killfeed::{FeedTracker, KillFeed};
 pub use kills::{Death, DeathTracker, Fight, PlayerBar};
-pub use luma::{Luma, NRect};
+pub use luma::{Luma, NRect, Rgb};
 pub use plan::{Analyzer, Cut, CutParams, CutReason, Detected, Sample, Segment, plan_cuts, segments};
 pub use template::{Part, Template, TemplateSet};
 pub use ults::{FeedKill, UltIcon, UltKill, UltTracker, UltUse};

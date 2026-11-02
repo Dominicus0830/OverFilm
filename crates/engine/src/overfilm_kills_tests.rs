@@ -191,3 +191,78 @@ fn ult_icon_learn_needs_the_teams_bar() {
     assert!(s.execute("overfilm.killFeed.learn", json!({"templates": tp, "icon": [0.8, 0.2, 0.02, 0.03]})).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn sig(seed: u8) -> overfilm_vision::feedrows::Sig {
+    overfilm_vision::feedrows::Sig { w: 8, h: 4, aspect: 2.0, px: (0..32u8).map(|i| i.wrapping_mul(37).wrapping_add(seed.wrapping_mul(91)) ^ seed).collect() }
+}
+
+fn feed_scan() -> FeedScan {
+    use overfilm_vision::feedrows::Cluster;
+    use overfilm_vision::{FeedEvent, Who};
+    let c = |seed| Cluster { sig: sig(seed), label: None, seen: 1, side: None, hero: None, more: Vec::new() };
+    let who = |side, player, hero| Who { side, player, hero: Some(hero) };
+    FeedScan {
+        events: vec![
+            FeedEvent { at: 2_000, killer: Some(who(Side::Blue, 0, 0)), victim: who(Side::Red, 1, 1), ult: false },
+            FeedEvent { at: 5_000, killer: Some(who(Side::Red, 1, 1)), victim: who(Side::Blue, 0, 0), ult: true },
+            FeedEvent { at: 9_000, killer: None, victim: who(Side::Red, 1, 1), ult: false },
+        ],
+        players: vec![c(1), c(2)],
+        heroes: vec![c(3), c(4)],
+    }
+}
+
+#[test]
+fn kill_feed_kills_are_listed_and_named() {
+    let dir = std::env::temp_dir().join(format!("overfilm-feed-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let tp = dir.join("screens.json").to_string_lossy().to_string();
+    let mut s = demo();
+    // without a scan: the deaths on the plates, nothing to name
+    let l = s.execute("overfilm.killFeed.list", json!({})).unwrap();
+    assert_eq!(l["source"], "none");
+    mark(&mut s, &[d(1_000, 2, 4)], 10_000, 3).unwrap();
+    let l = s.execute("overfilm.killFeed.list", json!({})).unwrap();
+    assert_eq!((l["source"].as_str(), l["kills"][0]["text"].as_str()), (Some("plates"), Some("2팀 4번")));
+    assert!(s.execute("overfilm.killFeed.name", json!({"templates": tp, "kind": "player", "id": 1, "name": "X"})).is_err());
+
+    let scan = feed_scan();
+    assert_eq!(mark_feed(&mut s, &scan).unwrap(), 3);
+    s.overfilm_feed = Some(FeedState { seq: s.state.active_sequence.unwrap(), scan });
+    assert_eq!(
+        names(&s, MARK_FEED),
+        [
+            "OverFilm 킬피드: 선수 1 (영웅 1) → 선수 2 (영웅 2)",
+            "OverFilm 킬피드: 선수 2 (영웅 2) → 선수 1 (영웅 1) (궁극기)",
+            "OverFilm 킬피드: 선수 2 (영웅 2) 처치됨"
+        ]
+    );
+    // the feed's kills count for the highlights only without plate deaths
+    assert_eq!(kill_times_ms(&s), [1_000]);
+    let l = s.execute("overfilm.killFeed.list", json!({})).unwrap();
+    assert_eq!(l["source"], "killfeed");
+    assert_eq!(l["kills"].as_array().unwrap().len(), 3);
+    assert_eq!((l["kills"][1]["ult"].as_bool(), l["kills"][1]["comment"].as_str()), (Some(true), Some("적 → 아군")));
+    assert_eq!(l["kills"][0]["seconds"], 2.0);
+    assert_eq!(l["players"].as_array().unwrap().len(), 2);
+
+    // naming: the markers are written again, the name is kept in the template file
+    let r = s.execute("overfilm.killFeed.name", json!({"templates": tp, "kind": "player", "id": 2, "name": "FRANKY"})).unwrap();
+    assert_eq!(r["kills"], 3);
+    s.execute("overfilm.killFeed.name", json!({"templates": tp, "kind": "hero", "id": 1, "name": "라마트라"})).unwrap();
+    assert_eq!(names(&s, MARK_FEED)[0], "OverFilm 킬피드: 선수 1 (라마트라) → FRANKY (영웅 2)");
+    let set = overfilm_vision::TemplateSet::from_json(&std::fs::read_to_string(&tp).unwrap()).unwrap();
+    assert_eq!(set.feed_names.lookup(false, &sig(2)).as_deref(), Some("FRANKY"));
+    assert_eq!(set.feed_names.lookup(true, &sig(3)).as_deref(), Some("라마트라"));
+    // one undo step takes the name back off the markers
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(names(&s, MARK_FEED)[0], "OverFilm 킬피드: 선수 1 (영웅 1) → FRANKY (영웅 2)");
+    // hostile parameters
+    for p in [json!({"kind": "team", "id": 1, "name": "x"}), json!({"kind": "player", "id": 0, "name": "x"}), json!({"kind": "player", "id": 99, "name": "x"})]
+    {
+        let mut p = p;
+        p["templates"] = json!(tp);
+        assert!(s.execute("overfilm.killFeed.name", p).is_err());
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

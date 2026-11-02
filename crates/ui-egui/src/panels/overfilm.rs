@@ -14,7 +14,7 @@
 //!   around the team's plates, on a frame where the whole team is alive), for kill detection;
 //!   a team's ready ultimate icon learns that (`overfilm.ultIcon.learn`, the first green rectangle
 //!   around the white ultimate circle on the chosen player's plate), for ultimates; the kill feed
-//!   learns that (`overfilm.killFeed.learn`: the first green rectangle around the feed, the second
+//!   learns that (`overfilm.killFeed.learn`: the first green rectangle around the feed, the optional second
 //!   round one ultimate kill's icon), for ultimate kills on broadcasts that show the feed.
 //!
 //! Automation ids: `overfilm.<dialog>.ok`, `.cancel` and `overfilm.<dialog>.<param>` for each
@@ -222,7 +222,7 @@ fn learn_body(ui: &mut egui::Ui, elems: &mut Elems, d: &mut Draft) {
                 ("bar2", tl!("Team 2 name plates (kills)").to_string()),
                 ("ult1", tl!("Team 1 ready ultimate icon").to_string()),
                 ("ult2", tl!("Team 2 ready ultimate icon").to_string()),
-                ("killfeed", tl!("Kill feed (ultimate kills)").to_string()),
+                ("killfeed", tl!("Kill feed (who killed whom, ultimates)").to_string()),
             ],
         );
         if p["screen"].as_str().is_some_and(|v| v.starts_with("ult")) {
@@ -349,7 +349,9 @@ pub(crate) fn plain_error(e: &str) -> String {
         ("no bright round icon", "No ready ultimate icon in the box: draw it around one white ultimate circle, not the charge number."),
         ("has no player bar for team", "Learn that team's name plates first (Team 1/2 name plates)."),
         ("around one ready ultimate icon", "Draw one green box around a ready ultimate icon."),
-        ("around the kill feed", "Draw a green box around the kill feed, then a second one round one ultimate icon in it."),
+        ("no kill feed row", "No kill feed row in the box: draw it around the kill feed, on a frame where it shows kills."),
+        ("read the kill feed first", "Find kills first, with the kill feed learnt."),
+        ("around the kill feed", "Draw a green box around the kill feed (a second one round an ultimate icon in it is optional)."),
         ("round one ultimate kill's icon", "Draw a second green box round one ultimate icon in the kill feed."),
         ("no round ultimate icon in the box", "No ultimate icon in the second box: draw it tight round one white ultimate icon of the kill feed."),
         ("not inside the kill feed", "The ultimate icon is outside the kill feed's box: draw the feed's box around it."),
