@@ -33,6 +33,7 @@ const EW: &str = include_str!("ew.wgsl");
 const ARGMAX: &str = include_str!("argmax.wgsl");
 const CONV: &str = include_str!("conv.wgsl");
 const GATHER: &str = include_str!("gather.wgsl");
+const TILE16: &str = include_str!("tile16.wgsl");
 
 /// Rows up to which a product runs as matrix × vector (`mv` in `matmul.wgsl`, which reads
 /// each weight once for all of them).
@@ -81,6 +82,8 @@ struct Kernels {
     tile_q8: Kernel,
     mv_f16: Kernel,
     tile_f16: Kernel,
+    /// 16-bit tiled products (only when the GPU has shader-f16 and they compiled)
+    tile16: Option<(Kernel, Kernel)>,
     norm: Kernel,
     rope: Kernel,
     attn: Kernel,
@@ -147,6 +150,8 @@ pub struct Ctx {
     zero: wgpu::Buffer,
     /// the tiled product kernel matched the CPU (otherwise every product uses `mv`)
     tile: AtomicBool,
+    /// prefills use the 16-bit tiled kernel (it matched the CPU and was faster)
+    half: AtomicBool,
 }
 
 impl Ctx {
@@ -180,9 +185,15 @@ impl Ctx {
             max_buffer_size: max_bind.max(wgpu::Limits::default().max_buffer_size).min(al.max_buffer_size),
             ..wgpu::Limits::default()
         };
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { label: Some("overfilm-asr"), required_limits: limits, ..Default::default() }))
-                .map_err(gpu_err)?;
+        let prefill = std::env::var("OVERFILM_GPU_PREFILL").unwrap_or_default();
+        let features = if prefill != "f32" { adapter.features() & wgpu::Features::SHADER_F16 } else { wgpu::Features::empty() };
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("overfilm-asr"),
+            required_features: features,
+            required_limits: limits,
+            ..Default::default()
+        }))
+        .map_err(gpu_err)?;
         let err = Arc::new(Mutex::new(None));
         let sink = err.clone();
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
@@ -200,6 +211,7 @@ impl Ctx {
             tile_q8: kernel(&device, &q8, "tile", &mm),
             mv_f16: kernel(&device, &f16, "mv", &mm),
             tile_f16: kernel(&device, &f16, "tile", &mm),
+            tile16: None,
             norm: kernel(&device, NORM, "main", &layout(&device, &[B::U, B::U, B::R, B::R, B::R, B::W])),
             rope: kernel(&device, ROPE, "main", &layout(&device, &[B::U, B::U, B::R, B::R, B::R, B::W, B::W, B::W, B::R])),
             attn: kernel(&device, ATTN, "main", &layout(&device, &[B::U, B::U, B::R, B::R, B::R, B::W, B::R])),
@@ -211,15 +223,55 @@ impl Ctx {
         if let Some(Some(e)) = poll_now(scope.pop()) {
             return Err(gpu_err(format!("shaders: {e}")));
         }
+        let mut k = k;
+        if features.contains(wgpu::Features::SHADER_F16) {
+            // optional: a driver that rejects it just keeps the 32-bit kernel
+            let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+            let q8 = kernel(&device, &format!("enable f16;\n{MATMUL}\n{Q8}\n{TILE16}"), "tile16", &mm);
+            let f16 = kernel(&device, &format!("enable f16;\n{MATMUL}\n{F16}\n{TILE16}"), "tile16", &mm);
+            if let Some(None) = poll_now(scope.pop()) {
+                k.tile16 = Some((q8, f16));
+            }
+        }
         let zero =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("zero"), contents: &[0u8; 16], usage: wgpu::BufferUsages::STORAGE });
         let name = format!("{} ({:?}, {} {})", info.name, info.backend, info.driver, info.driver_info).replace(" ,", "").replace("  ", " ");
-        let ctx = Self { device, queue, err, max_bind, name, k, zero, tile: AtomicBool::new(true) };
+        let ctx = Self { device, queue, err, max_bind, name, k, zero, tile: AtomicBool::new(true), half: AtomicBool::new(false) };
         // Some drivers get the tiled kernel wrong; the row-by-row one then does whole prefills.
         if !ctx.scoped(|| check::tile_ok(&ctx)).unwrap_or(false) {
             ctx.tile.store(false, Ordering::Relaxed);
+        } else if ctx.k.tile16.is_some() {
+            // 16-bit prefills when they match the CPU and are measurably faster (software
+            // renderers skip the timing: `OVERFILM_GPU_PREFILL=f16` forces them, `f32` turns them off)
+            ctx.half.store(true, Ordering::Relaxed);
+            let ok = ctx.scoped(|| check::tile_ok(&ctx)).unwrap_or(false);
+            let faster = prefill == "f16" || (info.device_type != wgpu::DeviceType::Cpu && ctx.scoped(|| check::tile16_faster(&ctx)).unwrap_or(false));
+            ctx.half.store(ok && faster, Ordering::Relaxed);
         }
         Ok(Arc::new(ctx))
+    }
+
+    /// Which product kernel prefills use, for the user.
+    pub fn prefill_kind(&self) -> &'static str {
+        if !self.tiled() {
+            "row by row"
+        } else if self.half() {
+            "16-bit tiles"
+        } else if self.k.tile16.is_some() {
+            "32-bit tiles (16-bit available but not faster)"
+        } else {
+            "32-bit tiles"
+        }
+    }
+
+    /// Whether prefills use the 16-bit tiled kernel.
+    pub fn half(&self) -> bool {
+        self.tiled() && self.k.tile16.is_some() && self.half.load(Ordering::Relaxed)
+    }
+
+    /// Switch the 16-bit tiled kernel on or off (self-check and timing).
+    pub(crate) fn set_half(&self, on: bool) {
+        self.half.store(on, Ordering::Relaxed);
     }
 
     /// Whether prefills use the tiled product kernel (it failed the start-up comparison otherwise).
@@ -467,11 +519,14 @@ impl Lin {
     fn record(&self, ctx: &Ctx, pass: &mut wgpu::ComputePass, rows: usize) {
         let rows = if self.rows1 { 1 } else { rows };
         let small = rows <= MV_ROWS || !ctx.tiled();
-        let k = match (self.fmt, small) {
-            (Fmt::Q8, true) => &ctx.k.mv_q8,
-            (Fmt::Q8, false) => &ctx.k.tile_q8,
-            (Fmt::F16, true) => &ctx.k.mv_f16,
-            (Fmt::F16, false) => &ctx.k.tile_f16,
+        let half = if small || !ctx.half() { None } else { ctx.k.tile16.as_ref() };
+        let k = match (self.fmt, small, half) {
+            (Fmt::Q8, false, Some((q8, _))) => q8,
+            (Fmt::F16, false, Some((_, f16))) => f16,
+            (Fmt::Q8, true, _) => &ctx.k.mv_q8,
+            (Fmt::Q8, false, None) => &ctx.k.tile_q8,
+            (Fmt::F16, true, _) => &ctx.k.mv_f16,
+            (Fmt::F16, false, None) => &ctx.k.tile_f16,
         };
         pass.set_pipeline(&k.pipe);
         for (bg, n) in &self.parts {

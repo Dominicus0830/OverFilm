@@ -55,6 +55,25 @@ fn self_check_passes_without_tiles() {
     assert!(r.iter().any(|x| x.name.contains("vec(prefill)")));
 }
 
+/// With the 16-bit tiled kernel switched on (when the device has shader-f16), prefills, the tiny
+/// decoder and encoder still match the CPU.
+#[test]
+fn self_check_passes_with_16_bit_tiles() {
+    let Some(c) = ctx() else { return };
+    if c.k.tile16.is_none() {
+        eprintln!("skipped: no shader-f16");
+        return;
+    }
+    c.set_half(true);
+    assert!(check::tile_ok(&c).unwrap());
+    let r = check::report(&c);
+    for x in &r {
+        eprintln!("{x}");
+    }
+    assert!(r.iter().all(check::Report::ok));
+    assert!(r.iter().any(|x| x.name.contains("tile16")));
+}
+
 /// One product through both kernels, both formats, split into parts, against f32.
 #[test]
 fn products_match() {

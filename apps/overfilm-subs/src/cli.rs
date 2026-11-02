@@ -329,6 +329,7 @@ fn gpu_check(args: &[String]) -> Result<(), String> {
     if !ctx.tiled() {
         println!("참고: 이 그래픽카드에서는 타일 곱셈이 틀려서 줄 단위 곱셈으로 대신합니다.");
     }
+    println!("프롬프트 처리 곱셈: {}", ctx.prefill_kind());
     let mut all_ok = true;
     for r in overfilm_asr::gpu::check::report(&ctx) {
         all_ok &= r.ok();
