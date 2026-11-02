@@ -1,0 +1,26 @@
+[package]
+name = "overfilm-pipeline"
+description = "OverFilm caption pipeline shared by OverFilmSubs and the editor: the built-in Overwatch pack, recognition with glossary correction, speakers and game voice, caption turns"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Recognition itself (Qwen3-ASR, speaker network) and model downloads. Off in wasm builds.
+qwen = ["overfilm-asr/qwen", "overfilm-asr/download"]
+
+[dependencies]
+overfilm-asr = { workspace = true }
+overfilm-captions = { workspace = true }
+overfilm-glossary = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.27"

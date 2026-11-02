@@ -67,6 +67,8 @@ overfilm-asr = { path = "crates/overfilm-asr" }
 overfilm-captions = { path = "crates/overfilm-captions" }
 overfilm-eval = { path = "crates/overfilm-eval" }
 overfilm-ai = { path = "crates/overfilm-ai" }
+overfilm-vision = { path = "crates/overfilm-vision" }
+overfilm-pipeline = { path = "crates/overfilm-pipeline" }
 overfilm-subs = { path = "apps/overfilm-subs" }
 
 # foundation

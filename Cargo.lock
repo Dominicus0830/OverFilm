@@ -2123,6 +2123,11 @@ dependencies = [
  "filmcraft-tts",
  "image",
  "log",
+ "overfilm-ai",
+ "overfilm-asr",
+ "overfilm-captions",
+ "overfilm-pipeline",
+ "overfilm-vision",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4756,6 +4761,9 @@ dependencies = [
 [[package]]
 name = "overfilm-ai"
 version = "0.14.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "overfilm-asr"
@@ -4780,8 +4788,11 @@ name = "overfilm-captions"
 version = "0.14.0"
 dependencies = [
  "filmcraft-captions",
+ "filmcraft-geom",
+ "filmcraft-project",
  "filmcraft-time",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4803,6 +4814,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "overfilm-pipeline"
+version = "0.14.0"
+dependencies = [
+ "overfilm-asr",
+ "overfilm-captions",
+ "overfilm-glossary",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "overfilm-subs"
 version = "0.14.0"
 dependencies = [
@@ -4816,10 +4839,21 @@ dependencies = [
  "overfilm-asr",
  "overfilm-captions",
  "overfilm-glossary",
+ "overfilm-pipeline",
  "rfd",
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "overfilm-vision"
+version = "0.14.0"
+dependencies = [
+ "filmcraft-time",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

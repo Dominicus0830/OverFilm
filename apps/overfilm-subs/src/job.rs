@@ -139,45 +139,17 @@ pub struct Done {
     pub note: String,
 }
 
-/// Where the models live: `models` beside the program if that folder exists (portable copy),
-/// else the user's local data folder.
+/// Where the models live (shared with the editor; see [`overfilm_pipeline::models_dir`]).
 pub fn models_dir() -> PathBuf {
-    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join("models")))
-        && dir.is_dir()
-    {
-        return dir;
-    }
-    if let Some(d) = std::env::var_os("OVERFILM_MODELS") {
-        return PathBuf::from(d);
-    }
-    let base = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("XDG_DATA_HOME").map(PathBuf::from))
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("OverFilm").join("models")
+    overfilm_pipeline::models_dir()
 }
 
 /// Progress: (fraction 0–1, message); return false to cancel.
 pub type Progress<'a> = &'a mut dyn FnMut(f32, &str) -> bool;
 
-fn gb(b: u64) -> String {
-    format!("{:.1} GB", b as f64 / 1e9)
-}
-
 /// Download whatever model files are missing.
 pub fn ensure_models(dir: &Path, progress: Progress) -> Result<(), String> {
-    for m in overfilm_asr::catalogue::all() {
-        if m.installed(dir) {
-            continue;
-        }
-        let name = m.name;
-        overfilm_asr::catalogue::download(dir, m, &mut |done, total, file| {
-            progress(done as f32 / total.max(1) as f32, &format!("{name} 받는 중 ({file}, {} / {})", gb(done), gb(total)))
-        })
-        .map_err(|e| format!("{name} 다운로드 실패: {e}"))?;
-    }
-    Ok(())
+    overfilm_pipeline::recognise::ensure_models(dir, progress)
 }
 
 /// Run one extraction. Stages share the progress bar: models 0–5 %, sound 5–10 %, recognition
@@ -191,42 +163,20 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
     if audio.is_empty() {
         return Err("소리가 비어 있습니다".into());
     }
-    let g = pack::glossary(o.glossary_dir.as_deref(), o.mask_profanity)?;
-    let corrector = pack::corrector_with(&g, o.digits);
-    let context = pack::context(&g, o.mode, &o.extra_terms);
-    let corrections = std::sync::Mutex::new(Vec::new());
-    let correct = |t: &str| {
-        let c = corrector.apply(t);
-        corrections.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend(c.changes);
-        c.text
-    };
-    let settings = overfilm_asr::Settings {
-        asr_dir: &overfilm_asr::catalogue::ASR.dir(&models),
-        aligner_dir: &overfilm_asr::catalogue::ALIGNER.dir(&models),
-        quantize: true,
-        context: &context,
-        language: Some("Korean"),
-        correct: &correct,
+    let known = if o.speakers && (o.use_voices || o.only_voices) { crate::voices::known(&crate::voices::list()) } else { Vec::new() };
+    let req = overfilm_pipeline::recognise::Request {
+        mode: o.mode,
+        extra_terms: o.extra_terms.clone(),
+        mask_profanity: o.mask_profanity,
+        digits: o.digits,
+        glossary_dir: o.glossary_dir.clone(),
         gpu: o.gpu,
+        speakers: o.speakers,
+        num_speakers: o.num_speakers,
+        known,
     };
-    let rec_share = if o.speakers { 0.8 } else { 0.88 };
-    let mut transcript = overfilm_asr::transcribe(&audio, &settings, &mut |f, m| progress(0.1 + rec_share * f, m)).map_err(|e| e.to_string())?;
-    let mut speaker_device = String::new();
-    if o.speakers {
-        let known = if o.use_voices || o.only_voices { crate::voices::known(&crate::voices::list()) } else { Vec::new() };
-        let p = overfilm_asr::speakers::Params { speakers: o.num_speakers.filter(|&n| n > 0), known, ..Default::default() };
-        let mut cancelled = false;
-        let r = speakers::label(&audio, &mut transcript, &overfilm_asr::catalogue::SPEAKER.dir(&models), &p, o.gpu, &mut |f| {
-            let go = progress(0.9 + 0.08 * f, "목소리 구별하는 중");
-            cancelled |= !go;
-            go
-        });
-        if cancelled {
-            return Err("취소됨".into());
-        }
-        speaker_device = r?;
-    }
-    let voice_lines = speakers::mark_game_voice(&mut transcript, &pack::voicelines());
+    let rec = overfilm_pipeline::recognise::recognise(&audio, &req, &models, &mut |f, m| progress(0.1 + 0.88 * f, m))?;
+    let overfilm_pipeline::recognise::Recognised { mut transcript, corrections, device, voice_lines } = rec;
     if let Some((from, _)) = range {
         // the words were timed on the cut-out sound: put them on the input's clock
         shift(&mut transcript, from);
@@ -258,7 +208,6 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
     let json = serde_json::to_string_pretty(&transcript).map_err(|e| e.to_string())?;
     std::fs::write(&tpath, json).map_err(|e| format!("{}: {e}", tpath.display()))?;
     progress(1.0, "끝");
-    let corrections = corrections.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
     Ok(Done {
         srt,
         transcript: tpath,
@@ -266,11 +215,7 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         audio_seconds: (audio.len() / overfilm_asr::SAMPLE_RATE as usize) as u64,
         seconds_taken: t0.elapsed().as_secs(),
         corrections,
-        device: if speaker_device.is_empty() || speaker_device == transcript.device {
-            transcript.device.clone()
-        } else {
-            format!("{}, 화자 구별 {}", transcript.device, speaker_device.split(" (").next().unwrap_or(&speaker_device))
-        },
+        device,
         speakers: transcript.speakers.iter().map(|s| (s.label.clone(), s.seconds, s.game)).collect(),
         voice_lines,
         speaker_srts,

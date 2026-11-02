@@ -13,4 +13,9 @@ workspace = true
 [dependencies]
 filmcraft-time = { workspace = true }
 filmcraft-captions = { workspace = true }
+filmcraft-project = { workspace = true }
+filmcraft-geom = { workspace = true }
 serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
