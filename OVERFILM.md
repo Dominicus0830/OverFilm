@@ -303,7 +303,11 @@ background job on the media of the sequence's audio clips (or `items`); the mode
 on first use into the folder OverFilmSubs uses (`%LOCALAPPDATA%\OverFilm\models`), and the user
 glossary (`…\OverFilm\glossary`) applies too. Options: `mode` (general / commentary: team and
 player names as context), `speakers`, `numSpeakers`, `extraTerms`, `gpu`, `gameVoice` (drop /
-label / keep), `lineChars`, `maxLines`, `cleanFillers`, `audioTrack`. The editor app builds with
+label / keep), `lineChars`, `maxLines`, `leadMs` (120: shown this long before the voice), `holdMs`
+(400: kept this long after it), `readingCps` (12: kept up long enough to read at this many letters
+a second when the next caption leaves room), `cleanFillers`, `audioTrack`. Lines and captions
+break at natural Korean boundaries (sentence and clause endings, particles, pauses), never inside
+a phrase such as `할 수 있다` or `하고 있다`. The editor app builds with
 it by default (`apps/filmcraft` feature `overfilm-qwen`).
 
 - `audioTrack` (1 = A1; the dialog's "Audio track") recognises only the clips on that track, each
