@@ -3732,3 +3732,38 @@
 	Don't tell them apart	구별 안 함
 	1 person (faster)	1명 (구별 건너뛰어 빠름)
 	{n} people	{n}명
+# OverFilm panel: cut and caption in one go (panels/overfilm_panel.rs).
+	Cut and Caption in One Go (OverFilm)…	컷편집부터 자막까지 한 번에(OverFilm)…
+	OverFilm	OverFilm
+	Cut and caption in one go	컷편집부터 자막까지 한 번에
+	Runs the ticked steps one after another in the background. Undo takes back each step on its own.	체크한 단계를 백그라운드에서 차례로 실행합니다. 실행 취소는 단계마다 따로 됩니다.
+	Auto Cut waiting and pauses (tournament broadcasts)	대기 시간·퍼즈 자동 컷 (대회 영상)
+	Then let Claude Code check the unclear cuts	이어서 애매한 컷을 Claude Code가 검토
+	Then let Claude Code check the captions	이어서 자막을 Claude Code가 검토
+	Captions:	자막:
+	Recognise the speech	음성 인식으로 새로 만들기
+	From the transcript already made (fast)	이미 인식한 글로 다시 배치 (빠름)
+	No captions	자막 안 만듦
+	Claude Code review is off.	Claude Code 검토가 꺼져 있습니다.
+	Claude Code Review Settings…	Claude Code 검토 설정…
+	Run	실행
+	Open a sequence first.	먼저 시퀀스를 여세요.
+	Auto Cut (waiting and pauses)	자동 컷 (대기·퍼즈)
+	Claude Code: unclear cuts	Claude Code: 애매한 컷 검토
+	Cut the marked parts	표시한 구간 잘라내기
+	Claude Code: captions	Claude Code: 자막 검토
+	Waiting	대기
+	Running	진행 중
+	Skipped	건너뜀
+	Failed	실패
+	OverFilm: started, see each step in the OverFilm panel	OverFilm: 시작했습니다. 단계별 진행은 OverFilm 패널에서 볼 수 있습니다
+	Learn Screen Template…	화면 견본 등록…
+	Auto Cut…	자동 컷…
+	Apply Cut Markers	컷 마커대로 자르기
+	Suggest Silences and Highlights	무음·하이라이트 제안
+	Find Kills and Team Fights	처치·교전 찾기
+	Make Highlight Reel	하이라이트 모음 만들기
+	Styled Captions…	자막 스타일…
+	Ask Claude Code About Cuts	컷을 Claude Code에 묻기
+	Ask Claude Code About Captions	자막을 Claude Code에 묻기
+	Export for Premiere Pro…	Premiere Pro로 내보내기…

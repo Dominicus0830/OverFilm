@@ -439,6 +439,34 @@ reviewed ones are not asked again unless `again`. Measured with Claude Code 2.1 
 about 6–8 s for one question. `cargo test -p overfilm-review -- --ignored` asks the real
 Claude Code one cut and one caption.
 
+## Cut and caption in one go
+
+`Window ▸ OverFilm` (or `Sequence ▸ OverFilm ▸ Cut and Caption in One Go…`) opens the OverFilm
+panel (`crates/ui-egui/src/panels/overfilm_panel.rs`). It docks, tabs and floats like any other
+panel and stays in the saved workspace. It runs the ticked steps one after another
+(`overfilm.flow.run`, `crates/engine/src/overfilm_flow.rs`):
+
+1. **Auto Cut** (`overfilm.autoCut`, always as markers first), with the template file and the time
+   kept before the start.
+2. **Claude Code on the unclear cuts** (`overfilm.review.cuts`), when ticked.
+3. **The cuts applied** (`overfilm.autoCut.apply`), unless the result is "markers to check first";
+   markers already on the sequence (an earlier Auto Cut, Suggestions) are reviewed and applied too.
+4. **Captions**: recognised (`overfilm.captions.generate`, audio track, video kind, speakers,
+   in-game voice), or laid out again from the transcript the sequence already has
+   (`overfilm.captions.fromTranscript`: after the cuts, without a second recognition).
+5. **Claude Code on the captions** (`overfilm.review.captions`), when ticked.
+
+Each step waits for the one before (its background job and its result applied). What can be
+known at the start is refused at the start: no step chosen, a review ticked while Claude Code
+review is off, "from the transcript" without one, no captions in this build, a template file
+that can't be read, the first step's own errors. A later step that fails stops the run; a review
+that fails is noted and the run goes on. While a run is going, the reviews that the "on its own"
+setting starts after Auto Cut and OverFilm Captions are left to the run, so nothing is asked
+twice. The panel shows each step (waiting, running with its progress and time left, done,
+skipped, failed, how long it took); `Stop` (`overfilm.flow.stop`) stops the running job and the
+rest. `overfilm.flow.status` gives the same over the control channel and MCP. Undo takes back each
+step on its own. Below the run, buttons open the other OverFilm tools.
+
 ## Editing style (beta)
 
 `Sequence ▸ OverFilm ▸ Learn Editing Style (Beta)` (`overfilm.style.learn {sequences?, style?}`) learns
@@ -474,6 +502,7 @@ called with parameters, over the control channel or MCP, the command runs direct
   always looks the same on that screen (green) and, switched to ignore, what changes (red: the
   clock, a camera). OK learns it into the template file. "Team 1/2 name plates (kills)" learns a
   player bar instead (the first green rectangle, and the number of players).
+- **Cut and Caption in One Go (OverFilm)…** opens the OverFilm panel (above).
 - **Claude Code Review Settings (OverFilm)…** (`panels/overfilm_review.rs`): on/off, on its own,
   `claude` path, model, time limit, batch size, most items, and a connection check.
 
@@ -529,6 +558,8 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `crates/engine/src/overfilm_kills.rs` (+ `_tests.rs`) | new file: player bars, deaths and team fights |
 | `crates/engine/src/overfilm_style.rs` (+ `_tests.rs`) | new file: the learnt editing style |
 | `crates/engine/src/overfilm_review.rs` (+ `_tests.rs`) | new file: Claude Code review of cuts and captions; Auto Cut's `mark`, Suggestions' `make` and OverFilm Captions' `poll` call its `after_*` hooks, OverFilm Captions keeps the pure recognition for it |
+| `crates/engine/src/overfilm_flow.rs` (+ `_tests.rs`) | new file: cut and caption in one go; `Session::overfilm_flow`, its `poll` after the other OverFilm polls; the review's `after_*` hooks leave a running one alone |
+| `crates/ui-egui/src/panels/overfilm_panel.rs` | new file: the OverFilm panel; `PanelKind::OverFilm` in `dock.rs`, `panels.rs`, `app/window.rs` (opens beside Properties) |
 | `crates/ui-egui/src/panels/overfilm_review.rs` | new file: the Claude Code review settings dialog (`route`/`show` next to `overfilm`'s) |
 | `apps/filmcraft/Cargo.toml` | feature `overfilm-qwen`, on by default |
 | `crates/ui-egui/src/panels/overfilm.rs` | new file: the OverFilm dialogs |
