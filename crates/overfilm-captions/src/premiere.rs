@@ -352,7 +352,7 @@ fn flat_style(b: &[u8]) -> Option<PrStyle> {
 /// Premiere 12 and older: UTF-16LE JSON after an 8-byte header.
 fn legacy_json(d: &[u8]) -> Option<PrStyle> {
     let body = d.get(8..)?;
-    let units: Vec<u16> = body.chunks_exact(2).map(|c| u16::from_le_bytes([c.first().copied().unwrap_or(0), c.get(1).copied().unwrap_or(0)])).collect();
+    let units: Vec<u16> = body.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
     let text = String::from_utf16_lossy(&units);
     let start = text.find('{')?;
     let end = text.rfind('}')?;
