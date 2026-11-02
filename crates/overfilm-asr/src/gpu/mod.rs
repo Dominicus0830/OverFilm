@@ -395,6 +395,27 @@ impl Weight {
         }
         Ok(Self { fmt, k, n, parts, bias: bias.map(|b| ctx.upload_f32(b)) })
     }
+
+    /// An 8-bit `n × k` weight already quantized (the same blocks [`quantize_rows`] makes).
+    pub fn from_q8(ctx: &Ctx, qs: &[i8], sc: &[f32], n: usize, k: usize) -> Result<Self, AsrError> {
+        if n == 0 || k == 0 || !k.is_multiple_of(32) || qs.len() != n.saturating_mul(k) || sc.len() != qs.len() / 32 {
+            return Err(gpu_err(format!("8-bit weight {n}×{k} with {} values", qs.len())));
+        }
+        let rows = usize::try_from(ctx.max_bind / k as u64).unwrap_or(usize::MAX) / 64 * 64;
+        if rows == 0 {
+            return Err(gpu_err(format!("weight row of {k} does not fit a binding")));
+        }
+        let mut parts = Vec::new();
+        let mut off = 0;
+        while off < n {
+            let pn = rows.min(n - off);
+            let q = qs.get(off * k..(off + pn) * k).ok_or_else(|| gpu_err("weight slice"))?;
+            let s = sc.get(off * k / 32..(off + pn) * k / 32).ok_or_else(|| gpu_err("scale slice"))?;
+            parts.push(Part { qs: ctx.upload(bytemuck::cast_slice(q)), sc: ctx.upload_f32(s), off, n: pn });
+            off += pn;
+        }
+        Ok(Self { fmt: Fmt::Q8, k, n, parts, bias: None })
+    }
 }
 
 /// A product bound to its input and output buffers.
@@ -461,9 +482,15 @@ impl Lin {
 /// into one product once all their pieces have arrived.
 pub struct Store {
     dec_fmt: Fmt,
-    pending: HashMap<String, (Vec<usize>, Vec<f32>)>,
+    pending: HashMap<String, (Vec<usize>, Pending)>,
     weights: HashMap<String, Weight>,
     vectors: HashMap<String, Vec<f32>>,
+}
+
+/// A tensor waiting for the rest of its fused product.
+enum Pending {
+    F32(Vec<f32>),
+    Q8(std::sync::Arc<crate::qmm::Q8>),
 }
 
 /// The fused product a weight or bias belongs to, and every tensor it needs.
@@ -495,22 +522,51 @@ impl Store {
 
     /// Take one tensor (row-major f32).
     pub fn add(&mut self, ctx: &Ctx, name: &str, shape: &[usize], data: Vec<f32>) -> Result<(), AsrError> {
-        let Some((key, members)) = group(name) else {
+        if group(name).is_none() {
             self.vectors.insert(name.to_string(), data);
             return Ok(());
+        }
+        self.add_pending(ctx, name, shape, Pending::F32(data))
+    }
+
+    /// Take one decoder weight already in 8 bits (from the weight cache, or quantized on the CPU
+    /// while loading so it can be cached).
+    pub fn add_q8(&mut self, ctx: &Ctx, name: &str, q: std::sync::Arc<crate::qmm::Q8>) -> Result<(), AsrError> {
+        let (n, k) = q.dims();
+        self.add_pending(ctx, name, &[n, k], Pending::Q8(q))
+    }
+
+    fn add_pending(&mut self, ctx: &Ctx, name: &str, shape: &[usize], data: Pending) -> Result<(), AsrError> {
+        let Some((key, members)) = group(name) else {
+            return Err(gpu_err(format!("{name}: not part of a product")));
         };
         self.pending.insert(name.to_string(), (shape.to_vec(), data));
         if !members.iter().all(|m| self.pending.contains_key(m)) {
             return Ok(());
         }
         let (mut w, mut b, mut n, mut k) = (Vec::new(), Vec::new(), 0usize, 0usize);
+        let (mut qs, mut sc): (Vec<i8>, Vec<f32>) = (Vec::new(), Vec::new());
         for m in &members {
             let Some((shape, v)) = self.pending.remove(m) else { continue };
+            let v = match v {
+                Pending::F32(v) => v,
+                Pending::Q8(q) => {
+                    let (rows, cols) = q.dims();
+                    if (k != 0 && cols != k) || !w.is_empty() || m.ends_with(".bias") {
+                        return Err(gpu_err(format!("{m}: cannot fuse 8-bit {rows}×{cols} here")));
+                    }
+                    k = cols;
+                    n += rows;
+                    qs.extend_from_slice(q.values());
+                    sc.extend_from_slice(q.scales());
+                    continue;
+                }
+            };
             if m.ends_with(".bias") {
                 b.extend_from_slice(&v);
             } else {
                 let (&rows, &cols) = (shape.first().unwrap_or(&0), shape.get(1).unwrap_or(&0));
-                if k != 0 && cols != k {
+                if k != 0 && cols != k || !qs.is_empty() {
                     return Err(gpu_err(format!("{m}: {cols} columns, expected {k}")));
                 }
                 k = cols;
@@ -518,8 +574,15 @@ impl Store {
                 w.extend_from_slice(&v);
             }
         }
-        let fmt = if key.contains("audio_tower") { Fmt::F16 } else { self.dec_fmt };
-        let weight = Weight::new(ctx, &w, n, k, fmt, (!b.is_empty()).then_some(&b[..]))?;
+        let weight = if qs.is_empty() {
+            let fmt = if key.contains("audio_tower") { Fmt::F16 } else { self.dec_fmt };
+            Weight::new(ctx, &w, n, k, fmt, (!b.is_empty()).then_some(&b[..]))?
+        } else {
+            if !b.is_empty() {
+                return Err(gpu_err(format!("{key}: 8-bit weight with a bias")));
+            }
+            Weight::from_q8(ctx, &qs, &sc, n, k)?
+        };
         self.weights.insert(key, weight);
         Ok(())
     }

@@ -87,6 +87,12 @@ eight on the CPU (`CPU_BATCH`):
 - **The encoder front** (three 3×3 stride-2 convolutions over the mel chunks) gathers the input
   patches and runs one matrix product per group of chunks (`conv3x3s2`); candle's tiled
   convolution took 7 s of a 60-second piece's 11 s in the encoder.
+- **Loading**: the 8-bit decoder weights are cached next to the model (`overfilm-q8.cache`,
+  `qcache.rs`; about 1.9 GB for the 1.7B model) after the first load, keyed by each shard's name,
+  size and time, and used by both the CPU and the GPU load (the GPU took the same blocks from
+  its own quantizer). The remaining bf16 tensors convert to f32 in parallel (`weights.rs`).
+  Loading the 1.7B model on the CPU went from about 22 s to 4 s. `OVERFILM_NO_Q8_CACHE=1`
+  ignores the cache. Each run's stage times (`Transcript::stages`) are printed after a run.
 - **Piece length**: the models take up to 3 minutes (the reference toolkit uses 180 s pieces
   when it needs word times). Longer pieces give the recogniser more of the sentence around each
   word and fewer cuts inside one. M1 aichi, CPU, same build:

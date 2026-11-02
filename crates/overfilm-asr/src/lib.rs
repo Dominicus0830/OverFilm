@@ -25,6 +25,8 @@ pub mod gpu;
 #[cfg(feature = "qwen")]
 pub mod model;
 #[cfg(feature = "qwen")]
+pub mod qcache;
+#[cfg(feature = "qwen")]
 pub mod qmm;
 pub mod speakers;
 pub mod text;

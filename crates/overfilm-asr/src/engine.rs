@@ -210,14 +210,22 @@ fn load_cpu(dir: &Path, cfg: &RootConfig, quantize: bool) -> Result<Thinker, Asr
     let dtype = DType::F32;
     let tc = &cfg.thinker_config.text_config;
     let (head_rows, tied) = head_of(cfg);
-    // a tied head is the embedding: skip the duplicate copy (1.2 GB in f32)
-    let keep = |n: &str| !(tied && n == "thinker.lm_head.weight");
+    let files = shards(dir)?;
+    let (key, cached) = cached_q8(dir, &files, quantize);
+    let fresh = cached.is_empty();
+    // a tied head is the embedding: skip the duplicate copy (1.2 GB in f32); cached 8-bit
+    // weights are not read from the checkpoint at all
+    let keep = |n: &str| !(tied && n == "thinker.lm_head.weight") && !cached.contains_key(n);
     let mut tensors = HashMap::new();
-    let mut qm = model::QMap::new();
-    for p in shards(dir)? {
-        weights::each(&p, dtype, &dev, &keep, &mut |name, t| {
+    let mut qm = cached.clone();
+    let t0 = std::time::Instant::now();
+    let mut quant_s = 0.0;
+    for p in &files {
+        weights::each(p, dtype, &dev, &keep, &mut |name, t| {
             if quantize && quantized_name(&name) {
+                let tq = std::time::Instant::now();
                 qm.insert(name, q8(&t)?);
+                quant_s += secs(tq);
             } else {
                 tensors.insert(name, t);
             }
@@ -226,11 +234,29 @@ fn load_cpu(dir: &Path, cfg: &RootConfig, quantize: bool) -> Result<Thinker, Asr
     }
     if quantize
         && tied
+        && !qm.contains_key("thinker.lm_head.weight")
         && let Some(e) = tensors.get("thinker.model.embed_tokens.weight")
     {
         qm.insert("thinker.lm_head.weight".into(), q8(e)?);
     }
+    if std::env::var_os("OVERFILM_ASR_TRACE").is_some() {
+        eprintln!("load: read {:.1}s, of which quantize {quant_s:.1}s, {} cached", secs(t0), cached.len());
+    }
+    if fresh && !key.is_empty() {
+        crate::qcache::write_later(dir, key, qm.clone());
+    }
     Ok(Thinker::new(&cfg.thinker_config.audio_config, tc, head_rows, tensors, &qm, dtype, &dev)?)
+}
+
+/// The cache key of the checkpoint `files` and its cached 8-bit weights (empty when not
+/// quantizing, or when there is no matching cache).
+fn cached_q8(dir: &Path, files: &[std::path::PathBuf], quantize: bool) -> (String, model::QMap) {
+    if !quantize || std::env::var_os("OVERFILM_NO_Q8_CACHE").is_some() {
+        return (String::new(), model::QMap::new());
+    }
+    let key = crate::qcache::key(files);
+    let cached = crate::qcache::read(dir, &key).unwrap_or_default();
+    (key, cached)
 }
 
 /// Stream the checkpoint to the GPU; only the convolutions and the embedding stay in memory.
@@ -239,14 +265,27 @@ fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Res
     let ac = &cfg.thinker_config.audio_config;
     let tc = &cfg.thinker_config.text_config;
     let (head_rows, tied) = head_of(cfg);
-    let keep = |n: &str| !(tied && n == "thinker.lm_head.weight");
+    let files = shards(dir)?;
+    let (key, cached) = cached_q8(dir, &files, quantize);
+    let fresh = cached.is_empty();
+    let keep = |n: &str| !(tied && n == "thinker.lm_head.weight") && !cached.contains_key(n);
     let embed_name = "thinker.model.embed_tokens.weight";
     let mut cpu = HashMap::new();
     let mut st = gpu::Store::new(if quantize { gpu::Fmt::Q8 } else { gpu::Fmt::F16 });
-    for p in shards(dir)? {
-        weights::each(&p, DType::F32, &dev, &keep, &mut |name, t| {
+    // 8-bit weights are quantized here rather than on upload so they can be cached
+    let mut made = model::QMap::new();
+    for (name, q) in &cached {
+        st.add_q8(ctx, name, q.clone())?;
+    }
+    for p in &files {
+        weights::each(p, DType::F32, &dev, &keep, &mut |name, t| {
             if name.starts_with("thinker.audio_tower.conv") || name == embed_name {
                 cpu.insert(name, t);
+            } else if quantize && quantized_name(&name) {
+                let q = q8(&t)?;
+                drop(t);
+                st.add_q8(ctx, &name, q.clone())?;
+                made.insert(name, q);
             } else {
                 let shape = t.dims().to_vec();
                 st.add(ctx, &name, &shape, t.flatten_all()?.to_vec1::<f32>()?)?;
@@ -254,9 +293,19 @@ fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Res
             Ok(())
         })?;
     }
-    if tied {
+    let head = "thinker.lm_head.weight";
+    if tied && !cached.contains_key(head) {
         let e = cpu.get(embed_name).ok_or_else(|| AsrError::Model("no token embedding".into()))?;
-        st.add_weight(ctx, "thinker.lm_head", &e.flatten_all()?.to_vec1::<f32>()?, tc.vocab_size, tc.hidden_size)?;
+        if quantize {
+            let q = q8(e)?;
+            st.add_q8(ctx, head, q.clone())?;
+            made.insert(head.into(), q);
+        } else {
+            st.add_weight(ctx, "thinker.lm_head", &e.flatten_all()?.to_vec1::<f32>()?, tc.vocab_size, tc.hidden_size)?;
+        }
+    }
+    if fresh && !key.is_empty() {
+        crate::qcache::write_later(dir, key, made);
     }
     let vb = VarBuilder::from_tensors(cpu, DType::F32, &dev);
     let front = AudioFront::new(ac, vb.pp("thinker.audio_tower"))?;
