@@ -388,7 +388,9 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(bad(CMD, format!("{name} is longer than {MAX_HOURS} hours; cut it into parts first")));
         }
         let len = usize::try_from(dur.to_units_floor(i64::from(sr)).max(0)).unwrap_or(0);
-        work.push((item, name, src, len, stream, channels));
+        // teams, players and heroes read off the screen (overfilm.kills.scan), on this clip's clock
+        let prior = crate::overfilm_lineup::prior_for(s, item);
+        work.push((item, name, src, len, stream, channels, prior));
     }
     if work.is_empty() {
         return Err(bad(CMD, "nothing to recognise (put clips with sound in the sequence, or pass `items`)"));
@@ -418,7 +420,7 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
             let mut done_secs = 0u64;
             let mut items = Vec::new();
             let mut reports = Vec::new();
-            for (item, name, src, len, stream, channels) in &work {
+            for (item, name, src, len, stream, channels, prior) in &work {
                 // the sound in one-minute pieces, so a long broadcast can be stopped
                 let step = 60 * sr as usize;
                 let mut audio = Vec::with_capacity(*len);
@@ -441,6 +443,7 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
                     continue;
                 }
                 let secs = audio.len() as u64 / u64::from(sr);
+                let req = Request { prior: prior.clone(), ..req.clone() };
                 let rec = recognise(&audio, &req, &models, &mut |f, m| {
                     prog.done.store(done_secs + (f.clamp(0.0, 1.0) * secs as f32) as u64, Ordering::Relaxed);
                     *lock(&prog.status) = format!("{name}: {m}");
@@ -451,7 +454,8 @@ fn generate(s: &mut Session, p: &Value) -> Result<Value> {
                 let t = to_project(&rec.transcript);
                 lock(&raw_out).push((*item, crate::overfilm_review::raw_chunks(&rec)));
                 reports.push(json!({"item": item.0, "words": t.words.len(), "speakers": t.speakers.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
-                    "voiceLines": rec.voice_lines, "corrections": rec.corrections.len(), "device": rec.device}));
+                    "voiceLines": rec.voice_lines, "corrections": rec.corrections.len(), "device": rec.device,
+                    "matchNames": prior.as_ref().map(|p| p.teams.len() + p.players.len()).unwrap_or(0)}));
                 items.push((*item, t));
             }
             Ok((items, reports))

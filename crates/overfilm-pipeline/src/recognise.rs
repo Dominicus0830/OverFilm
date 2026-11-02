@@ -30,6 +30,8 @@ pub struct Request {
     pub num_speakers: Option<usize>,
     /// Enrolled voices to name speakers after.
     pub known: Vec<overfilm_asr::speakers::KnownVoice>,
+    /// Teams, players and heroes read off the screen (a soft prior, see [`crate::game`]).
+    pub prior: Option<crate::game::MatchPrior>,
 }
 
 impl Request {
@@ -91,12 +93,13 @@ pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) 
     }
     let g = pack::glossary(r.glossary_dir.as_deref(), r.mask_profanity)?;
     let corrector = pack::corrector_with(&g, r.digits);
-    let context = pack::context(&g, r.mode, &r.extra_terms);
+    let prior = r.prior.clone().unwrap_or_default();
+    let context = pack::context_with(&g, r.mode, &r.extra_terms, &prior.context());
     let corrections = std::sync::Mutex::new(Vec::new());
     let raw_texts = std::sync::Mutex::new(Vec::new());
-    let correct = |t: &str| {
+    let correct = |t: &str, start: i64, end: i64| {
         raw_texts.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(t.to_string());
-        let c = corrector.apply(t);
+        let c = if prior.is_empty() { corrector.apply(t) } else { corrector.apply_preferring(t, &prior.preferred(start, end)) };
         corrections.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend(c.changes);
         c.text
     };

@@ -29,6 +29,10 @@
 //!   player) and their heroes' pictures, and the ultimate icon. Each kill is a point marker
 //!   "OverFilm 킬피드: 선수 1 (영웅 1) → 선수 2 (영웅 3)" ("(궁극기)" when made with one). Players
 //!   and heroes are numbered as they first appear until named.
+//! - The same scan also reads who plays what off the name plates (`players`, on by default): the
+//!   heroes on every plate and, in builds with text recognition, the teams and players (see
+//!   `overfilm_lineup`). Markers "OverFilm 경기", "OverFilm 선수", "OverFilm 영웅 선택",
+//!   "OverFilm 영웅 교체"; OverFilm Captions takes the names in play from them.
 //! - `overfilm.killFeed.list {}`: the kills on the active sequence (kill feed markers, else the
 //!   deaths on the name plates) with their times, and the players and heroes of the last scan.
 //! - `overfilm.killFeed.name {kind: "player"|"hero", id, name, templates?}`: name player or hero
@@ -40,7 +44,8 @@ use std::sync::{Arc, Mutex};
 use filmcraft_project::{ItemId, Label, Marker, MarkerId, MarkerKind};
 use filmcraft_time::{TICKS_PER_SECOND, Tick};
 use overfilm_vision::{
-    Death, DeathTracker, FeedReader, FeedScan, FeedTracker, Fight, KillFeed, Luma, PlayerBar, Rgb, Side, UltIcon, UltTracker, UltUse, feedrows, ults,
+    Death, DeathTracker, FeedReader, FeedScan, FeedTracker, Fight, HeroScan, HeroTracker, KillFeed, LineupReader, Luma, MatchInfo, PlayerBar, Rgb, Side,
+    UltIcon, UltTracker, UltUse, feedrows, ults,
 };
 use serde_json::{Value, json};
 
@@ -83,7 +88,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Find Kills, Ultimates and Team Fights (OverFilm)",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"fps":0.5..8=2,"clips":[id]?,"templates":path?,"fightGap":seconds=10,"minKills":n=3,"ultWindow":seconds=6,"wait":bool=false}"#,
+            params: r#"{"fps":0.5..8=2,"clips":[id]?,"templates":path?,"fightGap":seconds=10,"minKills":n=3,"ultWindow":seconds=6,"players":bool=true,"wait":bool=false}"#,
             enabled: has_seq,
             run: scan,
             journal: true,
@@ -230,7 +235,67 @@ pub struct PendingKills {
     pub feed: Arc<Mutex<Option<Vec<i64>>>>,
     /// Who killed whom, read off the kill feed.
     pub feed_scan: Arc<Mutex<Option<FeedScan>>>,
+    /// Teams, players and heroes read off the name plates.
+    pub lineup: Arc<Mutex<Option<(MatchInfo, HeroScan)>>>,
+    pub roster: overfilm_vision::Roster,
 }
+
+/// A new hero portrait counts once it has stayed this long (ms): a death grays the portrait for
+/// the respawn time (about 10 s).
+const HERO_HOLD_MS: i64 = 12_000;
+/// While a stretch's plates are not read well enough, read them this often (ms); after, this
+/// often ([`OCR_SLOW_MS`]).
+#[cfg_attr(not(feature = "overfilm-ocr"), allow(dead_code))]
+const OCR_FAST_MS: i64 = 2_000;
+#[cfg_attr(not(feature = "overfilm-ocr"), allow(dead_code))]
+const OCR_SLOW_MS: i64 = 30_000;
+
+/// The text reader, when this build has one and its models are there (downloaded on first use).
+#[cfg(feature = "overfilm-ocr")]
+type Reader = overfilm_pipeline::ocr::Ocr;
+#[cfg(not(feature = "overfilm-ocr"))]
+type Reader = ();
+
+#[cfg(feature = "overfilm-ocr")]
+fn load_reader(status: &Mutex<String>, cancel: &std::sync::atomic::AtomicBool) -> Option<Reader> {
+    let dir = overfilm_pipeline::models_dir();
+    let r = overfilm_pipeline::ocr::ensure(&dir, &mut |d, t| {
+        *lock(status) = format!("글자 인식 모델 받는 중 {}%", d * 100 / t.max(1));
+        !cancel.load(std::sync::atomic::Ordering::Relaxed)
+    })
+    .and_then(|()| overfilm_pipeline::ocr::Ocr::load(&dir));
+    match r {
+        Ok(o) => Some(o),
+        Err(e) => {
+            *lock(status) = format!("선수 이름은 읽지 않습니다: {e}");
+            None
+        }
+    }
+}
+
+#[cfg(not(feature = "overfilm-ocr"))]
+fn load_reader(_: &Mutex<String>, _: &std::sync::atomic::AtomicBool) -> Option<Reader> {
+    None
+}
+
+/// Read the team names and plates of every bar on one frame into `lineup`.
+#[cfg(feature = "overfilm-ocr")]
+fn read_plates(ocr: &Reader, set: &overfilm_vision::TemplateSet, lineup: &mut LineupReader, at: i64, rgba: &[u8], w: usize, h: usize) {
+    for b in &set.bars {
+        let names = set.team_names.get(usize::from(b.team.saturating_sub(1))).copied();
+        let words = ocr.read(rgba, w, h, overfilm_vision::lineup::read_rect(b, names));
+        let (team, plates) = overfilm_vision::lineup::sort_words(b, names, &words);
+        if let Some(t) = team {
+            lineup.team(at, b.team, &t);
+        }
+        for (k, n) in plates {
+            lineup.name(at, b.team, k, &n);
+        }
+    }
+}
+
+#[cfg(not(feature = "overfilm-ocr"))]
+fn read_plates(_: &Reader, _: &overfilm_vision::TemplateSet, _: &mut LineupReader, _: i64, _: &[u8], _: usize, _: usize) {}
 
 fn scan(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "overfilm.kills.scan";
@@ -250,6 +315,8 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
     let gap_ms = f64_p(p, "fightGap").filter(|v| v.is_finite()).map(|v| (v.clamp(1.0, 120.0) * 1000.0) as i64).unwrap_or(10_000);
     let min_kills = u64_p(p, "minKills").map(|n| n.clamp(1, 20) as usize).unwrap_or(3);
     let ult_window_ms = f64_p(p, "ultWindow").filter(|v| v.is_finite()).map(|v| (v.clamp(1.0, 30.0) * 1000.0) as i64).unwrap_or(6_000);
+    let players = bool_p(p, "players").unwrap_or(true) && !set.bars.is_empty();
+    let roster = overfilm_pipeline::game::roster();
     let (work, total) = sample_plan(s, p, fps, 0)?;
     let id = s.jobs.iter().map(|j| j.id).max().unwrap_or(0) + 1;
     let job = crate::Job { id, label: "OverFilm Kills".into(), progress: Default::default(), result: Default::default() };
@@ -258,8 +325,10 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
     let ults: Arc<Mutex<Option<Vec<UltUse>>>> = Arc::default();
     let feed: Arc<Mutex<Option<Vec<i64>>>> = Arc::default();
     let feed_scan: Arc<Mutex<Option<FeedScan>>> = Arc::default();
-    let (prog, res, out, ult_out, feed_out, scan_out) =
-        (job.progress.clone(), job.result.clone(), deaths.clone(), ults.clone(), feed.clone(), feed_scan.clone());
+    let lineup: Arc<Mutex<Option<(MatchInfo, HeroScan)>>> = Arc::default();
+    let (prog, res, out, ult_out, feed_out, scan_out, lineup_out) =
+        (job.progress.clone(), job.result.clone(), deaths.clone(), ults.clone(), feed.clone(), feed_scan.clone(), lineup.clone());
+    let job_roster = roster.clone();
     let has_live = set.templates.iter().any(|t| t.screen == overfilm_vision::Screen::Live);
     // a plate must read the other way for half a second (at least two samples) to count
     let confirm = (fps / 2.0).ceil().max(2.0) as u8;
@@ -273,6 +342,10 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
         let mut feed_tracker = set.killfeed.clone().filter(|f| f.radius > 0.0).map(|f| FeedTracker::new(f, confirm));
         let mut reader = set.killfeed.as_ref().map(|f| FeedReader::new(set.feed_names.clone(), confirm, (f.row > 0.0).then_some(f.row)));
         let feed_rect = set.killfeed.as_ref().map(|f| f.rect);
+        let mut heroes = players.then(|| HeroTracker::new(set.bars.clone(), HERO_HOLD_MS));
+        let mut plates = players.then(|| LineupReader::new(&set.bars));
+        let ocr = if players { load_reader(&prog.status, &prog.cancel) } else { None };
+        let mut last_ocr = i64::MIN;
         let mut done = 0u64;
         let mut stopped = false;
         'clips: for w in &work {
@@ -282,8 +355,8 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
                     break 'clips;
                 }
                 // the kill feed's names are small: decode bigger while it is read
-                let scale = match (&reader, w.src.info().video.as_ref()) {
-                    (Some(_), Some(v)) => ((FEED_WIDTH as f64 / v.width.max(1) as f64).min(1.0) as f32).max(w.scale),
+                let scale = match (reader.is_some() || players, w.src.info().video.as_ref()) {
+                    (true, Some(v)) => ((FEED_WIDTH as f64 / v.width.max(1) as f64).min(1.0) as f32).max(w.scale),
                     _ => w.scale,
                 };
                 if let Ok(f) = w.src.video_frame(filmcraft_media::FrameRequest { time: *mt, scale })
@@ -296,6 +369,20 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
                         r.push(st.0 / TICKS_PER_MS, &crop, !has_live || set.live(&l));
                     }
                     let live = !has_live || set.live(&l);
+                    let at = st.0 / TICKS_PER_MS;
+                    if let Some(h) = heroes.as_mut() {
+                        h.push(at, &rgba, f.width as usize, f.height as usize, &l, live);
+                    }
+                    if let Some(lr) = plates.as_mut() {
+                        lr.sample(at, live);
+                        if let Some(o) = ocr.as_ref()
+                            && live
+                            && at.saturating_sub(last_ocr) >= if lr.settled(at) { OCR_SLOW_MS } else { OCR_FAST_MS }
+                        {
+                            read_plates(o, &set, lr, at, &rgba, f.width as usize, f.height as usize);
+                            last_ocr = at;
+                        }
+                    }
                     tracker.push(st.0 / TICKS_PER_MS, &l, live);
                     ult_tracker.push(st.0 / TICKS_PER_MS, &l, live);
                     if let Some(f) = feed_tracker.as_mut() {
@@ -322,6 +409,9 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
                 _ => {}
             }
             *lock(&scan_out) = read;
+            if let (Some(h), Some(lr)) = (heroes, plates) {
+                *lock(&lineup_out) = Some((lr.finish(&job_roster), h.finish(&set.hero_names)));
+            }
             if !ult_tracker.is_empty() {
                 *lock(&ult_out) = Some(ults::without_deaths(&ult_tracker.into_uses(), &d, ULT_DEATH_GUARD));
             }
@@ -350,6 +440,8 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
         ults: ults.clone(),
         feed: feed.clone(),
         feed_scan: feed_scan.clone(),
+        lineup: lineup.clone(),
+        roster,
     });
     let mut out = json!({"job": id, "frames": total, "templates": path});
     if bool_p(p, "wait").unwrap_or(false) || cfg!(target_arch = "wasm32") {
@@ -358,7 +450,19 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
         let found_ults = lock(&ults).clone();
         let found_feed = lock(&feed).clone();
         let found_scan = lock(&feed_scan).clone();
+        let found_lineup = lock(&lineup).clone();
         poll(s);
+        if let Some((info, h)) = found_lineup {
+            out["teams"] = json!(
+                info.teams
+                    .iter()
+                    .filter_map(|t| t.and_then(|t| s.overfilm_lineup.as_ref().and_then(|l| l.roster.teams.get(t))).map(|t| t.name.clone()))
+                    .collect::<Vec<_>>()
+            );
+            out["players"] = json!(info.players().len());
+            out["heroSwaps"] = json!(h.events.iter().filter(|e| !e.picked()).count());
+            out["heroes"] = json!(h.prints.len());
+        }
         if let Some(fs) = found_scan {
             out["feedKills"] = fs.events.iter().map(|e| json!({"at": clock(e.at), "kill": fs.line(e), "ult": e.ult})).collect();
         }
@@ -405,6 +509,7 @@ pub fn poll(s: &mut Session) {
         let found_ults = lock(&pj.ults).take();
         let found_feed = lock(&pj.feed).take();
         let found_scan = lock(&pj.feed_scan).take();
+        let found_lineup = lock(&pj.lineup).take();
         if s.state.active_sequence != Some(pj.seq) {
             s.error_toast("overfilm.kills.scan", "the kill scan finished on a sequence that is no longer open; nothing was changed");
             continue;
@@ -422,6 +527,13 @@ pub fn poll(s: &mut Session) {
                 s.error_toast("overfilm.kills.scan", format!("Kill feed: {e}"));
             }
             s.overfilm_feed = Some(FeedState { seq: pj.seq, scan: fs });
+        }
+        if let Some((info, heroes)) = found_lineup {
+            let st = crate::overfilm_lineup::LineupState { seq: pj.seq, info, heroes, roster: pj.roster };
+            if let Err(e) = crate::overfilm_lineup::mark(s, &st) {
+                s.error_toast("overfilm.kills.scan", format!("Players and heroes: {e}"));
+            }
+            s.overfilm_lineup = Some(st);
         }
     }
 }

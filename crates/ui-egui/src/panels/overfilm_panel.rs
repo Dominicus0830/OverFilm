@@ -121,6 +121,8 @@ struct Facts {
     tools: Vec<(&'static str, bool)>,
     /// `overfilm.killFeed.list`: the kills and who is who.
     kills: Value,
+    /// `overfilm.heroes.list`: the teams, players and hero portraits read off the name plates.
+    lineup: Value,
 }
 
 fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
@@ -132,6 +134,7 @@ fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
     }
     let kills =
         if app.session.active_sequence().is_some() { app.session.execute("overfilm.killFeed.list", json!({})).unwrap_or_default() } else { Value::Null };
+    let lineup = if app.session.active_sequence().is_some() { app.session.execute("overfilm.heroes.list", json!({})).unwrap_or_default() } else { Value::Null };
     let s = &app.session;
     let f = Facts {
         at: now,
@@ -140,6 +143,7 @@ fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
         has_words: !filmcraft_engine::transcript::sequence_words(s).is_empty(),
         tools: TOOLS.iter().map(|(k, _)| (*k, s.is_enabled(k))).collect(),
         kills,
+        lineup,
     };
     ctx.data_mut(|m| m.insert_temp(id, f.clone()));
     f
@@ -177,6 +181,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         .unwrap_or_default();
     let (mut run, mut stop, mut settings, mut tool) = (false, false, false, None::<&'static str>);
     let (mut seek, mut name) = (None::<i64>, None::<(&'static str, u64, String)>);
+    let mut hero_name = None::<(u64, String)>;
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(10.0, 8.0))));
     let ui = &mut child;
     egui::ScrollArea::vertical().id_salt("overfilm-panel-scroll").auto_shrink([false, false]).show(ui, |ui| {
@@ -333,6 +338,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             }
         });
         kill_list(ui, &mut elems, &facts.kills, &mut p, &mut seek, &mut name, t);
+        lineup_list(ui, &mut elems, &facts.lineup, &mut p, &mut hero_name, t);
     });
     for (id, r, l) in elems {
         app.auto.add(&id, r, &l);
@@ -359,6 +365,12 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             Err(e) => app.ui.status = plain_error(&e.to_string()),
         }
     }
+    if let Some((id, n)) = hero_name {
+        match app.session.execute("overfilm.heroes.name", json!({"id": id, "name": n})) {
+            Ok(_) => ctx.data_mut(|m| m.remove::<Facts>(egui::Id::unique("overfilm-panel-facts"))),
+            Err(e) => app.ui.status = plain_error(&e.to_string()),
+        }
+    }
     if stop && let Err(e) = app.session.execute("overfilm.flow.stop", json!({})) {
         app.ui.status = plain_error(&e.to_string());
     }
@@ -373,6 +385,61 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
     ctx.data_mut(|m| m.insert_temp(state_id(), p));
+}
+
+/// The teams and players read off the screen, and the heroes on the name plates to name (the
+/// markers "OverFilm 영웅 선택/교체" use the names, and so do OverFilm Captions).
+fn lineup_list(ui: &mut egui::Ui, elems: &mut Elems, lineup: &Value, p: &mut Value, name: &mut Option<(u64, String)>, t: crate::theme::Tokens) {
+    let heroes = lineup["heroes"].as_array().cloned().unwrap_or_default();
+    let teams: Vec<&str> = lineup["teams"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    let players: Vec<&str> = lineup["players"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    if heroes.is_empty() && teams.is_empty() && players.is_empty() {
+        return;
+    }
+    ui.add_space(10.0);
+    ui.separator();
+    ui.label(RichText::new(tl!("Match on screen")).strong());
+    if teams.len() == 2 {
+        let r = ui.label(format!("{} vs {}", teams[0], teams[1]));
+        elems.push((format!("{PRE}.match.teams"), r.rect, format!("{} vs {}", teams[0], teams[1])));
+    }
+    if !players.is_empty() {
+        let line = players.join(", ");
+        let r = ui.label(RichText::new(&line).color(t.text_dim).size(11.0));
+        elems.push((format!("{PRE}.match.players"), r.rect, line));
+    }
+    if heroes.is_empty() {
+        return;
+    }
+    egui::CollapsingHeader::new(tl!("Name the heroes on the name plates")).id_salt("overfilm-panel-plate-heroes").show(ui, |ui| {
+        ui.label(
+            RichText::new(tl!("Each hero is numbered where it first appears (see the hero markers). Name it once: OverFilm knows the portrait again in later videos, and captions prefer the heroes in play."))
+                .color(t.text_dim)
+                .size(11.0),
+        );
+        egui::Grid::new("overfilm-panel-plate-heroes-grid").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
+            for it in &heroes {
+                let id = it["id"].as_u64().unwrap_or(0);
+                ui.label(it["name"].as_str().unwrap_or_default());
+                ui.label(RichText::new(it["first"].as_str().unwrap_or_default()).color(t.text_dim).size(11.0));
+                let key = format!("plate.{id}");
+                let mut v = p["names"][&key].as_str().unwrap_or_default().to_string();
+                let r = ui.add(egui::TextEdit::singleline(&mut v).hint_text(tl!("hero name")).desired_width(120.0));
+                elems.push((format!("{PRE}.heroName.{id}"), r.rect, v.clone()));
+                let b = ui.add_enabled(!v.trim().is_empty(), egui::Button::new(tl!("Save")));
+                elems.push((format!("{PRE}.heroName.{id}.save"), b.rect, "Save".into()));
+                if b.clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !v.trim().is_empty()) {
+                    *name = Some((id, v.trim().to_string()));
+                    v.clear();
+                }
+                if !p["names"].is_object() {
+                    p["names"] = json!({});
+                }
+                p["names"][&key] = json!(v);
+                ui.end_row();
+            }
+        });
+    });
 }
 
 /// The kills found on the sequence (kill feed: who killed whom; else the name plates' deaths),

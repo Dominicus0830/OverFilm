@@ -37,6 +37,10 @@ pub struct PlayerBar {
     /// The ready-ultimate icon on these plates, once learnt (see [`crate::ults`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ult: Option<crate::ults::UltIcon>,
+    /// The first plate's hero portrait (frame-relative), when it is not where the OWCS layout
+    /// has it (see [`crate::heroes::portrait`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portrait: Option<NRect>,
 }
 
 impl PlayerBar {
@@ -44,7 +48,7 @@ impl PlayerBar {
     pub fn learn(frame: &Luma, team: u8, rect: NRect, players: u8) -> Result<PlayerBar, VisionError> {
         let rect = rect.clamped().ok_or(VisionError::EmptyRect)?;
         let players = players.clamp(1, MAX_PLAYERS);
-        let mut bar = PlayerBar { team: team.clamp(1, 2), rect, players, alive_dark: Vec::new(), ult: None };
+        let mut bar = PlayerBar { team: team.clamp(1, 2), rect, players, alive_dark: Vec::new(), ult: None, portrait: None };
         bar.alive_dark = (0..players).map(|k| dark_share(frame, bar.slot(k))).collect();
         if bar.alive_dark.iter().all(|&d| d > DEAD_SHARE) {
             return Err(VisionError::Templates("every plate looks dark: learn the bar on a frame where the team is alive".into()));

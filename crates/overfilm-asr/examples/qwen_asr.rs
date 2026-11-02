@@ -19,7 +19,7 @@ fn main() {
         quantize,
         context: ctx.trim(),
         language: Some("Korean"),
-        correct: &|t: &str| t.to_string(),
+        correct: &|t: &str, _, _| t.to_string(),
         gpu: a.iter().any(|s| s == "gpu"),
     };
     let t0 = std::time::Instant::now();

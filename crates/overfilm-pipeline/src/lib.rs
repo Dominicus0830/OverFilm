@@ -8,6 +8,9 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
 pub mod clean;
+pub mod game;
+#[cfg(feature = "ocr")]
+pub mod ocr;
 pub mod pack;
 #[cfg(feature = "qwen")]
 pub mod recognise;
