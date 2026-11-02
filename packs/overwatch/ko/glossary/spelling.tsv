@@ -7,6 +7,7 @@ ban_eul	밴을				벤을	noeval
 ban_eun	밴은				벤은	noeval
 ban_do	밴도				벤도	noeval
 ban_ha	밴하				벤하	noeval
+ban_haneun	밴하는				베나는; 배나는	noeval
 ban_hae	밴해				벤해	noeval
 ban_haet	밴했				벤했	noeval
 ban_haneu	밴 하느				벤 하느	noeval
@@ -57,3 +58,9 @@ bwaeyo	봬요				뵈요	noeval inword
 ttwimnida	띕니				띱니	noeval inword
 geolgeol	할걸				할껄	noeval inword
 cb_nick	치벅				치억; 시벅	noeval
+# 뒷라인 (딜러·힐러 쪽 후방): 빠르게 말하면 딜라인으로 들림
+back_line	뒷라인				딜라인	noeval
+# 꿀 빨다 (쉽게 이득 보다): 꼴로 들리는 경우. "꼴을 빨다"는 없는 말
+kkul_ppal	꿀을 빨				꼴을 빨	noeval
+# 냥이 (제트팩 캣 별명): 양이로 들리는 경우. 양이는 흔한 말이라 영웅 이름 바로 앞뒤일 때만 (솜브라와 양이 캐서디 연계)
+nyangi	냥이				양이@영웅	noeval

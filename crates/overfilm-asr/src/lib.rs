@@ -2,8 +2,9 @@
 //! candle (CPU), with the model catalogue and download, low-energy chunking and a word-timed
 //! transcript pipeline.
 //!
-//! Recognition ([`Asr`]) takes ≤ 30 s of 16 kHz mono audio, an optional context text (glossary
-//! terms; it measurably fixes hero and term names) and a forced language. Alignment
+//! Recognition ([`Asr`]) takes a piece (≤ [`MAX_CHUNK_SECONDS`]) of 16 kHz mono audio, an
+//! optional context text (glossary terms; it measurably fixes hero and term names) and a forced
+//! language. Alignment
 //! ([`Aligner`]) gives each word of that text a start and end time. [`transcribe`] runs both over
 //! a whole file's audio. See `OVERFILM.md` → "Speech recognition".
 //!
@@ -23,6 +24,10 @@ mod engine;
 pub mod gpu;
 #[cfg(feature = "qwen")]
 pub mod model;
+#[cfg(feature = "qwen")]
+pub mod qcache;
+#[cfg(feature = "qwen")]
+pub mod qmm;
 pub mod speakers;
 pub mod text;
 pub mod tokenizer;
@@ -37,8 +42,10 @@ use serde::{Deserialize, Serialize};
 
 /// Input sample rate.
 pub const SAMPLE_RATE: u32 = 16_000;
-/// Longest audio handed to the models at once (the measured setup: 30 s windows).
-pub const MAX_CHUNK_SECONDS: f32 = 30.0;
+/// Longest audio handed to the models at once. The models take up to 3 minutes; 60 s pieces
+/// gave fewer wrong characters than 30 s ones on the M1 set (CER 6.6 → 6.25 %, 120 s: 6.20 %)
+/// and still leave room to decode three or four side by side on the GPU.
+pub const MAX_CHUNK_SECONDS: f32 = 60.0;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AsrError {
@@ -94,6 +101,31 @@ pub struct Transcript {
     /// Speakers found (empty when speakers were not labelled).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub speakers: Vec<Speaker>,
+    /// How long each stage took, in the order the stages first ran (empty for old transcripts).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stages: Vec<Stage>,
+    /// Seconds of quiet left out of recognition ([`Settings::skip_silence`]).
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub silence_skipped: f32,
+}
+
+/// Time spent in one stage of a run (all of its pieces together).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Stage {
+    /// Shown to the user, e.g. "글자 생성".
+    pub name: String,
+    pub seconds: f32,
+    /// Things the stage produced when that is worth showing (tokens for text generation).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub count: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+fn is_zero_f32(n: &f32) -> bool {
+    *n == 0.0
 }
 
 /// One voice in the transcript.
@@ -121,6 +153,32 @@ pub struct ChunkText {
 }
 
 impl Transcript {
+    /// Add `seconds` (and `count`) to the stage `name`, starting it at the end when new.
+    pub fn add_stage(&mut self, name: &str, seconds: f32, count: usize) {
+        let seconds = if seconds.is_finite() { seconds.max(0.0) } else { 0.0 };
+        match self.stages.iter_mut().find(|s| s.name == name) {
+            Some(s) => {
+                s.seconds += seconds;
+                s.count = s.count.saturating_add(count);
+            }
+            None => self.stages.push(Stage { name: name.to_string(), seconds, count }),
+        }
+    }
+
+    /// One line for summaries: "모델 불러오기 12초 · 글자 생성 405초 (12000개, 초당 30) · …".
+    /// Stages under a tenth of a second are left out; empty when nothing was timed.
+    pub fn stage_summary(&self) -> String {
+        self.stages
+            .iter()
+            .filter(|s| s.seconds >= 0.1)
+            .map(|s| {
+                let t = if s.seconds >= 10.0 { format!("{:.0}초", s.seconds) } else { format!("{:.1}초", s.seconds) };
+                if s.count > 0 { format!("{} {t} ({}개, 초당 {:.0})", s.name, s.count, s.count as f32 / s.seconds) } else { format!("{} {t}", s.name) }
+            })
+            .collect::<Vec<_>>()
+            .join(" · ")
+    }
+
     pub fn words(&self) -> impl Iterator<Item = &Word> {
         self.chunks.iter().flat_map(|c| c.words.iter())
     }
@@ -138,6 +196,10 @@ pub struct Settings<'a> {
     pub correct: &'a dyn Fn(&str) -> String,
     /// Use the GPU when there is one (falls back to the CPU).
     pub gpu: bool,
+    /// Leave out quiet stretches of [`chunk::MIN_SILENCE_SEC`] or more (see
+    /// [`chunk::split_voiced`]). Safe on a voice-only track; on sound mixed with the game a soft
+    /// voice under loud game sound can be lost, so callers keep it off there unless asked.
+    pub skip_silence: bool,
 }
 
 #[cfg_attr(not(feature = "qwen"), allow(dead_code))]
@@ -175,6 +237,23 @@ pub(crate) fn timed_words(text: &str, times: &[(i64, i64)], offset_ms: i64) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stages_add_up_and_summarise() {
+        let mut t = Transcript::default();
+        assert_eq!(t.stage_summary(), "");
+        t.add_stage("모델 불러오기", 2.0, 0);
+        t.add_stage("글자 생성", 50.0, 1000);
+        t.add_stage("글자 생성", 50.0, 1000);
+        t.add_stage("모델 불러오기", f32::NAN, 0);
+        t.add_stage("시간 맞춤", 0.01, 0);
+        assert_eq!(t.stages.len(), 3, "same name adds up");
+        assert_eq!(t.stage_summary(), "모델 불러오기 2.0초 · 글자 생성 100초 (2000개, 초당 20)");
+        let back: Transcript = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+        assert_eq!(back.stages, t.stages);
+        let old: Transcript = serde_json::from_str(r#"{"language":"ko","chunks":[]}"#).unwrap();
+        assert!(old.stages.is_empty());
+    }
 
     #[test]
     fn words_keep_punctuation_and_times() {

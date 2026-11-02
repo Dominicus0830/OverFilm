@@ -1,5 +1,5 @@
 // y[r, n_off + n] (=|+=) x[r, :] · w[n, :] (+ bias[n_off + n]) for every row r of x and row n of
-// one part of the weight. Two kernels: `vec` (≤ 4 rows: decoding one token, memory-bound) and
+// one part of the weight. Two kernels: `mv` (≤ 8 rows: decoding, memory-bound) and
 // `tile` (64×64 output tiles through workgroup memory: prefill, compute-bound).
 // `w4(n, k4)` (prepended: q8.wgsl or f16.wgsl) gives weights k = 4·k4 … 4·k4 + 3 of row n.
 
@@ -45,11 +45,13 @@ fn store(r: u32, n: u32, v: f32) {
     y[i] = o;
 }
 
-const MV: u32 = 4u;
-var<workgroup> red: array<f32, 1024>;
+const MV: u32 = 8u;
+var<workgroup> red: array<f32, 2048>;
 
-// 256 threads: 4 weight rows × 64 lanes; input rows 4·z … 4·z + 3 (z = workgroup id z), so it also
-// does a whole prefill when the tiled kernel is unusable on this GPU.
+// 256 threads: 4 weight rows × 64 lanes; input rows 8·z … 8·z + 7 (z = workgroup id z), so each
+// weight is read once for up to eight rows (eight pieces decoded side by side), and it also does
+// a whole prefill when the tiled kernel is unusable on this GPU. Two vec4 accumulators (no
+// dynamically indexed private arrays: some drivers miscompile them).
 @compute @workgroup_size(256)
 fn mv(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wg: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
     let col = li / 64u;
@@ -62,35 +64,51 @@ fn mv(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wg: vec3<
     }
     let nr = min(all - base, MV);
     let k4n = p.k / 4u;
-    var acc = vec4<f32>(0.0);
+    var lo = vec4<f32>(0.0);
+    var hi = vec4<f32>(0.0);
     if n < p.n {
         for (var i = lane; i < k4n; i += 64u) {
             let w = w4(n, i);
             let xb = base * k4n + i;
-            acc.x += dot(w, x[xb]);
+            lo.x += dot(w, x[xb]);
             if nr > 1u {
-                acc.y += dot(w, x[xb + k4n]);
+                lo.y += dot(w, x[xb + k4n]);
             }
             if nr > 2u {
-                acc.z += dot(w, x[xb + 2u * k4n]);
+                lo.z += dot(w, x[xb + 2u * k4n]);
             }
             if nr > 3u {
-                acc.w += dot(w, x[xb + 3u * k4n]);
+                lo.w += dot(w, x[xb + 3u * k4n]);
+            }
+            if nr > 4u {
+                hi.x += dot(w, x[xb + 4u * k4n]);
+            }
+            if nr > 5u {
+                hi.y += dot(w, x[xb + 5u * k4n]);
+            }
+            if nr > 6u {
+                hi.z += dot(w, x[xb + 6u * k4n]);
+            }
+            if nr > 7u {
+                hi.w += dot(w, x[xb + 7u * k4n]);
             }
         }
     }
     let b = col * 64u + lane;
-    red[b] = acc.x;
-    red[256u + b] = acc.y;
-    red[512u + b] = acc.z;
-    red[768u + b] = acc.w;
+    red[b] = lo.x;
+    red[256u + b] = lo.y;
+    red[512u + b] = lo.z;
+    red[768u + b] = lo.w;
+    red[1024u + b] = hi.x;
+    red[1280u + b] = hi.y;
+    red[1536u + b] = hi.z;
+    red[1792u + b] = hi.w;
     workgroupBarrier();
     for (var st = 32u; st > 0u; st >>= 1u) {
         if lane < st {
-            red[b] += red[b + st];
-            red[256u + b] += red[256u + b + st];
-            red[512u + b] += red[512u + b + st];
-            red[768u + b] += red[768u + b + st];
+            for (var r = 0u; r < MV; r++) {
+                red[r * 256u + b] += red[r * 256u + b + st];
+            }
         }
         workgroupBarrier();
     }

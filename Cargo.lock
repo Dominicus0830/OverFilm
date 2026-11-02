@@ -4770,12 +4770,15 @@ dependencies = [
 name = "overfilm-asr"
 version = "0.14.0"
 dependencies = [
+ "bytemuck",
  "candle-core",
  "candle-nn",
  "fancy-regex",
  "filmcraft-speech",
  "half",
  "pollster 1.0.1",
+ "pulp",
+ "rayon",
  "serde",
  "serde_json",
  "tempfile",

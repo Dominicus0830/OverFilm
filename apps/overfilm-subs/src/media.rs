@@ -31,6 +31,14 @@ pub fn audio_tracks(path: &Path) -> Result<Vec<String>, String> {
     Ok(src.info().audio_streams.iter().enumerate().map(|(i, a)| track_label(i, a)).collect())
 }
 
+/// Whether the sound is inside a video (its only audio track) or separate (one of several
+/// tracks, or a sound-only file): see [`overfilm_pipeline::recognise::skip_silence_default`].
+pub fn sound_source(path: &Path) -> Result<overfilm_pipeline::recognise::SoundSource, String> {
+    let (_, src) = open(path)?;
+    let info = src.info();
+    Ok(overfilm_pipeline::recognise::SoundSource::of(info.has_video(), info.audio_streams.len()))
+}
+
 fn track_label(i: usize, a: &filmcraft_media::AudioStreamInfo) -> String {
     let ch = match a.channels {
         1 => "모노".to_string(),

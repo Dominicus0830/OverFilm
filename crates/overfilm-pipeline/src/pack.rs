@@ -171,6 +171,13 @@ mod tests {
         assert_eq!(c.apply("티온이 동커퀸 아이언발드 백기 선수").text, "티원이 정커퀸 아이헨발데 베키 선수");
         // Quick speech (the M1 aichi video at 1.35x): a known word running into the rest of a name.
         assert_eq!(c.apply("솜브라 로더그가 사기였던 제트팩킷").text, "솜브라 로드호그가 사기였던 제트팩 캣");
+        // aichi tier list: "히트박스 패치로 꿀을 빨고 있었던"
+        assert_eq!(c.apply("패치로 꼴을 빨고 있었던").text, "패치로 꿀을 빨고 있었던");
+        // user report on the same video: 냥이 (제트팩 캣) heard as 양이, and English "two"
+        assert_eq!(c.apply("솜브라와 양이캐서디 연계가").text, "솜브라와 냥이캐서디 연계가");
+        assert_eq!(c.apply("밥 양이 많다").text, "밥 양이 많다");
+        assert_eq!(c.apply("그냥 메인 딜러 투라고 표기해 봤습니다").text, "그냥 메인 딜러 2라고 표기해 봤습니다");
+        assert_eq!(c.apply("저는 지금 투 서브 딜러가").text, "저는 지금 투 서브 딜러가");
     }
 
     #[test]

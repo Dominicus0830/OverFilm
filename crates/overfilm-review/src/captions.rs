@@ -102,6 +102,13 @@ pub fn doubts(text: &str, words: &[CapWord], raw: Option<&str>, corrected: &str,
     {
         why.push("단어집 교정으로 인식 결과가 바뀜".into());
     }
+    // "two" said in English: a numbered name (오버워치 2, 메인 딜러 2) or "two" before a word
+    // (투 서브 딜러); the correction step decides by rule, the context may say otherwise
+    let spoken_two = |t: &str| t.split_whitespace().any(|w| w == "투");
+    let made_two = raw.is_some_and(|r| r.split_whitespace().any(|w| w.starts_with('투'))) && text.contains('2');
+    if spoken_two(text) || raw.is_some_and(spoken_two) || made_two {
+        why.push("영어로 읽은 숫자 '투'(two): 앞뒤 문맥으로 2로 쓸지 투로 둘지 판단".into());
+    }
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     if lines.len() > lim.max_lines as usize {
         why.push(format!("{}줄 (최대 {}줄)", lines.len(), lim.max_lines));
@@ -217,6 +224,8 @@ pub fn system(lim: &Limits) -> String {
 - split: 너무 긴 자막이나 두 문장이 섞인 자막을 parts에 순서대로 나눠 쓴다 (2~4개, 각각 위 줄 규칙을 지킨다).\n\
 규칙: 들리지 않은 말을 지어내지 않는다. 고칠 근거(순수 인식, 앞뒤 문맥, 오버워치 용어)가 없으면 keep. \
 오버워치 용어는 교정본의 표기를 따른다. 욕설은 초성으로 쓴다(예: ㅅㅂ). '(화자1)' 같은 화자 표시는 그대로 둔다. \
+숫자: 영어로 읽은 '투'(two)·'원'(one)이 이름이나 순번 뒤에 오면 숫자로 쓴다(오버워치 2, 메인 딜러 2, 시즌 1). \
+뒤의 말을 꾸미는 '두 개'라는 뜻이면 그대로 둔다(투 서브 딜러, 투 히트, 투탱). 단위 앞의 한국어 숫자는 아라비아 숫자로 쓴다(5시즌, 13위, 6개월). \
 reason은 한국어 한 문장.",
         lim.max_lines,
         lim.line_width / 2
@@ -417,6 +426,11 @@ mod tests {
         let (d, _) = doubts("가나다라마바사아자차카타파하가나다라\n가", &[], None, "", Some("네"), &lim);
         assert_eq!(d.len(), 3, "{d:?}");
         assert!(doubts("좋습니다.", &[cw("좋습니다.", 0, 1, 0.9)], None, "좋습니다.", Some("네"), &lim).0.is_empty());
+        // "two" said in English, still there or written as 2 by the correction
+        let two = |t: &str, raw: Option<&str>| doubts(t, &[], raw, t, None, &lim).0.iter().any(|d| d.contains("'투'"));
+        assert!(two("지금 투 서브 딜러가", None));
+        assert!(two("메인 딜러 2라고", Some("메인 딜러 투라고")));
+        assert!(!two("이번 투표는", None));
     }
 
     #[test]

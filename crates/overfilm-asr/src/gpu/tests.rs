@@ -55,6 +55,25 @@ fn self_check_passes_without_tiles() {
     assert!(r.iter().any(|x| x.name.contains("vec(prefill)")));
 }
 
+/// With the 16-bit tiled kernel switched on (when the device has shader-f16), prefills, the tiny
+/// decoder and encoder still match the CPU.
+#[test]
+fn self_check_passes_with_16_bit_tiles() {
+    let Some(c) = ctx() else { return };
+    if c.k.tile16.is_none() {
+        eprintln!("skipped: no shader-f16");
+        return;
+    }
+    c.set_half(true);
+    assert!(check::tile_ok(&c).unwrap());
+    let r = check::report(&c);
+    for x in &r {
+        eprintln!("{x}");
+    }
+    assert!(r.iter().all(check::Report::ok));
+    assert!(r.iter().any(|x| x.name.contains("tile16")));
+}
+
 /// One product through both kernels, both formats, split into parts, against f32.
 #[test]
 fn products_match() {
@@ -63,7 +82,7 @@ fn products_match() {
     let (n, k) = (200, 96);
     let w = rng.vec(n * k, 0.5);
     let bias = rng.vec(n, 0.5);
-    for rows in [1usize, 3, 70] {
+    for rows in [1usize, 3, 6, 8, 70] {
         let x = rng.vec(rows * k, 1.0);
         let (xr, wr) = (&x, &w);
         let want: Vec<f32> = (0..rows).flat_map(|r| (0..n).map(move |j| (0..k).map(|i| xr[r * k + i] * wr[j * k + i]).sum::<f32>())).collect();
@@ -160,6 +179,7 @@ fn decoder_matches() {
         eps: tc.rms_norm_eps as f32,
         theta: tc.rope_theta,
         head_rows,
+        kv_cap: KV_CAP,
     };
     let mut gpu = Text::new(&c, d, &mut st, "thinker").unwrap();
     let h = tc.hidden_size;
@@ -187,6 +207,152 @@ fn decoder_matches() {
     assert_eq!(got, want);
     // the cache bound is an error, not a crash
     assert!(gpu.forward(&rng.vec((KV_CAP + 1) * h, 1.0), false, true).is_err());
+}
+
+fn small_decoder(rng: &mut Rng, head_rows: usize, quantize: bool) -> (TextConfig, Vec<(String, Vec<usize>, Vec<f32>)>, TextModel) {
+    let tc = text_config();
+    let tensors = text_tensors(&tc, head_rows, rng);
+    let dev = Device::Cpu;
+    let mut qm = QMap::new();
+    let mut map: HashMap<String, Tensor> = HashMap::new();
+    for (n, s, d) in &tensors {
+        let t = Tensor::from_vec(d.clone(), s.as_slice(), &dev).unwrap();
+        if quantize && n.ends_with("_proj.weight") {
+            qm.insert(n.clone(), Arc::new(crate::qmm::Q8::quantize(&t).unwrap()));
+        } else {
+            map.insert(n.clone(), t);
+        }
+    }
+    let vb = VarBuilder::from_tensors(map, DType::F32, &dev).pp("thinker");
+    let cpu = TextModel::new(&tc, head_rows, vb, &qm).unwrap();
+    (tc, tensors, cpu)
+}
+
+fn argmax_and_p(v: &[f32]) -> (u32, f32) {
+    let best = v.iter().enumerate().fold((0, f32::MIN), |b, (i, &x)| if x > b.1 { (i, x) } else { b });
+    let sum: f32 = v.iter().map(|x| (x - best.1).exp()).sum();
+    (best.0 as u32, 1.0 / sum)
+}
+
+/// Two sequences after a shared prefix, decoded one at a time on the CPU: the reference for the
+/// side-by-side passes.
+fn one_at_a_time(cpu: &mut TextModel, h: usize, prefix: &[f32], seqs: &[(Vec<f32>, Vec<Vec<f32>>)]) -> Vec<Vec<Vec<f32>>> {
+    let dev = Device::Cpu;
+    let t = |v: &[f32]| Tensor::from_vec(v.to_vec(), (1, v.len() / h, h), &dev).unwrap();
+    let mut all = Vec::new();
+    for (pre, steps) in seqs {
+        cpu.clear_cache();
+        cpu.forward(&t(prefix), true, true).unwrap();
+        let mut outs = vec![cpu.forward(&t(pre), true, true).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap()];
+        for x in steps {
+            outs.push(cpu.forward(&t(x), true, true).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap());
+        }
+        all.push(outs);
+    }
+    all
+}
+
+/// Several sequences side by side on the CPU (one product for all rows, attention per row)
+/// give what each gives alone, with 8-bit weights too.
+#[test]
+fn cpu_rows_of_different_sequences() {
+    // past the first growth of the key/value buffers
+    const STEPS: usize = 270;
+    for quantize in [false, true] {
+        let mut rng = Rng(11);
+        let (tc, _, mut cpu) = small_decoder(&mut rng, 40, quantize);
+        let h = tc.hidden_size;
+        let dev = Device::Cpu;
+        let prefix = rng.vec(5 * h, 1.0);
+        let seqs: Vec<(Vec<f32>, Vec<Vec<f32>>)> = (0..3).map(|k| (rng.vec((3 + k) * h, 1.0), (0..STEPS).map(|_| rng.vec(h, 1.0)).collect())).collect();
+        let want = one_at_a_time(&mut cpu, h, &prefix, &seqs);
+        // the prefills together after the cached prefix
+        cpu.clear_cache();
+        cpu.forward(&Tensor::from_vec(prefix.clone(), (1, 5, h), &dev).unwrap(), true, true).unwrap();
+        let xs: Vec<Tensor> = seqs.iter().map(|(pre, _)| Tensor::from_vec(pre.clone(), (pre.len() / h, h), &dev).unwrap()).collect();
+        let (first, mut caches) = cpu.prefill_seqs(&xs).unwrap();
+        assert_eq!(cpu.pos, 5, "the prefix stays");
+        for (k, w) in want.iter().enumerate() {
+            let e = max_rel(&first.get(k).unwrap().to_vec1::<f32>().unwrap(), &w[0]);
+            assert!(e < 1e-4, "quantize {quantize}, prefill {k}: {e}");
+        }
+        for step in 0..STEPS {
+            let x: Vec<f32> = seqs.iter().flat_map(|(_, st)| st[step].clone()).collect();
+            let mut rows: Vec<&mut model::SeqCache> = caches.iter_mut().collect();
+            let got = cpu.forward_rows(&Tensor::from_vec(x, (3, h), &dev).unwrap(), &mut rows).unwrap();
+            for (k, w) in want.iter().enumerate() {
+                let g = got.get(k).unwrap().to_vec1::<f32>().unwrap();
+                let e = max_rel(&g, &w[step + 1]);
+                // 8-bit inputs: a last-digit difference can round a value to the next step;
+                // the batched cache holds 16-bit floats
+                let tol = if quantize { 5e-2 } else { 2e-3 };
+                assert!(e < tol, "quantize {quantize}, sequence {k}, step {step}: {e}");
+            }
+        }
+        assert_eq!(caches[2].pos, 5 + 5 + STEPS);
+    }
+}
+
+/// The same on the GPU: each sequence prefilled into its own cache region after the shared
+/// prefix, then one pass for the next token of all of them.
+#[test]
+fn gpu_rows_of_different_sequences() {
+    let Some(c) = ctx() else { return };
+    let mut rng = Rng(11);
+    let head_rows = 40;
+    let (tc, tensors, mut cpu) = small_decoder(&mut rng, head_rows, false);
+    let h = tc.hidden_size;
+    let mut st = Store::new(Fmt::F16);
+    for (n, s, d) in tensors.iter().filter(|(n, ..)| !n.contains("embed_tokens")) {
+        st.add(&c, n, s, d.clone()).unwrap();
+    }
+    let d = TextDims {
+        hidden: tc.hidden_size,
+        inter: tc.intermediate_size,
+        layers: tc.num_hidden_layers,
+        hq: tc.num_attention_heads,
+        hkv: tc.num_key_value_heads,
+        dh: tc.head_dim,
+        eps: tc.rms_norm_eps as f32,
+        theta: tc.rope_theta,
+        head_rows,
+        kv_cap: KV_CAP,
+    };
+    let mut gpu = Text::new(&c, d, &mut st, "thinker").unwrap();
+    let prefix = rng.vec(5 * h, 1.0);
+    let seqs: Vec<(Vec<f32>, Vec<Vec<f32>>)> = (0..3).map(|k| (rng.vec((3 + k) * h, 1.0), (0..3).map(|_| rng.vec(h, 1.0)).collect())).collect();
+    let want = one_at_a_time(&mut cpu, h, &prefix, &seqs);
+    gpu.forward(&prefix, false, true).unwrap();
+    gpu.pos = 5;
+    // regions far apart, the last one at the end of the cache
+    let bases = [5, 100, KV_CAP - 20];
+    let mut pos = Vec::new();
+    for (k, (pre, _)) in seqs.iter().enumerate() {
+        let n = pre.len() / h;
+        let rows: Vec<(usize, usize, usize)> = (0..n).map(|r| (5 + r, bases[k], 5)).collect();
+        let got = gpu.forward_seqs(pre, &rows, false).unwrap();
+        let (id, p) = argmax_and_p(&want[k][0]);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, id, "prefill {k}");
+        assert!((got[0].1 - p).abs() < 1e-2, "prefill {k}: p {} vs {p}", got[0].1);
+        pos.push(5 + n);
+    }
+    for step in 0..3 {
+        let x: Vec<f32> = seqs.iter().flat_map(|(_, s)| s[step].clone()).collect();
+        let rows: Vec<(usize, usize, usize)> = (0..3).map(|k| (pos[k], bases[k], 5)).collect();
+        let got = gpu.forward_seqs(&x, &rows, true).unwrap();
+        assert_eq!(got.len(), 3);
+        for k in 0..3 {
+            let (id, p) = argmax_and_p(&want[k][step + 1]);
+            assert_eq!(got[k].0, id, "sequence {k}, step {step}");
+            assert!((got[k].1 - p).abs() < 1e-2, "sequence {k}, step {step}: p {} vs {p}", got[k].1);
+            pos[k] += 1;
+        }
+    }
+    assert_eq!(gpu.pos, 5, "the shared prefix stays");
+    // a place outside the cache is an error, not a crash
+    assert!(gpu.forward_seqs(&rng.vec(h, 1.0), &[(KV_CAP, 0, 5)], true).is_err());
+    assert!(gpu.forward_seqs(&rng.vec(h, 1.0), &[(30, KV_CAP, 5)], true).is_err());
 }
 
 /// The audio encoder over several attention windows, against candle.
@@ -242,6 +408,22 @@ fn encoder_matches() {
     let vb = VarBuilder::from_tensors(map, DType::F32, &dev).pp("thinker.audio_tower");
     let cpu = AudioEncoder::new(&ac, vb.clone()).unwrap();
     let front = AudioFront::new(&ac, vb).unwrap();
+    // the front's convolutions on the GPU, in one pass and in passes of a few chunks
+    for cap in [u64::MAX, 200_000] {
+        let gf = front::Front::with_cap(&c, &front.weights().unwrap(), cap).unwrap();
+        for frames in [37, 1250, 10_000] {
+            let mel = rng.vec(16 * frames, 1.0);
+            let (want, _) = front.forward(&mel, frames, DType::F32, &dev).unwrap();
+            let m = front.chunks(&mel, frames).unwrap();
+            let v = gf.forward(&m).unwrap();
+            let t = model::conv_out_len(m.width);
+            let x = Tensor::from_vec(v, (m.n, t, 64), &dev).unwrap();
+            let (got, _) = front.finish(&x, &m.lens).unwrap();
+            assert_eq!(got.dims(), want.dims());
+            let (g, w) = (got.flatten_all().unwrap().to_vec1::<f32>().unwrap(), want.flatten_all().unwrap().to_vec1::<f32>().unwrap());
+            assert!(max_rel(&g, &w) < 1e-2, "front, {frames} frames, cap {cap}: {}", max_rel(&g, &w));
+        }
+    }
     let mut st = Store::new(Fmt::F16);
     for (n, s, d) in data.iter().filter(|(n, ..)| !n.contains(".conv")) {
         st.add(&c, n, s, d.clone()).unwrap();
@@ -257,6 +439,13 @@ fn encoder_matches() {
     let want = want.flatten_all().unwrap().to_vec1::<f32>().unwrap();
     assert_eq!(got.len(), model::audio_tokens(frames) * 32);
     assert!(max_rel(&got, &want) < 1e-2, "{}", max_rel(&got, &want));
-    // too many rows: an error
-    assert!(enc.forward(&vec![0.0; (MAX_ROWS + 1) * 64]).is_err());
+    // 100 s: more rows than one pass holds, run in passes of whole windows
+    let frames = 10_000;
+    let mel = rng.vec(16 * frames, 1.0);
+    let want = cpu.forward(&mel, frames, DType::F32, &dev).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap();
+    let (h, _) = front.forward(&mel, frames, DType::F32, &dev).unwrap();
+    assert!(h.dim(0).unwrap() > MAX_ROWS);
+    let got = enc.forward(&h.flatten_all().unwrap().to_vec1::<f32>().unwrap()).unwrap();
+    assert_eq!(got.len(), model::audio_tokens(frames) * 32);
+    assert!(max_rel(&got, &want) < 1e-2, "long input: {}", max_rel(&got, &want));
 }

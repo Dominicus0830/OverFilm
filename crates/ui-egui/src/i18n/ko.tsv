@@ -3713,3 +3713,7 @@
 	Don't tell them apart	구별 안 함
 	1 person (faster)	1명 (구별 건너뛰어 빠름)
 	{n} people	{n}명
+	Skip silence:	무음 구간 건너뛰기:
+	Automatic (on for a separate voice track)	자동 (분리된 음성 트랙이면 켜짐)
+	On sound mixed with the game (a video's only audio track) this can skip quiet speech under loud game sound. Best on a voice-only track.	게임 소리와 섞인 소리(영상의 유일한 오디오 트랙)에서는 큰 게임 소리 밑의 작은 말소리까지 건너뛸 수 있습니다. 말소리만 따로 녹음된 트랙에서 쓰는 것을 권합니다.
+	Quiet stretches of 2 s or more are skipped on a separate voice track (several audio tracks, or a sound file); a video's only sound is recognised whole.	분리된 음성 트랙(오디오 트랙이 여러 개인 영상이나 소리 파일)에서는 2초 넘는 무음을 건너뜁니다. 영상에 하나뿐인 소리는 전부 인식합니다.

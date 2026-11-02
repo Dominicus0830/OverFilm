@@ -16,24 +16,28 @@ use std::collections::HashMap;
 
 use std::sync::Arc;
 
-use candle_core::quantized::{QMatMul, QTensor};
 use candle_core::{D, DType, Device, Module, Result, Tensor};
 use candle_nn::{Conv2d, Conv2dConfig, Embedding, LayerNorm, Linear, RmsNorm, VarBuilder};
+use half::f16;
+use half::slice::HalfFloatSliceExt;
+use rayon::prelude::*;
+
+use crate::qmm::Q8;
 
 /// Quantized weights by tensor name (`…q_proj.weight`).
-pub type QMap = HashMap<String, Arc<QTensor>>;
+pub type QMap = HashMap<String, Arc<Q8>>;
 
 /// A bias-free linear layer, f32 or 8-bit (Q8_0: per-32 block scale, error well below the
 /// model's own bf16 rounding; four times less memory traffic per generated token).
 pub enum Lin {
     F(Linear),
-    Q(QMatMul),
+    Q(Arc<Q8>),
 }
 
 impl Lin {
     fn new(i: usize, o: usize, vb: VarBuilder, q: &QMap) -> Result<Self> {
         match q.get(&format!("{}.weight", vb.prefix())) {
-            Some(t) => Ok(Lin::Q(QMatMul::from_arc(t.clone())?)),
+            Some(t) => Ok(Lin::Q(t.clone())),
             None => Ok(Lin::F(candle_nn::linear_no_bias(i, o, vb)?)),
         }
     }
@@ -48,8 +52,8 @@ impl Module for Lin {
         let rows = x.elem_count() / x.dims().last().copied().unwrap_or(1).max(1);
         match self {
             Lin::F(l) => l.forward(x),
-            Lin::Q(QMatMul::QTensor(q)) if rows >= DEQUANT_ROWS => Linear::new(q.dequantize(x.device())?, None).forward(x),
-            Lin::Q(m) => m.forward(&x.contiguous()?),
+            Lin::Q(q) if rows >= DEQUANT_ROWS => Linear::new(q.dequantize(x.device())?, None).forward(x),
+            Lin::Q(q) => q.forward(x),
         }
     }
 }
@@ -115,14 +119,105 @@ fn sinusoids(length: usize, channels: usize, dev: &Device) -> Result<Tensor> {
     Tensor::from_vec(v, (length, channels), dev)
 }
 
+/// Values per parallel task in [`gelu`] and [`silu_mul`].
+const EW_CHUNK: usize = 1 << 14;
+
+/// gelu (erf form, as candle's `gelu_erf`) on all cores: candle runs element-wise operations on
+/// one thread, which made them about a fifth of the encoder's time.
+fn gelu(x: &Tensor) -> Result<Tensor> {
+    if x.dtype() != DType::F32 || !x.device().is_cpu() || x.elem_count() < EW_CHUNK {
+        return x.gelu_erf();
+    }
+    let mut v = x.flatten_all()?.to_vec1::<f32>()?;
+    v.par_chunks_mut(EW_CHUNK).for_each(|c| {
+        for e in c {
+            *e = (candle_core::cpu::erf::erf_f32(*e * std::f32::consts::FRAC_1_SQRT_2) + 1.0) * 0.5 * *e;
+        }
+    });
+    Tensor::from_vec(v, x.shape(), x.device())
+}
+
+/// `silu(g) · u` (the decoder's gated MLP) in one parallel pass.
+fn silu_mul(g: &Tensor, u: &Tensor) -> Result<Tensor> {
+    if g.dtype() != DType::F32 || u.dtype() != DType::F32 || !g.device().is_cpu() || g.shape() != u.shape() || g.elem_count() < EW_CHUNK {
+        return g.silu()? * u;
+    }
+    let mut a = g.flatten_all()?.to_vec1::<f32>()?;
+    let b = u.flatten_all()?.to_vec1::<f32>()?;
+    a.par_chunks_mut(EW_CHUNK).zip(b.par_chunks(EW_CHUNK)).for_each(|(a, b)| {
+        for (a, &b) in a.iter_mut().zip(b) {
+            *a = *a / (1.0 + (-*a).exp()) * b;
+        }
+    });
+    Tensor::from_vec(a, g.shape(), g.device())
+}
+
 fn attend(q: &Tensor, k: &Tensor, v: &Tensor, scale: f64, mask: Option<&Tensor>) -> Result<Tensor> {
-    let w = (q.matmul(&k.t()?)? * scale)?;
-    let w = match mask {
-        Some(m) => w.broadcast_add(m)?,
-        None => w,
-    };
-    let w = candle_nn::ops::softmax_last_dim(&w.to_dtype(DType::F32)?)?.to_dtype(q.dtype())?;
+    let w = scaled_softmax(&q.matmul(&k.t()?)?, scale, mask)?;
     w.matmul(v)
+}
+
+/// `softmax(w · scale + mask)` over the last dimension. `mask` (rows, total) applies to every
+/// block of `rows` rows of `w` (…, n · rows, total). One parallel pass over `w`; as candle
+/// operations the scale and the mask were two single-threaded passes that took longer than the
+/// softmax itself.
+fn scaled_softmax(w: &Tensor, scale: f64, mask: Option<&Tensor>) -> Result<Tensor> {
+    let dims = w.dims().to_vec();
+    let (Some(&total), Some(&rows)) = (dims.last(), dims.len().checked_sub(2).and_then(|i| dims.get(i))) else {
+        candle_core::bail!("attention scores of shape {dims:?}");
+    };
+    let mrows = match mask {
+        Some(m) => {
+            let (mr, mt) = m.dims2()?;
+            if mt != total || mr == 0 || !rows.is_multiple_of(mr) {
+                candle_core::bail!("mask {:?} for scores {dims:?}", m.dims());
+            }
+            mr
+        }
+        None => 1,
+    };
+    if w.dtype() != DType::F32 || !w.device().is_cpu() {
+        let dt = w.dtype();
+        let w = (w * scale)?;
+        let w = match mask {
+            Some(m) => w.broadcast_add(&m.repeat((rows / mrows, 1))?)?,
+            None => w,
+        };
+        return candle_nn::ops::softmax_last_dim(&w.to_dtype(DType::F32)?)?.to_dtype(dt);
+    }
+    let m = mask.map(|m| m.to_dtype(DType::F32)?.flatten_all()?.to_vec1::<f32>()).transpose()?;
+    let mut x = w.flatten_all()?.to_vec1::<f32>()?;
+    let scale = scale as f32;
+    x.par_chunks_mut(total.max(1)).enumerate().for_each(|(r, row)| {
+        let mrow = m.as_ref().and_then(|m| m.get((r % mrows) * total..(r % mrows + 1) * total));
+        match mrow {
+            Some(mr) => row.iter_mut().zip(mr).for_each(|(v, &a)| *v = *v * scale + a),
+            None => row.iter_mut().for_each(|v| *v *= scale),
+        }
+        let max = row.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        for v in row.iter_mut() {
+            *v = (*v - max).exp();
+        }
+        let sum: f32 = row.iter().sum();
+        for v in row.iter_mut() {
+            *v /= sum;
+        }
+    });
+    Tensor::from_vec(x, dims, w.device())
+}
+
+/// [`attend`] for grouped queries: `q` (b, heads, len, d) where each `rep` consecutive heads
+/// share one head of `k`/`v` (b, heads / rep, total, d); `mask` (len, total). The query heads of
+/// a group become one matrix of `rep · len` rows against their shared keys, rather than the keys
+/// being copied `rep` times: larger products that run nearer full speed, and no copies.
+fn attend_grouped(q: &Tensor, k: &Tensor, v: &Tensor, rep: usize, scale: f64, mask: Option<&Tensor>) -> Result<Tensor> {
+    if rep <= 1 {
+        return attend(q, k, v, scale, mask);
+    }
+    let (b, heads, len, d) = q.dims4()?;
+    let qg = q.contiguous()?.reshape((b, heads / rep, rep * len, d))?;
+    // the mask's rows repeat for each query head of a group (see [`scaled_softmax`])
+    attend(&qg, &k.contiguous()?, &v.contiguous()?, scale, mask)?.reshape((b, heads, len, d))
 }
 
 struct EncoderLayer {
@@ -171,7 +266,7 @@ impl EncoderLayer {
         }
         let o = Tensor::cat(&outs, 1)?.transpose(0, 1)?.reshape((n, d))?;
         let x = (x + self.o.forward(&o)?)?;
-        let h = self.fc2.forward(&self.fc1.forward(&self.ln2.forward(&x)?)?.gelu_erf()?)?;
+        let h = self.fc2.forward(&gelu(&self.fc1.forward(&self.ln2.forward(&x)?)?)?)?;
         x + h
     }
 }
@@ -209,6 +304,20 @@ impl AudioFront {
     /// `mel`: `n_mels × frames` row-major. Returns (audio_tokens(frames), d_model) and the
     /// attention window in rows.
     pub fn forward(&self, mel: &[f32], frames: usize, dtype: DType, dev: &Device) -> Result<(Tensor, usize)> {
+        let chunks = self.chunks(mel, frames)?;
+        let x = Tensor::from_vec(chunks.buf.clone(), (chunks.n, 1, self.n_mels, chunks.width), dev)?.to_dtype(dtype)?;
+        let x = gelu(&conv3x3s2(&x, &self.conv1)?)?;
+        let x = gelu(&conv3x3s2(&x, &self.conv2)?)?;
+        let x = gelu(&conv3x3s2(&x, &self.conv3)?)?;
+        let (b, c, f, t) = x.dims4()?;
+        let x = x.permute((0, 3, 1, 2))?.contiguous()?.reshape((b, t, c * f))?;
+        let x = self.conv_out.forward(&x)?;
+        self.finish(&x, &chunks.lens)
+    }
+
+    /// The mel spectrogram cut into chunks of [`CHUNK`] frames (the last one padded with zeros
+    /// when there are several).
+    pub fn chunks(&self, mel: &[f32], frames: usize) -> Result<MelChunks> {
         if frames == 0 || mel.len() != self.n_mels * frames {
             return Err(candle_core::Error::Msg(format!("mel has {} values for {frames} frames", mel.len())));
         }
@@ -228,19 +337,109 @@ impl AudioFront {
                 }
             }
         }
-        let x = Tensor::from_vec(buf, (n_chunks, 1, self.n_mels, padded), dev)?.to_dtype(dtype)?;
-        let x = self.conv1.forward(&x)?.gelu_erf()?;
-        let x = self.conv2.forward(&x)?.gelu_erf()?;
-        let x = self.conv3.forward(&x)?.gelu_erf()?;
-        let (b, c, f, t) = x.dims4()?;
-        let x = x.permute((0, 3, 1, 2))?.contiguous()?.reshape((b, t, c * f))?;
-        let x = self.conv_out.forward(&x)?.broadcast_add(&self.pos.narrow(0, 0, t)?.unsqueeze(0)?)?;
-        let mut rows = Vec::with_capacity(n_chunks);
+        Ok(MelChunks { buf, n: n_chunks, width: padded, lens })
+    }
+
+    /// After `conv_out` (`x`: (chunks, t, d_model)): add the positions and keep each chunk's
+    /// real rows (`lens`: frames per chunk). Returns the rows and the attention window.
+    pub fn finish(&self, x: &Tensor, lens: &[usize]) -> Result<(Tensor, usize)> {
+        let (_, t, _) = x.dims3()?;
+        let x = x.broadcast_add(&self.pos.narrow(0, 0, t)?.unsqueeze(0)?.to_dtype(x.dtype())?)?;
+        let mut rows = Vec::with_capacity(lens.len());
         for (i, &len) in lens.iter().enumerate() {
             rows.push(x.get(i)?.narrow(0, 0, conv_out_len(len).min(t))?);
         }
         Ok((Tensor::cat(&rows, 0)?, t * WINDOW_CHUNKS))
     }
+
+    /// The front's weights as plain arrays for the GPU: the three convolutions (weight
+    /// `(cout, cin·9)`, bias) and `conv_out` `(d_model, channels · frequencies)`.
+    pub fn weights(&self) -> Result<FrontWeights> {
+        let flat = |t: &Tensor| -> Result<Vec<f32>> { t.to_dtype(DType::F32)?.flatten_all()?.to_vec1::<f32>() };
+        let conv = |c: &Conv2d| -> Result<(Vec<f32>, Vec<f32>, usize, usize)> {
+            let (cout, cin, _, _) = c.weight().dims4()?;
+            let b = c.bias().map(flat).transpose()?.unwrap_or_else(|| vec![0.0; cout]);
+            Ok((flat(c.weight())?, b, cout, cin))
+        };
+        let (d, k) = self.conv_out.weight().dims2()?;
+        Ok(FrontWeights {
+            convs: [conv(&self.conv1)?, conv(&self.conv2)?, conv(&self.conv3)?],
+            out: flat(self.conv_out.weight())?,
+            d_model: d,
+            out_in: k,
+            n_mels: self.n_mels,
+        })
+    }
+}
+
+/// See [`AudioFront::chunks`]: `(n, 1, n_mels, width)` row-major.
+pub struct MelChunks {
+    pub buf: Vec<f32>,
+    pub n: usize,
+    pub width: usize,
+    /// real frames per chunk
+    pub lens: Vec<usize>,
+}
+
+/// See [`AudioFront::weights`]. `convs`: (weight, bias, cout, cin) each.
+pub struct FrontWeights {
+    pub convs: [(Vec<f32>, Vec<f32>, usize, usize); 3],
+    pub out: Vec<f32>,
+    pub d_model: usize,
+    pub out_in: usize,
+    pub n_mels: usize,
+}
+
+/// Input positions gathered per product in [`conv3x3s2`] (bounds the gathered copy: 6400
+/// positions × 480 channels × 9 taps is 110 MB).
+const CONV_POSITIONS: usize = 6400;
+
+/// A 3×3 convolution with stride 2 and padding 1 (the encoder front): `x` (b, cin, h, w) →
+/// (b, cout, ⌈h/2⌉, ⌈w/2⌉). The input patches are gathered into rows and multiplied with the
+/// kernel in one matrix product per group of chunks; candle's own tiled convolution took 7 s of
+/// a 60-second piece's 11 s in the encoder, this takes well under one.
+fn conv3x3s2(x: &Tensor, conv: &Conv2d) -> Result<Tensor> {
+    let (b, cin, h, w) = x.dims4()?;
+    let k = conv.weight();
+    let (cout, kin, kh, kw) = k.dims4()?;
+    if kin != cin || kh != 3 || kw != 3 {
+        candle_core::bail!("conv3x3s2: kernel {:?} for {cin} channels", k.dims());
+    }
+    let half = |l: usize| l.div_ceil(2);
+    let (ho, wo) = (half(h), half(w));
+    let xs = x.to_dtype(DType::F32)?.flatten_all()?.to_vec1::<f32>()?;
+    let km = k.to_dtype(DType::F32)?.reshape((cout, cin * 9))?;
+    let bias = conv.bias().map(|b| b.to_dtype(DType::F32)?.reshape((1, cout, 1))).transpose()?;
+    let per = (ho * wo).max(1);
+    let group = (CONV_POSITIONS / per).max(1);
+    let mut outs = Vec::with_capacity(b.div_ceil(group));
+    for b0 in (0..b).step_by(group) {
+        let nb = group.min(b - b0);
+        // (nb, cin·9, positions): one row per input channel and tap, so the product with the
+        // (cout, cin·9) kernel comes out in the (cout, positions) order the next layer reads
+        let mut cols = vec![0f32; nb * cin * 9 * per];
+        cols.par_chunks_mut(per).enumerate().for_each(|(row, line)| {
+            let (bi, t) = (b0 + row / (cin * 9), row % (cin * 9));
+            let (c, ky, kx) = (t / 9, t % 9 / 3, t % 3);
+            let plane = (bi * cin + c) * h * w;
+            for (oy, out) in line.chunks_mut(wo.max(1)).enumerate() {
+                let Some(iy) = (2 * oy + ky).checked_sub(1).filter(|&v| v < h) else { continue };
+                let Some(src) = xs.get(plane + iy * w..plane + (iy + 1) * w) else { continue };
+                for (ox, d) in out.iter_mut().enumerate() {
+                    if let Some(&v) = (2 * ox + kx).checked_sub(1).and_then(|ix| src.get(ix)) {
+                        *d = v;
+                    }
+                }
+            }
+        });
+        let cols = Tensor::from_vec(cols, (nb, cin * 9, per), x.device())?;
+        let mut y = km.broadcast_matmul(&cols)?;
+        if let Some(bias) = &bias {
+            y = y.broadcast_add(bias)?;
+        }
+        outs.push(y.reshape((nb, cout, ho, wo))?);
+    }
+    Tensor::cat(&outs, 0)?.to_dtype(x.dtype())
 }
 
 pub struct AudioEncoder {
@@ -268,7 +467,7 @@ impl AudioEncoder {
         for l in &self.layers {
             h = l.forward(&h, window)?;
         }
-        let h = self.proj1.forward(&self.ln_post.forward(&h)?)?.gelu_erf()?;
+        let h = gelu(&self.proj1.forward(&self.ln_post.forward(&h)?)?)?;
         self.proj2.forward(&h)
     }
 }
@@ -332,20 +531,208 @@ impl DecoderLayer {
             self.cache = Some((k.clone(), v.clone()));
         }
         let rep = self.heads / self.kv_heads.max(1);
-        let expand = |y: &Tensor| -> Result<Tensor> {
-            if rep <= 1 {
-                return Ok(y.clone());
-            }
-            let (b, n, s, d) = y.dims4()?;
-            y.unsqueeze(2)?.expand((b, n, rep, s, d))?.reshape((b, n * rep, s, d))
-        };
-        let o = attend(&q, &expand(&k)?.contiguous()?, &expand(&v)?.contiguous()?, (self.head_dim as f64).powf(-0.5), mask)?;
+        let o = attend_grouped(&q, &k, &v, rep, (self.head_dim as f64).powf(-0.5), mask)?;
         let o = o.transpose(1, 2)?.reshape((b, t, self.heads * self.head_dim))?;
         let x = (x + self.o.forward(&o)?)?;
         let h = self.ln2.forward(&x)?;
-        let m = self.down.forward(&(self.gate.forward(&h)?.silu()? * self.up.forward(&h)?)?)?;
+        let m = self.down.forward(&silu_mul(&self.gate.forward(&h)?, &self.up.forward(&h)?)?)?;
         x + m
     }
+}
+
+impl DecoderLayer {
+    /// One new token for each of several independent sequences: `x` (n, 1, hidden), row `i` at
+    /// position `kvs[i].len()` of its own cache. The products run on all rows at once (one pass
+    /// over the weights); rotary positions and attention are plain loops over the rows' caches,
+    /// in parallel over (row, key/value head): one step needs a handful of small products per row
+    /// and layer, and as separate tensor operations their set-up cost was half of each step.
+    fn forward_rows(&self, x: &Tensor, inv_freq: &[f32], kvs: &mut [&mut Kv]) -> Result<Tensor> {
+        let (n, t, _) = x.dims3()?;
+        if t != 1 || kvs.len() != n {
+            candle_core::bail!("batched step: {n} rows, {} caches", kvs.len());
+        }
+        let dh = self.head_dim;
+        let (heads, kvh) = (self.heads, self.kv_heads.max(1));
+        let h = self.ln1.forward(x)?;
+        let shape = |y: Tensor, k: usize| y.reshape((n, 1, k, dh));
+        let flat = |y: Tensor| -> Result<Vec<f32>> { y.flatten_all()?.to_dtype(DType::F32)?.to_vec1::<f32>() };
+        let mut q = flat(self.q_norm.forward(&shape(self.q.forward(&h)?, heads)?)?)?;
+        let mut k = flat(self.k_norm.forward(&shape(self.k.forward(&h)?, kvh)?)?)?;
+        let v = flat(shape(self.v.forward(&h)?, kvh)?)?;
+        let (qw, kw) = (heads * dh, kvh * dh);
+        if q.len() != n * qw || k.len() != n * kw || v.len() != n * kw {
+            candle_core::bail!("batched step: projection sizes");
+        }
+        for (r, kv) in kvs.iter_mut().enumerate() {
+            let pos = kv.len(kw);
+            if let Some(qr) = q.get_mut(r * qw..(r + 1) * qw) {
+                rope_rows(qr, dh, pos, inv_freq);
+            }
+            if let Some(kr) = k.get_mut(r * kw..(r + 1) * kw) {
+                rope_rows(kr, dh, pos, inv_freq);
+                kv.k.extend(kr.iter().map(|&x| f16::from_f32(x)));
+            }
+            if let Some(vr) = v.get(r * kw..(r + 1) * kw) {
+                kv.v.extend(vr.iter().map(|&x| f16::from_f32(x)));
+            }
+        }
+        let rep = heads / kvh;
+        let scale = (dh as f32).powf(-0.5);
+        let mut out = vec![0f32; n * qw];
+        let kvs: Vec<&Kv> = kvs.iter().map(|k| &**k).collect();
+        out.par_chunks_mut(rep * dh).enumerate().for_each(|(task, o)| {
+            let (r, g) = (task / kvh, task % kvh);
+            let (Some(kv), Some(qr)) = (kvs.get(r), q.get(r * qw..(r + 1) * qw)) else { return };
+            let len = kv.len(kw);
+            // the `rep` query heads of this key/value head read each cached position once
+            let Some(qg) = qr.get(g * rep * dh..(g + 1) * rep * dh) else { return };
+            let mut w = vec![0f32; rep * len];
+            let mut buf = vec![0f32; dh];
+            for p in 0..len {
+                let at = p * kw + g * dh;
+                // (always dh long: the cache holds len whole positions)
+                let Some(kp) = kv.k.get(at..at + dh) else { continue };
+                kp.convert_to_f32_slice(&mut buf);
+                for (j, qh) in qg.chunks_exact(dh).enumerate() {
+                    if let Some(wp) = w.get_mut(j * len + p) {
+                        *wp = dot(qh, &buf) * scale;
+                    }
+                }
+            }
+            for wj in w.chunks_mut(len.max(1)) {
+                let top = wj.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                let mut sum = 0f32;
+                for wp in wj.iter_mut() {
+                    *wp = (*wp - top).exp();
+                    sum += *wp;
+                }
+                let inv = if sum > 0.0 { 1.0 / sum } else { 0.0 };
+                for wp in wj.iter_mut() {
+                    *wp *= inv;
+                }
+            }
+            for p in 0..len {
+                let at = p * kw + g * dh;
+                let Some(vp) = kv.v.get(at..at + dh) else { continue };
+                vp.convert_to_f32_slice(&mut buf);
+                for (j, oh) in o.chunks_mut(dh).enumerate() {
+                    let c = w.get(j * len + p).copied().unwrap_or(0.0);
+                    for (a, b) in oh.iter_mut().zip(&buf) {
+                        *a += c * b;
+                    }
+                }
+            }
+        });
+        let o = Tensor::from_vec(out, (n, 1, qw), x.device())?.to_dtype(x.dtype())?;
+        let x = (x + self.o.forward(&o)?)?;
+        let h = self.ln2.forward(&x)?;
+        let m = self.down.forward(&silu_mul(&self.gate.forward(&h)?, &self.up.forward(&h)?)?)?;
+        x + m
+    }
+}
+
+/// Dot product in eight running sums, so it vectorises (a single running sum must add in order).
+fn dot(a: &[f32], b: &[f32]) -> f32 {
+    let mut s = [0f32; 8];
+    let (a8, b8) = (a.chunks_exact(8), b.chunks_exact(8));
+    let tail: f32 = a8.remainder().iter().zip(b8.remainder()).map(|(x, y)| x * y).sum();
+    for (x, y) in a8.zip(b8) {
+        for ((s, x), y) in s.iter_mut().zip(x).zip(y) {
+            *s += x * y;
+        }
+    }
+    s.iter().sum::<f32>() + tail
+}
+
+/// Rotary positions (the rotate-half form of [`candle_nn::rotary_emb::rope`]) on one row of
+/// heads `x` (heads · dh) at position `pos`.
+fn rope_rows(x: &mut [f32], dh: usize, pos: usize, inv_freq: &[f32]) {
+    let half = dh / 2;
+    for head in x.chunks_mut(dh) {
+        let (a, b) = head.split_at_mut(half.min(head.len()));
+        for ((x1, x2), w) in a.iter_mut().zip(b.iter_mut()).zip(inv_freq) {
+            let (sin, cos) = (pos as f32 * w).sin_cos();
+            let (u, v) = (*x1, *x2);
+            *x1 = u * cos - v * sin;
+            *x2 = v * cos + u * sin;
+        }
+    }
+}
+
+impl DecoderLayer {
+    /// The prefills of several sequences at once: `x` (1, T, hidden) holds their rows one after
+    /// another, `segs[i] = (start, len)`. The products run on all T rows together (an 8-bit
+    /// weight is expanded once, not once per sequence); attention runs per sequence, causal,
+    /// over its cache (the shared prefix) and its own rows.
+    fn forward_segments(&self, x: &Tensor, segs: &[(usize, usize)], rope: &[(Tensor, Tensor)], caches: &mut [Option<(Tensor, Tensor)>]) -> Result<Tensor> {
+        let (b, t, _) = x.dims3()?;
+        if segs.len() != rope.len() || segs.len() != caches.len() {
+            candle_core::bail!("{} segments, {} positions, {} caches", segs.len(), rope.len(), caches.len());
+        }
+        let h = self.ln1.forward(x)?;
+        let shape = |y: Tensor, n: usize| y.reshape((b, t, n, self.head_dim));
+        let q = self.q_norm.forward(&shape(self.q.forward(&h)?, self.heads)?)?.transpose(1, 2)?.contiguous()?;
+        let k = self.k_norm.forward(&shape(self.k.forward(&h)?, self.kv_heads)?)?.transpose(1, 2)?.contiguous()?;
+        let v = shape(self.v.forward(&h)?, self.kv_heads)?.transpose(1, 2)?.contiguous()?;
+        let rep = self.heads / self.kv_heads.max(1);
+        let scale = (self.head_dim as f64).powf(-0.5);
+        let mut outs = Vec::with_capacity(segs.len());
+        for ((&(start, len), (cos, sin)), cache) in segs.iter().zip(rope).zip(caches.iter_mut()) {
+            let qs = candle_nn::rotary_emb::rope(&q.narrow(2, start, len)?.contiguous()?, cos, sin)?;
+            let ks = candle_nn::rotary_emb::rope(&k.narrow(2, start, len)?.contiguous()?, cos, sin)?;
+            let vs = v.narrow(2, start, len)?.contiguous()?;
+            let (kc, vc) = match cache.as_ref() {
+                Some((pk, pv)) => (Tensor::cat(&[pk, &ks], 2)?, Tensor::cat(&[pv, &vs], 2)?),
+                None => (ks, vs),
+            };
+            let total = kc.dim(2)?;
+            let past = total - len;
+            let mask = if len > 1 {
+                let m: Vec<f32> = (0..len).flat_map(|i| (0..total).map(move |j| if j > past + i { f32::NEG_INFINITY } else { 0.0 })).collect();
+                Some(Tensor::from_vec(m, (len, total), x.device())?.to_dtype(x.dtype())?)
+            } else {
+                None
+            };
+            outs.push(attend_grouped(&qs, &kc, &vc, rep, scale, mask.as_ref())?);
+            *cache = Some((kc, vc));
+        }
+        let o = Tensor::cat(&outs, 2)?.transpose(1, 2)?.reshape((b, t, self.heads * self.head_dim))?;
+        let x = (x + self.o.forward(&o)?)?;
+        let h = self.ln2.forward(&x)?;
+        let m = self.down.forward(&silu_mul(&self.gate.forward(&h)?, &self.up.forward(&h)?)?)?;
+        x + m
+    }
+}
+
+/// One layer's keys and values for [`TextModel::forward_rows`], position after position
+/// (`[pos][kv head][head dim]`), so a new token is appended in place. Kept in 16-bit floats
+/// (more precision than the model's own bf16): reading them is most of a decoding step's
+/// attention time, so half the bytes is half that time.
+#[derive(Clone, Default)]
+pub struct Kv {
+    k: Vec<f16>,
+    v: Vec<f16>,
+}
+
+impl Kv {
+    /// From a cache tensor pair (1, kv heads, positions, head dim).
+    fn from_tensors(k: &Tensor, v: &Tensor) -> Result<Self> {
+        let flat = |t: &Tensor| -> Result<Vec<f16>> { t.transpose(1, 2)?.contiguous()?.flatten_all()?.to_dtype(DType::F16)?.to_vec1::<f16>() };
+        Ok(Self { k: flat(k)?, v: flat(v)? })
+    }
+
+    /// Positions held, for rows of `width` (kv heads · head dim) values.
+    fn len(&self, width: usize) -> usize {
+        self.k.len() / width.max(1)
+    }
+}
+
+/// One sequence's key/value cache for [`TextModel::forward_rows`]: per layer the keys and values
+/// of positions `0 .. pos`.
+#[derive(Clone, Default)]
+pub struct SeqCache {
+    pub layers: Vec<Kv>,
+    pub pos: usize,
 }
 
 pub struct TextModel {
@@ -414,6 +801,65 @@ impl TextModel {
         }
         let f = Tensor::from_vec(f, (t, half), dev)?;
         Ok((f.cos()?.to_dtype(dtype)?, f.sin()?.to_dtype(dtype)?))
+    }
+
+    /// Prefill several sequences after the cached prompt prefix at once (see
+    /// [`DecoderLayer::forward_segments`]): `xs[i]` (len_i, hidden). Returns each sequence's
+    /// last-row logits (n, head_rows) and its cache; the model's own cache (the prefix) is left
+    /// as it is.
+    pub fn prefill_seqs(&mut self, xs: &[Tensor]) -> Result<(Tensor, Vec<SeqCache>)> {
+        let prefix = self.pos;
+        let mut segs = Vec::with_capacity(xs.len());
+        let mut start = 0;
+        for x in xs {
+            let n = x.dim(0)?;
+            if n == 0 {
+                candle_core::bail!("empty sequence");
+            }
+            segs.push((start, n));
+            start += n;
+        }
+        let dtype = xs.first().map_or(DType::F32, Tensor::dtype);
+        let dev = xs.first().map_or(Device::Cpu, |x| x.device().clone());
+        let rope = segs.iter().map(|&(_, n)| self.rope(prefix, n, dtype, &dev)).collect::<Result<Vec<_>>>()?;
+        let mut seqs: Vec<SeqCache> = segs.iter().map(|_| SeqCache { layers: Vec::with_capacity(self.layers.len()), pos: prefix }).collect();
+        let mut h = Tensor::cat(xs, 0)?.unsqueeze(0)?;
+        for l in &self.layers {
+            let mut caches: Vec<Option<(Tensor, Tensor)>> = segs.iter().map(|_| l.cache.clone()).collect();
+            h = l.forward_segments(&h, &segs, &rope, &mut caches)?;
+            for (s, c) in seqs.iter_mut().zip(caches) {
+                let Some((k, v)) = c else { candle_core::bail!("prefill left no cache") };
+                s.layers.push(Kv::from_tensors(&k, &v)?);
+            }
+        }
+        let mut lasts = Vec::with_capacity(segs.len());
+        for (s, &(start, n)) in seqs.iter_mut().zip(&segs) {
+            s.pos = prefix + n;
+            lasts.push(h.narrow(1, start + n - 1, 1)?);
+        }
+        let last = Tensor::cat(&lasts, 1)?;
+        Ok((self.head.forward(&self.norm.forward(&last)?)?.squeeze(0)?, seqs))
+    }
+
+    /// One new token for each of several sequences: `x` (n, hidden), `seqs[i]` the cache of
+    /// row `i`. Returns the logits (n, head_rows); every cache grows by one.
+    pub fn forward_rows(&mut self, x: &Tensor, seqs: &mut [&mut SeqCache]) -> Result<Tensor> {
+        let (n, _) = x.dims2()?;
+        if seqs.len() != n {
+            candle_core::bail!("{n} rows for {} sequences", seqs.len());
+        }
+        let mut h = x.unsqueeze(1)?;
+        for (li, l) in self.layers.iter().enumerate() {
+            let mut kvs: Vec<&mut Kv> = seqs.iter_mut().filter_map(|s| s.layers.get_mut(li)).collect();
+            if kvs.len() != n {
+                candle_core::bail!("a sequence cache is missing layer {li}");
+            }
+            h = l.forward_rows(&h, &self.inv_freq, &mut kvs)?;
+        }
+        for s in seqs.iter_mut() {
+            s.pos += 1;
+        }
+        self.head.forward(&self.norm.forward(&h)?)?.squeeze(1)
     }
 
     /// Run `x` (1, t, hidden) after the cached tokens; returns logits (1, t, head_rows) or, when
@@ -498,5 +944,73 @@ mod tests {
             assert_eq!(audio_tokens(n), reference(n), "{n}");
         }
         assert_eq!(conv_out_len(128), 16);
+    }
+
+    #[test]
+    fn parallel_elementwise_matches_candle() {
+        let n = EW_CHUNK + 17;
+        let v: Vec<f32> = (0..3 * n).map(|i| ((i * 37) % 1001) as f32 / 100.0 - 5.0).collect();
+        let w: Vec<f32> = (0..3 * n).map(|i| ((i * 11) % 97) as f32 / 10.0 - 4.0).collect();
+        // transposed views: not contiguous
+        let x = Tensor::from_vec(v, (n, 3), &Device::Cpu).unwrap().t().unwrap();
+        let y = Tensor::from_vec(w, (n, 3), &Device::Cpu).unwrap().t().unwrap();
+        let bits = |t: Tensor| t.flatten_all().unwrap().to_vec1::<f32>().unwrap().iter().map(|f| f.to_bits()).collect::<Vec<_>>();
+        assert_eq!(gelu(&x).unwrap().dims(), &[3, n]);
+        assert_eq!(bits(gelu(&x).unwrap()), bits(x.gelu_erf().unwrap()));
+        assert_eq!(bits(silu_mul(&x, &y).unwrap()), bits((x.silu().unwrap() * &y).unwrap()));
+    }
+
+    #[test]
+    fn grouped_attention_matches_copied_keys() {
+        let dev = Device::Cpu;
+        let (b, kvh, rep, len, total, d) = (1, 2, 3, 4, 6, 8);
+        let q = Tensor::randn(0f32, 1.0, (b, kvh * rep, len, d), &dev).unwrap();
+        let k = Tensor::randn(0f32, 1.0, (b, kvh, total, d), &dev).unwrap();
+        let v = Tensor::randn(0f32, 1.0, (b, kvh, total, d), &dev).unwrap();
+        let past = total - len;
+        let m: Vec<f32> = (0..len).flat_map(|i| (0..total).map(move |j| if j > past + i { f32::NEG_INFINITY } else { 0.0 })).collect();
+        let mask = Tensor::from_vec(m, (len, total), &dev).unwrap();
+        let expand = |y: &Tensor| y.unsqueeze(2).unwrap().expand((b, kvh, rep, total, d)).unwrap().reshape((b, kvh * rep, total, d)).unwrap();
+        let want = attend(&q, &expand(&k), &expand(&v), 0.3, Some(&mask)).unwrap();
+        let got = attend_grouped(&q, &k, &v, rep, 0.3, Some(&mask)).unwrap();
+        assert_eq!(got.dims(), want.dims());
+        let diff = (got - want).unwrap().abs().unwrap().max_all().unwrap().to_scalar::<f32>().unwrap();
+        assert!(diff < 1e-5, "{diff}");
+    }
+
+    #[test]
+    fn scaled_softmax_matches_candle() {
+        let dev = Device::Cpu;
+        let w = Tensor::randn(0f32, 3.0, (2, 3, 4, 6), &dev).unwrap();
+        let m: Vec<f32> = (0..2 * 6).map(|i| if i % 6 > 3 + i / 6 { f32::NEG_INFINITY } else { 0.0 }).collect();
+        let mask = Tensor::from_vec(m, (2, 6), &dev).unwrap();
+        let want = candle_nn::ops::softmax_last_dim(&(&w * 0.25).unwrap().broadcast_add(&mask.repeat((2, 1)).unwrap()).unwrap()).unwrap();
+        let got = scaled_softmax(&w, 0.25, Some(&mask)).unwrap();
+        let diff = (got - want).unwrap().abs().unwrap().max_all().unwrap().to_scalar::<f32>().unwrap();
+        assert!(diff < 1e-6, "{diff}");
+        let plain = candle_nn::ops::softmax_last_dim(&(&w * 0.5).unwrap()).unwrap();
+        let diff = (scaled_softmax(&w, 0.5, None).unwrap() - plain).unwrap().abs().unwrap().max_all().unwrap().to_scalar::<f32>().unwrap();
+        assert!(diff < 1e-6, "{diff}");
+        let bad = Tensor::zeros((3, 6), DType::F32, &dev).unwrap();
+        assert!(scaled_softmax(&w, 1.0, Some(&bad)).is_err(), "4 rows are not blocks of 3");
+    }
+
+    #[test]
+    fn front_convolution_matches_candle() {
+        let dev = Device::Cpu;
+        let val = |n: usize, seed: usize| -> Vec<f32> { (0..n).map(|i| (((i + seed) * 7919 % 211) as f32 - 105.0) / 70.0).collect() };
+        // odd sizes, more chunks than one gathered group holds
+        for (b, cin, h, w, cout) in [(3usize, 1usize, 9usize, 7usize, 5usize), (2, 4, 6, 11, 3), (CONV_POSITIONS / 12 + 2, 2, 5, 5, 2)] {
+            let x = Tensor::from_vec(val(b * cin * h * w, 1), (b, cin, h, w), &dev).unwrap();
+            let k = Tensor::from_vec(val(cout * cin * 9, 2), (cout, cin, 3, 3), &dev).unwrap();
+            let bias = Tensor::from_vec(val(cout, 3), cout, &dev).unwrap();
+            let conv = Conv2d::new(k, Some(bias), Conv2dConfig { padding: 1, stride: 2, ..Default::default() });
+            let want = conv.forward(&x).unwrap();
+            let got = conv3x3s2(&x, &conv).unwrap();
+            assert_eq!(got.dims(), want.dims());
+            let (g, wv) = (got.flatten_all().unwrap().to_vec1::<f32>().unwrap(), want.flatten_all().unwrap().to_vec1::<f32>().unwrap());
+            let err = g.iter().zip(&wv).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+            assert!(err < 1e-4, "{b}×{cin}×{h}×{w}: {err}");
+        }
     }
 }
