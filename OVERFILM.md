@@ -16,7 +16,7 @@ calling the caption layout) and listed in the table at the end.
 | `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`), in-game voice lines found by text (`voicelines`) |
 | `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels, overlapped speech with pyannote segmentation-3.0); next: `filmcraft_speech::Transcriber` |
 | `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out; caption styles and motion for the editor (`styles`) |
-| `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures), the auto-cut plan and deaths from the HUD's player bars; see "Auto cut" below |
+| `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures), the auto-cut plan, deaths and ultimates from the HUD's player bars, ultimate kills from the kill feed; see "Auto cut" below |
 | `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the shared models folder |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L1 | M6 | analysis behind the editing suggestions: loudness, silences, highlights (`overfilm.assist.suggest` in the engine), the learnt editing style (`style`) |
@@ -339,7 +339,7 @@ plate is in the team colour while they are alive and turns black while they wait
   (or the Learn Screen Template dialog with "Team 1/2 name plates"): the rectangle around one team's
   plates, on a frame where the whole team is alive; it is split into `players` equal plates and
   saved in the screen-template file (`bars`), beside the templates.
-- `Sequence ▸ OverFilm ▸ Find Kills and Team Fights` (`overfilm.kills.scan {fps=2, clips?,
+- `Sequence ▸ OverFilm ▸ Find Kills, Ultimates and Team Fights` (`overfilm.kills.scan {fps=2, clips?,
   templates?, fightGap=10, minKills=3, wait}`): a background job reads the plates while the game
   HUD (`live`) template matches. A plate reads dead when over 35 % of it is near black (the white
   name stays bright) and must read so for half a second; samples where most plates are dark at
@@ -356,6 +356,47 @@ HUD template), about 147 deaths and 23 team fights over the three maps. Checked 
 the fights at 31:06 and 34:30 (a team wipe) died in the order and at the times the plates show,
 and two of the four sound-only highlights (31:06, 1:15:19) fall on fights. A plate that flickers back
 mid-respawn made a few double deaths, hence no second death of a player within 8 s.
+
+## Ultimates and ultimate kills
+
+Each name plate also has a small box beside the player's picture: the ultimate charge as a number
+("43%") and, once the ultimate is ready, a round white icon, the same on every plate of a team
+(`overfilm_vision::ults`).
+
+- `overfilm.ultIcon.learn {team: 1|2, rect: [x, y, w, h], player=1, time?, clip?, templates?}` (or
+  the Learn Screen Template dialog with "Team 1/2 ready ultimate icon" and the plate's number): a
+  box round one ready icon, on a frame where that player's ultimate is ready. Saved with the team's
+  bar (`bars[].ult`: the icon's gray grid placed on the first plate, how much of it is bright disc,
+  and its median gray). The built-in OWCS file has both teams' icons.
+- `overfilm.kills.scan` (above, with `ultWindow=6`) then follows the icons too, in the same pass
+  over the frames (the deaths it finds do not change). A plate reads ready when its box correlates
+  with the icon (0.75+) and shows at least 75 % of the icon's bright disc (a small blur first, so
+  the thin charge digits do not count). A plate that read ready for a second and then not, while
+  the player is alive and the plate is still on screen (its box keeps 60 % of the icon's median
+  gray: a dead plate turns black, and the bars leave the screen at the end of a round), is a use:
+  a point marker "OverFilm 궁극기: N팀 M번" (violet). A second use within 10 s, or one followed by
+  the player's own death within 1.5 s, is left out.
+- That broadcast shows no kill feed, so an ultimate kill is by timing: a death of the other team no
+  more than `ultWindow` seconds after a use, given to the latest such use: "OverFilm 궁극기 처치:
+  N팀 M번 ← N팀 M번 궁극기" (yellow; the comment says it is an estimate). Healing and movement
+  ultimates followed by a kill count too.
+- On broadcasts that show the game's kill feed, `overfilm.killFeed.learn {rect, icon, time?, clip?,
+  templates?}` (dialog: "Kill feed (ultimate kills)", first green box around the feed, second round
+  one ultimate kill's icon) learns where it is and how big the icons are (`killfeed`; nothing of the
+  icon is stored). The kill rows of an ultimate carry the ultimate's icon before the arrow: a white
+  disc whose rim ends at the same distance from its centre in nearly every direction (portraits'
+  hair and a scope's reticle do not). An icon that stays two samples and was not there (rows move up
+  and down, not sideways) is an ultimate kill, marked "OverFilm 궁극기 처치: N팀 M번 ← … (킬피드)"
+  with the death on the plates 1 s before to 2.5 s after it when there is one.
+
+Measured on the 84-minute OWCS broadcast (built-in icons, learnt at 34:40; `ults_raw` example,
+2 frames a second): 104 ultimate uses, and every one checked against the frames was right (34:28
+two at once, 35:03, 35:12, 35:16, 35:17, 35:42 two at once): the ready icon was on the plate and the
+charge number or the hero's running-ultimate icon replaced it. Before the on-screen check, 12 false
+uses came from the bars leaving the screen at the ends of rounds. Its 49 timing-based ultimate kills
+have no kill feed to check against. The kill-feed reading found exactly the three ultimate kills
+of six rows in a kill feed screenshot the owner sent (no portrait or reticle taken for one); no
+recording with a kill feed was at hand to measure more.
 
 ## Claude Code review
 
@@ -463,7 +504,9 @@ called with parameters, over the control channel or MCP, the command runs direct
 - **Learn Screen Template (OverFilm)…**: the Program frame at the playhead; drag on it to mark what
   always looks the same on that screen (green) and, switched to ignore, what changes (red: the
   clock, a camera). OK learns it into the template file. "Team 1/2 name plates (kills)" learns a
-  player bar instead (the first green rectangle, and the number of players).
+  player bar instead (the first green rectangle, and the number of players); "Team 1/2 ready
+  ultimate icon" a team's ultimate icon (the first green rectangle, and the plate it is on); "Kill
+  feed (ultimate kills)" the kill feed (the first rectangle around it, the second round one icon).
 - **Cut and Caption in One Go (OverFilm)…** opens the OverFilm panel (above).
 - **Claude Code Review Settings (OverFilm)…** (`panels/overfilm_review.rs`): on/off, on its own,
   `claude` path, model, time limit, batch size, most items, and a connection check.
@@ -516,7 +559,7 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |
 | `crates/engine/src/overfilm_assist.rs` (+ `_tests.rs`) | new file: silence and highlight suggestions |
 | `crates/engine/src/overfilm_reel.rs` (+ `_tests.rs`) | new file: the highlight reel |
-| `crates/engine/src/overfilm_kills.rs` (+ `_tests.rs`) | new file: player bars, deaths and team fights |
+| `crates/engine/src/overfilm_kills.rs` (+ `_tests.rs`) | new file: player bars, deaths and team fights, ultimates and ultimate kills |
 | `crates/engine/src/overfilm_style.rs` (+ `_tests.rs`) | new file: the learnt editing style |
 | `crates/engine/src/overfilm_review.rs` (+ `_tests.rs`) | new file: Claude Code review of cuts and captions; Auto Cut's `mark`, Suggestions' `make` and OverFilm Captions' `poll` call its `after_*` hooks, OverFilm Captions keeps the pure recognition for it |
 | `crates/engine/src/overfilm_flow.rs` (+ `_tests.rs`) | new file: cut and caption in one go; `Session::overfilm_flow`, its `poll` after the other OverFilm polls; the review's `after_*` hooks leave a running one alone |

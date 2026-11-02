@@ -102,7 +102,7 @@ fn overfilm_kills_e2e_on_a_broadcast() {
     let r = s.execute("overfilm.kills.scan", json!({"templates": tp, "wait": true})).unwrap();
     eprintln!("{}", serde_json::to_string_pretty(&r).unwrap());
     let q = s.active_sequence().unwrap();
-    for m in q.markers.iter().filter(|m| m.name.starts_with(MARK_KILL)) {
+    for m in q.markers.iter().filter(|m| m.name.starts_with(MARK_KILL) || m.name.starts_with(MARK_ULT)) {
         eprintln!("{} {}", overfilm_vision::plan::clock(m.start), m.name);
     }
 }
@@ -120,7 +120,7 @@ fn templates_go_to_the_users_own_file_and_import_merges() {
     std::fs::create_dir_all(&dir).unwrap();
     let theirs = dir.join("owcs.json");
     let mut set = TemplateSet::default();
-    set.bars.push(PlayerBar { team: 2, rect: NRect::new(0.7, 0.14, 0.27, 0.02), players: 5, alive_dark: vec![0.0; 5] });
+    set.bars.push(PlayerBar { team: 2, rect: NRect::new(0.7, 0.14, 0.27, 0.02), players: 5, alive_dark: vec![0.0; 5], ult: None });
     std::fs::write(&theirs, set.to_json()).unwrap();
     let mine = dir.join("mine.json").to_string_lossy().to_string();
     let r = s.execute("overfilm.screenTemplate.import", json!({"path": theirs.to_string_lossy(), "templates": mine})).unwrap();
@@ -143,5 +143,51 @@ fn templates_go_to_the_users_own_file_and_import_merges() {
     std::fs::copy(dir.join("owcs.json"), dir.join("p.overfilm-screens.json")).unwrap();
     let r = s.execute("overfilm.screenTemplate.list", json!({})).unwrap();
     assert!(r["templates"].as_str().unwrap().contains("p.overfilm-screens"), "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn ultimates_and_their_kills_become_markers_and_leave_the_kills_alone() {
+    let mut s = demo();
+    let deaths = [d(1_000, 2, 4), d(3_000, 1, 1), d(6_000, 2, 2), d(9_000, 2, 3)];
+    mark(&mut s, &deaths, 10_000, 3).unwrap();
+    let kills_before = names(&s, MARK_KILL);
+    let u = |at, team, player| UltUse { at, team, player };
+    // team 1 player 2 ults at 2 s: 2팀 2번 (6 s) is within 6 s, 2팀 3번 (9 s) is not
+    assert_eq!(mark_ults(&mut s, &[u(2_000, 1, 2), u(2_500, 2, 5)], &deaths, 6_000, None).unwrap(), (2, 2));
+    assert_eq!(names(&s, MARK_ULT_KILL), ["OverFilm 궁극기 처치: 1팀 1번 ← 2팀 5번 궁극기", "OverFilm 궁극기 처치: 2팀 2번 ← 1팀 2번 궁극기"]);
+    let q = s.active_sequence().unwrap();
+    let ult: Vec<_> = q.markers.iter().filter(|m| m.name.starts_with(MARK_ULT) && !m.name.starts_with(MARK_ULT_KILL)).collect();
+    assert_eq!(ult.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(), ["OverFilm 궁극기: 1팀 2번", "OverFilm 궁극기: 2팀 5번"]);
+    assert_eq!(ult[0].start, Tick::from_seconds_f64(2.0));
+    assert!(ult[0].comment.contains("1킬"), "{}", ult[0].comment);
+    // the kill markers (and what the highlights count) did not change
+    assert_eq!(names(&s, MARK_KILL), kills_before);
+    assert_eq!(kill_times_ms(&s).len(), 4);
+    // again: replaced, one undo step; the kill scan's own replace leaves them alone
+    mark_ults(&mut s, &[], &deaths, 6_000, None).unwrap();
+    assert!(names(&s, MARK_ULT).is_empty());
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(names(&s, MARK_ULT).len(), 4);
+    mark(&mut s, &deaths, 10_000, 3).unwrap();
+    assert_eq!(names(&s, MARK_ULT).len(), 4);
+    // with a kill feed the ultimate kills are the feed's: 2팀 2번 died 0.4 s after the feed row
+    assert_eq!(mark_ults(&mut s, &[u(2_000, 1, 2)], &deaths, 6_000, Some(&[5_600, 20_000])).unwrap(), (1, 2));
+    assert_eq!(names(&s, MARK_ULT_KILL), ["OverFilm 궁극기 처치: 2팀 2번 ← 1팀 2번 궁극기 (킬피드)", "OverFilm 궁극기 처치 (킬피드)"]);
+    assert_eq!(names(&s, MARK_KILL), kills_before);
+}
+
+#[test]
+fn ult_icon_learn_needs_the_teams_bar() {
+    let dir = std::env::temp_dir().join(format!("overfilm-ults-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let tp = dir.join("screens.json").to_string_lossy().to_string();
+    let mut s = demo();
+    let e = s.execute("overfilm.ultIcon.learn", json!({"templates": tp, "team": 1, "rect": [0.02, 0.1, 0.02, 0.03]})).unwrap_err().to_string();
+    assert!(e.contains("player bar"), "{e}");
+    assert!(s.execute("overfilm.ultIcon.learn", json!({"templates": tp, "team": 0, "rect": [0.02, 0.1, 0.02, 0.03]})).is_err());
+    assert!(s.execute("overfilm.ultIcon.learn", json!({"templates": tp, "team": 1, "rect": [0.02]})).is_err());
+    assert!(s.execute("overfilm.killFeed.learn", json!({"templates": tp, "rect": [0.7, 0.1, 0.3, 0.4]})).is_err());
+    assert!(s.execute("overfilm.killFeed.learn", json!({"templates": tp, "icon": [0.8, 0.2, 0.02, 0.03]})).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
