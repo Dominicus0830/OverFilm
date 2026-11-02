@@ -374,8 +374,15 @@ fn finish(tok: &Tokenizer, out: &[u32], probs: &[f32], language: Option<&str>) -
     Scored { text, words }
 }
 
-/// Pieces of sound recognised side by side on the CPU (see [`Asr::transcribe_many`]).
+/// Pieces of sound recognised side by side on the GPU (see [`Asr::transcribe_many`]; four
+/// 60-second pieces fill its key/value cache).
 pub const BATCH: usize = 4;
+
+/// Pieces of sound recognised side by side on the CPU. A decoding step there is bound by memory
+/// traffic (the 2 GB of 8-bit weights, then each piece's cache), so more pieces per weight pass
+/// cost little more per step: eight make each token about a third cheaper than four. The caches
+/// take about 170 MB per 60-second piece.
+pub const CPU_BATCH: usize = 8;
 
 /// Qwen3-ASR.
 pub struct Asr {
@@ -484,7 +491,7 @@ impl Asr {
         language: Option<&str>,
         cancel: &mut dyn FnMut() -> bool,
     ) -> Result<Vec<Scored>, AsrError> {
-        if audios.len() < 2 {
+        if audios.is_empty() || (audios.len() < 2 && self.on_gpu()) {
             return audios.iter().map(|a| self.transcribe_scored(a, context, language, cancel)).collect();
         }
         if self.on_gpu() {
@@ -500,6 +507,9 @@ impl Asr {
             if cancel() {
                 return Err(AsrError::Cancelled);
             }
+        }
+        if trace {
+            eprintln!("encoder x{} {:?}", audios.len(), t0.elapsed());
         }
         let Net::Cpu(th) = &mut self.m.net else { return Err(AsrError::Model("batched decoding needs the CPU model".into())) };
         let (first, mut seqs) = th.text.prefill_seqs(&xs)?;
@@ -712,6 +722,7 @@ impl Aligner {
         if units.is_empty() {
             return Ok(Vec::new());
         }
+        let t0 = std::time::Instant::now();
         let net = &mut self.m.net;
         let feats = net.encode(audio)?;
         let tok = &self.m.tok;
@@ -725,7 +736,11 @@ impl Aligner {
         let n_audio = feats.dim(0)?;
         let x = net.inputs(&before, &feats, &after)?;
         net.clear();
+        let t1 = std::time::Instant::now();
         let ids = net.forward(&x, false, false)?;
+        if std::env::var_os("OVERFILM_ASR_TRACE").is_some() {
+            eprintln!("align: encoder {:?}, {} rows {:?}", t0.elapsed().saturating_sub(t1.elapsed()), x.dim(0)?, t1.elapsed());
+        }
         let offset = before.len() + n_audio;
         let ms: Vec<f64> = after
             .iter()
@@ -793,7 +808,7 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
     let mut i = 0;
     while i < spans.len() {
         // BATCH pieces side by side (one pass over the weights serves all of them)
-        let take = BATCH;
+        let take = if asr.on_gpu() { BATCH } else { CPU_BATCH };
         let group: Vec<(usize, usize)> = spans.iter().skip(i).take(take).copied().collect();
         let pieces: Vec<&[f32]> = group.iter().map(|&(a, b)| audio.get(a..b).unwrap_or(&[])).collect();
         // progress while the group's text is generated (one call per decoding step): about

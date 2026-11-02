@@ -50,6 +50,7 @@ const SINO_COUNTERS: &[Counter] = &[
     Counter { spoken: "점", written: "점", glued: false, not_before: &['령', '수', '유', '프', '검', '심', '차', '점', '만'] },
     Counter { spoken: "승", written: "승", glued: false, not_before: &['리', '률', '부', '자', '패', '격', '천', '급', '산', '인'] },
     Counter { spoken: "패", written: "패", glued: false, not_before: &['치', '배', '스', '턴', '널', '키', '션', '드', '기'] },
+    Counter { spoken: "개월", written: "개월", glued: true, not_before: &[] },
     Counter { spoken: "월", written: "월", glued: false, not_before: &['드', '등', '급', '요', '세', '간', '말'] },
 ];
 
@@ -238,6 +239,8 @@ mod tests {
         assert_eq!(d("이십 점 십육 위는"), "20점 16위는");
         assert_eq!(d("이십육 년도 시즌 일"), "26년도 시즌 일");
         assert_eq!(d("오십삼 프로니까"), "53%니까");
+        // months: aichi tier list, "길게 육 개월치를 보면"
+        assert_eq!(d("길게 육 개월치를 보면 십이개월"), "길게 6개월치를 보면 12개월");
     }
 
     #[test]

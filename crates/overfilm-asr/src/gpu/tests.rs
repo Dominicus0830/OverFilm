@@ -263,8 +263,9 @@ fn cpu_rows_of_different_sequences() {
             for (k, w) in want.iter().enumerate() {
                 let g = got.get(k).unwrap().to_vec1::<f32>().unwrap();
                 let e = max_rel(&g, &w[step + 1]);
-                // 8-bit inputs: a last-digit difference can round a value to the next step
-                let tol = if quantize { 2e-2 } else { 1e-4 };
+                // 8-bit inputs: a last-digit difference can round a value to the next step;
+                // the batched cache holds 16-bit floats
+                let tol = if quantize { 5e-2 } else { 2e-3 };
                 assert!(e < tol, "quantize {quantize}, sequence {k}, step {step}: {e}");
             }
         }
