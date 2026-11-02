@@ -40,6 +40,13 @@ const MAX_CLUSTERS: usize = 512;
 const MAX_NAMES: usize = 1024;
 /// A row not seen for this long (ms) has left the feed.
 const GONE_MS: i64 = 2_500;
+/// Victims' box ends kept to find the feed's right edge.
+const RIGHTS: usize = 64;
+/// How far left of the feed's right edge a row may end, in row heights.
+const RIGHT_SLACK: f32 = 2.0;
+/// A row stays in the feed about this long (ms): the same row found again within it is the same
+/// kill read again.
+const STAYS_MS: i64 = 8_000;
 
 /// A box's team colour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -69,9 +76,15 @@ impl Side {
 
 fn side_of([r, g, b]: [u8; 3]) -> Option<Side> {
     let (r, g, b) = (i32::from(r), i32::from(g), i32::from(b));
-    if b >= 100 && b - r >= 45 && b + 10 >= g {
+    // strong colour only: a pale sky or a sandy wall behind the feed is not a box
+    let (hi, lo) = (r.max(g).max(b), r.min(g).min(b));
+    if hi < 100 || (hi - lo) * 100 < hi * 45 {
+        return None;
+    }
+    if b - r >= 45 && b + 10 >= g {
         Some(Side::Blue)
-    } else if r >= 100 && r - g >= 50 && r - b >= 30 {
+    } else if r == hi && r - g >= 70 && r - b >= 30 && g <= b + 12 {
+        // red, not orange or a brown wall (both have more green than blue)
         Some(Side::Red)
     } else {
         None
@@ -131,6 +144,15 @@ impl Sig {
                 return 0.0;
             }
         }
+        self.likeness(o)
+    }
+
+    /// [`Sig::similarity`] whatever the shapes (for a reading known to be near, blurred wider
+    /// or narrower).
+    pub fn likeness(&self, o: &Sig) -> f32 {
+        if self.w != o.w || self.h != o.h || self.px.len() != o.px.len() || self.px.len() != self.w * self.h || self.px.is_empty() {
+            return 0.0;
+        }
         let (sx, sy) = ((self.w / 8).clamp(1, 3) as i32, (self.h / 8).clamp(1, 2) as i32);
         let mut best = f32::MIN;
         for dy in -sy..=sy {
@@ -183,6 +205,12 @@ pub struct FeedSide {
     pub side: Side,
     pub name: Sig,
     pub hero: Option<Sig>,
+    /// The box's left and right edges, in row heights from the crop's left (a row keeps them while it
+    /// is on screen; its name text, blurred by motion or the stream, does not quite).
+    pub x0: f32,
+    pub x1: f32,
+    /// How sharp the name text was read (mean step between neighbouring pixels).
+    pub clear: f32,
 }
 
 /// One kill feed row on one frame.
@@ -204,7 +232,7 @@ pub fn read_rows(img: &Rgb, row: Option<f32>) -> Vec<FeedRow> {
         return Vec::new();
     }
     let side_at = |x: usize, y: usize| side_of(img.at(x, y));
-    let counts: Vec<usize> = (0..h).map(|y| (0..w).filter(|&x| side_at(x, y).is_some()).count()).collect();
+    let counts = profile(img);
     let row = row.filter(|r| r.is_finite() && *r > 0.0 && *r <= 1.0).map(|r| r * h as f32);
     let bands = bands(&counts, w, row);
     let rh = row.or_else(|| typical(&bands)).unwrap_or(0.0);
@@ -229,30 +257,52 @@ pub fn read_rows(img: &Rgb, row: Option<f32>) -> Vec<FeedRow> {
 /// The typical height of a row on `img`, as a share of its height (to keep with the feed's
 /// rectangle); `None` when no row is found.
 pub fn row_height(img: &Rgb) -> Option<f32> {
-    let side_at = |x: usize, y: usize| side_of(img.at(x, y));
-    let counts: Vec<usize> = (0..img.height).map(|y| (0..img.width).filter(|&x| side_at(x, y).is_some()).count()).collect();
-    let b = raw_bands(&counts, img.width);
+    let b = raw_bands(&profile(img), img.width);
     typical(&b).map(|t| t / img.height.max(1) as f32)
 }
 
-/// Runs of pixel rows with enough box colour (a one-pixel gap is a line of text, not a new row).
+/// Per pixel row, how much of it is box: box colour or white text. A row's name text takes the
+/// colour out of the middle of the box, so colour alone dips there as deep as between two rows;
+/// with the text counted, only the gap between rows is low.
+fn profile(img: &Rgb) -> Vec<usize> {
+    (0..img.height)
+        .map(|y| {
+            (0..img.width)
+                .filter(|&x| {
+                    let p = img.at(x, y);
+                    side_of(p).is_some() || white(p) >= 150.0
+                })
+                .count()
+        })
+        .collect()
+}
+
+/// Runs of pixel rows with enough box (a one-pixel gap is a line of text, not a new row): over a
+/// twenty-fifth of the width, and somewhere over 30 % of the fullest rows (a glow or a reticle
+/// between two rows is less; a row with no killer is about that).
 fn raw_bands(counts: &[usize], w: usize) -> Vec<(usize, usize)> {
     let h = counts.len();
-    let min = (w / 25).max(4);
+    let floor = (w / 25).max(4);
+    let mut full: Vec<usize> = counts.iter().copied().filter(|&c| c >= floor).collect();
+    full.sort_unstable();
+    let p90 = full.get(full.len() * 9 / 10).copied().unwrap_or(0);
+    let min = floor.max(p90 * 3 / 10);
+    // a band reaches as far as half that (a short row sliding in is narrower than the rest)
+    let low = floor.max(min / 2);
     let at = |y: usize| counts.get(y).copied().unwrap_or(0);
     let mut out = Vec::new();
     let mut y = 0;
     while y < h {
-        if at(y) < min {
+        if at(y) < low {
             y += 1;
             continue;
         }
         let y0 = y;
         let mut y1 = y + 1;
-        while y1 < h && (at(y1) >= min || (y1 + 1 < h && at(y1 + 1) >= min)) {
+        while y1 < h && (at(y1) >= low || (y1 + 1 < h && at(y1 + 1) >= low)) {
             y1 += 1;
         }
-        if y1 - y0 >= 6 {
+        if y1 - y0 >= 6 && (y0..y1).any(|y| at(y) >= min) {
             out.push((y0, y1));
         }
         y = y1 + 1;
@@ -276,7 +326,7 @@ fn bands(counts: &[usize], w: usize, row: Option<f32>) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     for (y0, y1) in raw {
         let len = (y1 - y0) as f32;
-        if len < rh * 0.6 {
+        if len < rh * 0.55 {
             continue;
         }
         let k = ((len / (rh * 1.1)).round() as usize).clamp(1, MAX_ROWS);
@@ -357,15 +407,16 @@ fn read_row(img: &Rgb, lum: &crate::Luma, aspect: f32, (y0, y1, rh): (usize, usi
     if let Some(c) = cur {
         runs.push(c);
     }
-    runs.retain(|r| r.2 + 1 - r.1 >= bh);
+    // a short name ("KILO") with its picture beside it in the box leaves a short run
+    runs.retain(|r| (r.2 + 1 - r.1) as f32 >= bhf * 0.6);
     let side = |(s, a, b): (Side, usize, usize), killer: bool| -> Option<FeedSide> {
-        let name = name_sig(img, (a, b + 1), (y0, y1), rh.max(bhf), !killer)?;
+        let (name, clear) = name_sig(img, (a, b + 1), (y0, y1), rh.max(bhf), !killer)?;
         let (px0, px1) = if killer { ((b + 1) as f32, (b + 1) as f32 + PORTRAIT * bhf) } else { (a as f32 - PORTRAIT * bhf, a as f32) };
         let hero = (px0 >= 0.0 && px1 <= w as f32).then(|| {
             let inset = (px1 - px0) * 0.1;
             Sig::grab(img, (px0 + inset, y0 as f32 + bhf * 0.12, px1 - inset, y1 as f32 - bhf * 0.12), HERO_W, HERO_H, gray)
         });
-        Some(FeedSide { side: s, name, hero: hero.flatten() })
+        Some(FeedSide { side: s, name, hero: hero.flatten(), x0: a as f32 / rh.max(1.0), x1: (b + 1) as f32 / rh.max(1.0), clear })
     };
     let last = *runs.last()?;
     let victim = side(last, false)?;
@@ -401,7 +452,7 @@ fn white([r, g, b]: [u8; 3]) -> f32 {
 /// The name text inside the box `[x0, x1) × [y0, y1)`: the columns with white pixels, the group
 /// at the box's outer end when there are several (an icon in the box is set apart from the name
 /// by a wider gap than letters are). `outer_right`: the victim's box, whose name is on its right.
-fn name_sig(img: &Rgb, (x0, x1): (usize, usize), (y0, y1): (usize, usize), rh: f32, outer_right: bool) -> Option<Sig> {
+fn name_sig(img: &Rgb, (x0, x1): (usize, usize), (y0, y1): (usize, usize), rh: f32, outer_right: bool) -> Option<(Sig, f32)> {
     let m = 2usize;
     let bh = (y1 - y0) as f32;
     let (ya, yb) = (y0 + (bh * 0.15) as usize, y1.saturating_sub((bh * 0.15) as usize));
@@ -425,7 +476,8 @@ fn name_sig(img: &Rgb, (x0, x1): (usize, usize), (y0, y1): (usize, usize), rh: f
         }
     }
     let (tx0, tx1) = if outer_right { *groups.last()? } else { *groups.first()? };
-    if tx1 < tx0 + 3 {
+    // a name, not a lone digit (the broadcast's kill count above the feed is boxes too)
+    if tx1 < tx0 + 3 || ((tx1 - tx0) as f32) < rh * 0.4 {
         return None;
     }
     // the text is centred in the box at one size: the band's middle, not the bright pixels' own
@@ -434,7 +486,14 @@ fn name_sig(img: &Rgb, (x0, x1): (usize, usize), (y0, y1): (usize, usize), rh: f
     let half = (rh * 0.3).min(bh / 2.0);
     let mut s = Sig::grab(img, (tx0 as f32, cy - half, tx1 as f32, cy + half), NAME_W, NAME_H, white)?;
     s.aspect = (tx1 - tx0) as f32 / rh;
-    Some(s)
+    let (mut step, mut n) = (0.0f32, 0u32);
+    for y in ya..yb {
+        for x in tx0..tx1.saturating_sub(1) {
+            step += (white(img.at(x + 1, y)) - white(img.at(x, y))).abs();
+            n += 1;
+        }
+    }
+    Some((s, if n == 0 { 0.0 } else { step / n as f32 }))
 }
 
 /// A name the user gave a player's or a hero's picture.
@@ -488,6 +547,68 @@ pub struct Cluster {
     /// The name the user gave it, if any.
     pub label: Option<String>,
     pub seen: u32,
+    /// A player's team colour (a player stays on one side of the feed).
+    pub side: Option<Side>,
+    /// A player's hero picture when first read: two names alike in a small, blurry feed are told
+    /// apart by it.
+    pub hero: Option<Sig>,
+    /// More readings of a player's name (blur and the stream's compression read one name a
+    /// little differently each time; a new reading is compared with all of them).
+    pub more: Vec<Sig>,
+}
+
+/// Most readings kept of a player's name.
+const MORE: usize = 24;
+/// Readings of each side of a row kept while it is followed (the sharpest).
+const READINGS: usize = 8;
+
+/// How much the hero picture counts towards a player being the same.
+const HERO_WEIGHT: f32 = 0.25;
+/// Lowest name similarity plus [`HERO_WEIGHT`] × picture similarity of the same player.
+const SAME_PLAYER: f32 = 0.92;
+
+/// The player cluster of a row's side read on one or more samples (`readings`, sharpest first;
+/// all on one side), new when no cluster is alike enough.
+fn assign_player(list: &mut Vec<Cluster>, readings: &[FeedSide], names: &FeedNames) -> Option<usize> {
+    let first = readings.first()?;
+    let score = |c: &Cluster| {
+        if c.side.is_some_and(|x| x != first.side) {
+            return 0.0;
+        }
+        let mut best = 0.0f32;
+        for s in readings {
+            let h = c.hero.as_ref().zip(s.hero.as_ref()).map_or(0.0, |(a, b)| a.similarity(b));
+            for sig in std::iter::once(&c.sig).chain(&c.more) {
+                best = best.max(sig.similarity(&s.name) + HERO_WEIGHT * h);
+            }
+        }
+        best
+    };
+    let best = list.iter().enumerate().map(|(i, c)| (score(c), i)).max_by(|a, b| a.0.total_cmp(&b.0));
+    let i = match best.filter(|b| b.0 >= SAME_PLAYER) {
+        Some((_, i)) => {
+            if let Some(c) = list.get_mut(i) {
+                c.seen = c.seen.saturating_add(1);
+            }
+            i
+        }
+        None => {
+            if list.len() >= MAX_CLUSTERS {
+                return None;
+            }
+            let label = readings.iter().find_map(|s| names.lookup(false, &s.name));
+            list.push(Cluster { sig: first.name.clone(), label, seen: 1, side: Some(first.side), hero: first.hero.clone(), more: Vec::new() });
+            list.len() - 1
+        }
+    };
+    if let Some(c) = list.get_mut(i) {
+        for s in readings {
+            if c.more.len() < MORE && s.name != c.sig && !c.more.contains(&s.name) {
+                c.more.push(s.name.clone());
+            }
+        }
+    }
+    Some(i)
 }
 
 fn assign(list: &mut Vec<Cluster>, sig: &Sig, hero: bool, names: &FeedNames) -> Option<usize> {
@@ -502,7 +623,7 @@ fn assign(list: &mut Vec<Cluster>, sig: &Sig, hero: bool, names: &FeedNames) -> 
     if list.len() >= MAX_CLUSTERS {
         return None;
     }
-    list.push(Cluster { sig: sig.clone(), label: names.lookup(hero, sig), seen: 1 });
+    list.push(Cluster { sig: sig.clone(), label: names.lookup(hero, sig), seen: 1, side: None, hero: None, more: Vec::new() });
     Some(list.len() - 1)
 }
 
@@ -525,10 +646,137 @@ pub struct FeedEvent {
     pub ult: bool,
 }
 
-type Key = (Option<(Side, usize)>, (Side, usize));
+/// How far a row's box edges may move between two samples of it on average, in row heights
+/// (blur, the stream's compression and a dark hero picture beside the box move an edge by a
+/// pixel or several; a row with names of other lengths has its boxes elsewhere).
+const SAME_EDGE: f32 = 0.8;
+
+/// How alike two readings of a row are: 0 when not the same row. A row is known by its sides'
+/// colours and where its boxes start and end, then by its names when they are read alike (a
+/// blurred frame reads a name a little wider or not at all, its box stays about where it was)
+/// and by how little it moved. A killer missed on one sample (a short box hidden by a flash)
+/// does not make it another row.
+fn row_match(a: &FeedRow, b: &FeedRow, tol: f32) -> f32 {
+    if a.victim.side != b.victim.side {
+        return 0.0;
+    }
+    let edges = |p: &FeedSide, q: &FeedSide| (p.x0 - q.x0).abs() + (p.x1 - q.x1).abs();
+    let mut d = edges(&a.victim, &b.victim) / 2.0;
+    let mut names = a.victim.name.likeness(&b.victim.name);
+    let mut both = 1.0;
+    match (&a.killer, &b.killer) {
+        (Some(x), Some(y)) => {
+            if x.side != y.side {
+                return 0.0;
+            }
+            d = (edges(&a.victim, &b.victim) + edges(x, y)) / 4.0;
+            names += x.name.likeness(&y.name);
+            both = 2.0;
+        }
+        (None, None) => {}
+        // a killer missed: the sample was flashed or smeared, and a glow beside the victim's box
+        // may have stretched it on one end; the nearer end counts
+        _ => d = (a.victim.x0 - b.victim.x0).abs().min((a.victim.x1 - b.victim.x1).abs()) + tol * 0.15,
+    }
+    if d.is_nan() || d > tol {
+        return 0.0;
+    }
+    ((1.0 - d / tol) + 0.5 * names / both - (a.y - b.y).abs()).max(0.01)
+}
+
+/// Which followed row (top to bottom) each row read now (top to bottom) is, keeping their order
+/// (rows in the feed never pass each other) and making the matches as good as possible
+/// together: a new row at the top that looks a little like the old top row must not take its
+/// place when the old row is read just below it.
+fn align(at: i64, missed: i64, followed: &[Followed], rows: &[FeedRow]) -> Vec<Option<usize>> {
+    let (n, m) = (followed.len().min(4 * MAX_ROWS), rows.len().min(MAX_ROWS));
+    // a row missed on the samples between must be found closer to where it was
+    let score = |i: usize, j: usize| match (followed.get(i), rows.get(j)) {
+        (Some(f), Some(r)) => row_match(&f.row, r, if at.saturating_sub(f.seen) > missed { SAME_EDGE / 2.0 } else { SAME_EDGE }),
+        _ => 0.0,
+    };
+    // best[i][j]: the best total over the first i followed rows and the first j rows read
+    let w = m + 1;
+    let mut best = vec![0.0f32; (n + 1) * w];
+    let at = |b: &[f32], i: usize, j: usize| b.get(i * w + j).copied().unwrap_or(0.0);
+    for i in 1..=n {
+        for j in 1..=m {
+            let s = score(i - 1, j - 1);
+            let mut v = at(&best, i - 1, j).max(at(&best, i, j - 1));
+            if s > 0.0 {
+                v = v.max(at(&best, i - 1, j - 1) + s);
+            }
+            if let Some(c) = best.get_mut(i * w + j) {
+                *c = v;
+            }
+        }
+    }
+    let mut out = vec![None; rows.len()];
+    let (mut i, mut j) = (n, m);
+    while i > 0 && j > 0 {
+        let here = at(&best, i, j);
+        let s = score(i - 1, j - 1);
+        if s > 0.0 && (here - (at(&best, i - 1, j - 1) + s)).abs() <= f32::EPSILON * 8.0 * here.max(1.0) {
+            if let Some(o) = out.get_mut(j - 1) {
+                *o = Some(i - 1);
+            }
+            i -= 1;
+            j -= 1;
+        } else if here == at(&best, i - 1, j) {
+            i -= 1;
+        } else {
+            j -= 1;
+        }
+    }
+    out
+}
+
+/// A row being followed: its last reading, the sharpest reading of each side (named from those
+/// when it is gone), when it was first and last seen.
+struct Followed {
+    row: FeedRow,
+    /// Readings of each side, sharpest first.
+    killers: Vec<FeedSide>,
+    victims: Vec<FeedSide>,
+    seen: i64,
+    /// Samples it has been read on.
+    n: u8,
+    first: i64,
+    ult: bool,
+}
+
+impl Followed {
+    fn new(at: i64, r: &FeedRow) -> Self {
+        Self { row: r.clone(), killers: r.killer.iter().cloned().collect(), victims: vec![r.victim.clone()], seen: at, n: 1, first: at, ult: r.ult }
+    }
+
+    fn update(&mut self, at: i64, r: &FeedRow) {
+        let keep = |list: &mut Vec<FeedSide>, s: &FeedSide| {
+            let i = list.iter().position(|o| o.clear < s.clear).unwrap_or(list.len());
+            if i < READINGS {
+                list.insert(i, s.clone());
+                list.truncate(READINGS);
+            }
+        };
+        if let Some(k) = &r.killer {
+            keep(&mut self.killers, k);
+        }
+        keep(&mut self.victims, &r.victim);
+        // a killer read on one sample is the row's, even if the next misses it
+        let mut row = r.clone();
+        if row.killer.is_none() {
+            row.killer = self.row.killer.take();
+        }
+        self.row = row;
+        self.seen = at;
+        self.n = self.n.saturating_add(1);
+        self.ult |= r.ult;
+    }
+}
 
 /// Follows the feed sample by sample; a row on `confirm` samples in a row that was not on screen
-/// before is a kill at the time of its first sample.
+/// before is a kill at the time of its first sample. A row is known again on the next sample by
+/// its boxes and names (rows move up or down as others come and go).
 pub struct FeedReader {
     confirm: u8,
     /// Row height as a share of the crop's height, when known.
@@ -536,23 +784,62 @@ pub struct FeedReader {
     names: FeedNames,
     players: Vec<Cluster>,
     heroes: Vec<Cluster>,
-    /// Rows on screen: key, last seen, event.
-    active: Vec<(Key, i64, usize)>,
-    /// Rows not yet counted: key, samples in a row, first time, reading.
-    pending: Vec<(Key, u8, i64, FeedEvent)>,
+    followed: Vec<Followed>,
     events: Vec<FeedEvent>,
+    /// Where victims' boxes ended on recent samples (the feed is lined up on the right).
+    rights: Vec<f32>,
+    /// The previous sample's time.
+    last: Option<i64>,
+    /// Rows counted lately.
+    recent: Vec<Counted>,
+}
+
+/// A row counted: its last reading, when that was, and its kill.
+struct Counted {
+    row: FeedRow,
+    seen: i64,
+    event: usize,
+}
+
+/// Lowest name likeness of a row found again (a different row with its boxes in about the same
+/// places reads below it).
+const REFOUND_NAMES: f32 = 0.8;
+
+/// Whether `b` is row `a` found again after it was lost for longer than a flash.
+fn refound(a: &FeedRow, b: &FeedRow) -> bool {
+    if row_match(a, b, SAME_EDGE / 2.0) <= 0.0 {
+        return false;
+    }
+    let mut names = vec![a.victim.name.likeness(&b.victim.name)];
+    if let (Some(x), Some(y)) = (&a.killer, &b.killer) {
+        names.push(x.name.likeness(&y.name));
+    }
+    names.iter().sum::<f32>() / names.len() as f32 >= REFOUND_NAMES
 }
 
 impl FeedReader {
     /// `row`: the feed's row height as a share of its rectangle's height, when known.
     pub fn new(names: FeedNames, confirm: u8, row: Option<f32>) -> Self {
-        Self { confirm: confirm.max(1), row, names, players: Vec::new(), heroes: Vec::new(), active: Vec::new(), pending: Vec::new(), events: Vec::new() }
+        Self {
+            confirm: confirm.max(1),
+            row,
+            names,
+            players: Vec::new(),
+            heroes: Vec::new(),
+            followed: Vec::new(),
+            events: Vec::new(),
+            rights: Vec::new(),
+            last: None,
+            recent: Vec::new(),
+        }
     }
 
-    fn who(&mut self, s: &FeedSide) -> Option<Who> {
-        let player = assign(&mut self.players, &s.name, false, &self.names)?;
-        let hero = s.hero.as_ref().and_then(|h| assign(&mut self.heroes, h, true, &self.names));
-        Some(Who { side: s.side, player, hero })
+    /// Who was read on `readings` of one side of a row (sharpest first).
+    fn who(&mut self, readings: &[FeedSide]) -> Option<Who> {
+        let first = readings.first()?;
+        let player = assign_player(&mut self.players, readings, &self.names)?;
+        let hero = readings.iter().find_map(|s| s.hero.as_ref()).and_then(|h| assign(&mut self.heroes, h, true, &self.names));
+        Some(Who { side: first.side, player, hero })
     }
 
     /// Feed the sample at `at` (`img`: the crop around the feed). `live`: the game is on screen.
@@ -566,60 +853,100 @@ impl FeedReader {
 
     /// Feed the rows read at `at`.
     pub fn push_rows(&mut self, at: i64, rows: &[FeedRow]) {
-        self.active.retain(|a| at.saturating_sub(a.1) <= GONE_MS);
-        let mut used = vec![false; self.active.len()];
-        let mut fresh: Vec<(Key, FeedEvent)> = Vec::new();
-        for r in rows {
-            // the killer first: players are numbered as they come, left to right
-            let killer = r.killer.as_ref().and_then(|k| self.who(k));
-            let Some(victim) = self.who(&r.victim) else { continue };
-            let key: Key = (killer.map(|k| (k.side, k.player)), (victim.side, victim.player));
-            let ev = FeedEvent { at, killer, victim, ult: r.ult };
-            let found = (0..self.active.len()).find(|&i| !used.get(i).copied().unwrap_or(true) && self.active.get(i).is_some_and(|a| a.0 == key));
-            if let Some(i) = found {
-                if let Some(u) = used.get_mut(i) {
-                    *u = true;
-                }
-                if let Some(a) = self.active.get_mut(i) {
-                    a.1 = at;
-                    if let Some(e) = self.events.get_mut(a.2) {
-                        e.ult |= ev.ult;
-                        fill(&mut e.victim, &victim);
-                        if let (Some(k), Some(nk)) = (e.killer.as_mut(), killer.as_ref()) {
-                            fill(k, nk);
-                        }
+        // the feed's right edge: rows end there; what ends well left of it is something else
+        // read as a row (two rows smeared together, an icon in the game)
+        for r in rows.iter().take(MAX_ROWS) {
+            if self.rights.len() >= RIGHTS {
+                self.rights.remove(0);
+            }
+            self.rights.push(r.victim.x1);
+        }
+        let mut sorted = self.rights.clone();
+        sorted.sort_by(f32::total_cmp);
+        let right = sorted.get(sorted.len() / 2).copied().filter(|_| sorted.len() >= 8);
+        let rows: Vec<FeedRow> = rows.iter().take(MAX_ROWS).filter(|r| right.is_none_or(|e| r.victim.x1 >= e - RIGHT_SLACK)).cloned().collect();
+        let rows = rows.as_slice();
+        // rows gone since the last sample (a long gap between samples, a replay skipped)
+        let (mut followed, gone): (Vec<Followed>, Vec<Followed>) =
+            std::mem::take(&mut self.followed).into_iter().partition(|f| at.saturating_sub(f.seen) <= GONE_MS);
+        for f in gone {
+            self.count(f);
+        }
+        followed.sort_by(|a, b| a.row.y.total_cmp(&b.row.y));
+        // longer than a sample and a half since a row was read: it was missed on one between
+        let step = self.last.map(|l| at.saturating_sub(l)).filter(|d| *d > 0).unwrap_or(500);
+        self.last = Some(at);
+        let pairs = align(at, step.saturating_add(step / 2), &followed, rows);
+        let mut used = vec![false; followed.len()];
+        let mut fresh: Vec<Followed> = Vec::new();
+        for (r, m) in rows.iter().zip(pairs) {
+            match m.and_then(|i| followed.get_mut(i).map(|f| (i, f))) {
+                Some((i, f)) => {
+                    if let Some(u) = used.get_mut(i) {
+                        *u = true;
                     }
+                    f.update(at, r);
                 }
-            } else {
-                fresh.push((key, ev));
+                None => fresh.push(Followed::new(at, r)),
             }
         }
-        let mut before = std::mem::take(&mut self.pending);
-        for (key, ev) in fresh {
-            let (n, first, mut acc) = match before.iter().position(|p| p.0 == key) {
-                Some(i) => {
-                    let p = before.swap_remove(i);
-                    (p.1.saturating_add(1), p.2, p.3)
-                }
-                None => (1, at, ev),
-            };
-            acc.ult |= ev.ult;
-            fill(&mut acc.victim, &ev.victim);
-            if let (Some(k), Some(nk)) = (acc.killer.as_mut(), ev.killer.as_ref()) {
-                fill(k, nk);
-            }
-            if n >= self.confirm {
-                acc.at = first;
-                self.events.push(acc);
-                self.active.push((key, at, self.events.len() - 1));
+        // a row read on `confirm` samples may be missed on a sample or two (a flash) and stays
+        // followed; one not read on that many yet must be read on consecutive samples
+        let mut keep = Vec::with_capacity(followed.len() + fresh.len());
+        for (f, u) in followed.into_iter().zip(used) {
+            if u || (f.n >= self.confirm && at.saturating_sub(f.seen) <= GONE_MS) {
+                keep.push(f);
             } else {
-                self.pending.push((key, n, first, acc));
+                self.count(f);
             }
+        }
+        keep.extend(fresh);
+        self.followed = keep;
+    }
+
+    /// A row no longer on screen: its kill, unless it was a flicker or the kill already counted
+    /// (a row lost for longer than a flash and found again).
+    fn count(&mut self, f: Followed) {
+        if f.n < self.confirm {
+            return;
+        }
+        // the same row found again after it was lost for a while: its boxes where they were and
+        // its names alike (not the player clusters: two names alike on a small, blurry feed may
+        // share one, and a kill must not be lost for it)
+        self.recent.retain(|c| f.first.saturating_sub(c.seen) <= STAYS_MS);
+        let again = self.recent.iter().rev().find(|c| refound(&c.row, &f.row)).map(|c| c.event);
+        let event = match again.filter(|i| *i < self.events.len()) {
+            Some(i) => {
+                let missing = self.events.get(i).is_some_and(|e| e.killer.is_none());
+                let killer = if missing { self.who(&f.killers) } else { None };
+                if let Some(e) = self.events.get_mut(i) {
+                    e.ult |= f.ult;
+                    e.at = e.at.min(f.first);
+                    if missing {
+                        e.killer = killer;
+                    }
+                }
+                i
+            }
+            None => {
+                let killer = self.who(&f.killers);
+                let Some(victim) = self.who(&f.victims) else { return };
+                self.events.push(FeedEvent { at: f.first, killer, victim, ult: f.ult });
+                self.events.len() - 1
+            }
+        };
+        if self.recent.len() < 4 * MAX_ROWS {
+            self.recent.push(Counted { row: f.row, seen: f.seen, event });
         }
     }
 
     /// The kills, with only the players and heroes in them, numbered as they first appear.
-    pub fn finish(self) -> FeedScan {
+    pub fn finish(mut self) -> FeedScan {
+        let mut followed = std::mem::take(&mut self.followed);
+        followed.sort_by_key(|f| f.first);
+        for f in followed {
+            self.count(f);
+        }
         let mut events = self.events;
         events.sort_by_key(|e| e.at);
         let (mut players, mut heroes) = (Vec::new(), Vec::new());
@@ -647,12 +974,6 @@ impl FeedReader {
             renumber(&mut e.victim);
         }
         FeedScan { events, players: players.into_iter().flatten().collect(), heroes: heroes.into_iter().flatten().collect() }
-    }
-}
-
-fn fill(w: &mut Who, from: &Who) {
-    if w.hero.is_none() {
-        w.hero = from.hero;
     }
 }
 

@@ -388,5 +388,8 @@ mod tests {
         assert!(set.templates.iter().any(|t| t.screen == Screen::Live));
         assert_eq!(set.bars.iter().map(|b| b.team).collect::<Vec<_>>(), [1, 2]);
         assert!(set.bars.iter().all(|b| b.ult.is_some()), "both teams' ready-ultimate icons");
+        // the broadcast's kill feed, read row by row (no ultimate icon learnt: the rows find it)
+        let feed = set.killfeed.as_ref().expect("kill feed");
+        assert!(feed.radius == 0.0 && feed.row > 0.0 && feed.rect.x + feed.rect.w <= 1.0);
     }
 }

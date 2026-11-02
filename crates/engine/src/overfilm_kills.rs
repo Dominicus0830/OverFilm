@@ -17,7 +17,7 @@
 //!   decodes anyway; the deaths it finds are the same): each use is a point marker
 //!   "OverFilm 궁극기: N팀 M번" and each death of the other team no more than `ultWindow`
 //!   (6) seconds after a use a point marker "OverFilm 궁극기 처치: N팀 M번 ← N팀 M번 궁극기".
-//!   The broadcast shows no kill feed, so such a kill is the ultimate's by timing, not certainly.
+//!   Without a kill feed to read, such a kill is the ultimate's by timing, not certainly.
 //! - `overfilm.killFeed.learn {rect: [x, y, w, h], icon: [x, y, w, h], time?, clip?, templates?}`:
 //!   on broadcasts that show the game's kill feed, `rect` around the feed and `icon` round one
 //!   ultimate kill's icon (the white disc before the arrow). The scan then takes the ultimate

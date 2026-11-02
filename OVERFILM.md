@@ -330,10 +330,10 @@ markers first to choose which moments go in; the source sequence is not changed.
 
 ## Kills and team fights
 
-Reading the kill feed itself proved unreliable on a compressed broadcast (small boxes over a moving
-game, colours washed out). The broadcast HUD's **player bars** are steadier: each player's name
-plate is in the team colour while they are alive and turns black while they wait to respawn
-(`overfilm_vision::kills`).
+The broadcast HUD's **player bars** give every death steadily: each player's name plate is in the
+team colour while they are alive and turns black while they wait to respawn
+(`overfilm_vision::kills`). The kill feed (small boxes over a moving game, colours washed out by the
+stream) is harder to read; it adds who killed whom (see "Who killed whom" below).
 
 - `overfilm.playerBar.learn {team: 1|2, rect: [x, y, w, h], players=5, time?, clip?, templates?}`
   (or the Learn Screen Template dialog with "Team 1/2 name plates"): the rectangle around one team's
@@ -376,7 +376,7 @@ Each name plate also has a small box beside the player's picture: the ultimate c
   gray: a dead plate turns black, and the bars leave the screen at the end of a round), is a use:
   a point marker "OverFilm 궁극기: N팀 M번" (violet). A second use within 10 s, or one followed by
   the player's own death within 1.5 s, is left out.
-- That broadcast shows no kill feed, so an ultimate kill is by timing: a death of the other team no
+- Without a kill feed to read, an ultimate kill is by timing: a death of the other team no
   more than `ultWindow` seconds after a use, given to the latest such use: "OverFilm 궁극기 처치:
   N팀 M번 ← N팀 M번 궁극기" (yellow; the comment says it is an estimate). Healing and movement
   ultimates followed by a kill count too.
@@ -394,15 +394,18 @@ Measured on the 84-minute OWCS broadcast (built-in icons, learnt at 34:40; `ults
 two at once, 35:03, 35:12, 35:16, 35:17, 35:42 two at once): the ready icon was on the plate and the
 charge number or the hero's running-ultimate icon replaced it. Before the on-screen check, 12 false
 uses came from the bars leaving the screen at the ends of rounds. Its 49 timing-based ultimate kills
-have no kill feed to check against. The kill-feed reading found exactly the three ultimate kills
-of six rows in a kill feed screenshot the owner sent (no portrait or reticle taken for one); no
-recording with a kill feed was at hand to measure more.
+were counted before the kill feed was read. The kill-feed reading found exactly the three ultimate
+kills of six rows in a kill feed screenshot the owner sent (no portrait or reticle taken for one),
+and the three ultimate kills of the broadcast fights checked below.
 
 ### Who killed whom (kill feed)
 
 On videos that show the game's kill feed (gameplay, streams, broadcasts that keep it), the kill
 scan reads every row once the feed is learnt (`overfilm_vision::feedrows`); `icon` is optional for
-this, `rect` around the feed is enough, and the feed's row height is learnt with it.
+this, `rect` around the feed is enough, and the feed's row height is learnt with it. The built-in
+OWCS file has that broadcast's feed (`[0.74, 0.185, 0.26, 0.30]`, rows 0.125 of it high; its top
+starts above where the feed sits under the kill count, as the broadcast drops the count in some
+shots and the feed moves up).
 
 - A row is two boxes in the team colours (blue: the viewer's team, red: the other) with the killer's
   hero picture after the first and the victim's before the second; a row with one box is a death
@@ -412,8 +415,18 @@ this, `rect` around the feed is enough, and the feed's row height is learnt with
   picture are kept as small grids, and the same name or picture read again is the same player or
   hero (normalised correlation of the grids moved by a cell or two, names of lengths more than
   12 % apart never match). They are numbered as they first appear: "선수 1", "영웅 2".
-- A row on screen for two samples that was not there before is one kill, at its first sample;
-  the same killer and victim stay one kill while the row moves up the feed. Each is a point marker
+- A row on screen for two samples that was not there before is one kill, at its first sample.
+  Rows are followed from sample to sample by where their boxes start and end (in row heights; a
+  name blurred by motion or the stream reads a little wider or not at all, its box stays put),
+  their sides and names, keeping the rows' order (a new row comes in at the top and pushes the
+  others down; a new top row must not take the place of the old one read just below it). A row
+  that ends well left of the feed's right edge (the median of where victims' boxes end) is
+  something else. A row missed for a sample or two (a flash, a smear) is the same row when it is
+  found again near where it was; one lost for longer is the same kill when its boxes are where they
+  were and its names alike. A killer's box missed on a sample does not make another row.
+- Players and heroes are named from the sharpest readings of the row (up to 8 of each side, by
+  how sharp the name text is), and a player keeps up to 24 readings of the name, so the next
+  reading is compared with all of them (one name blurs differently every time). Each kill is a point marker
   "OverFilm 킬피드: 선수 1 (영웅 1) → 선수 2 (영웅 3)" (" (궁극기)" with the icon; blue killer cerulean,
   red rose, nobody tan), the comment "아군 → 적". Frames are decoded up to 1920 wide while the
   feed is read. With no name plates' deaths on the sequence the highlights count these kills.
@@ -429,7 +442,15 @@ Measured on the owner's kill feed screenshot (six rows): all six read right at i
 at 1/2 of it (NECROS four times and FRANKYBOXING and LEEVI twice each, one player each; three
 ultimate kills); at 1/2 one victim's picture was taken for another hero's. The same rows played as
 a 2 fps H.264 video (CRF 30), one row more every two seconds, gave the six kills at the right times
-(`feed_raw` example: `rows`, `pairs`, `run`). No recording with a kill feed has been measured yet.
+(`feed_raw` example: `rows`, `pairs`, `run`).
+
+On the OWCS broadcast (720p, built-in feed, 2 fps), three team fights checked frame by frame
+(33:49 to 34:02, 34:30 to 34:47 and 36:25 to 36:33, 14 kills): 13 found with the right teams and
+within a second or two of the row's arrival (one, the last of the first fight, missed), all three
+ultimate kills with their icon, and one kill counted twice when its row was lost for a few seconds
+behind a camera cut. Who is who is weaker there: the names are about 8 pixels high and blurred, so
+two names of a length (WUTIAN, FAITH, GAMJUNG) can share one "선수 N" until named. Ten minutes of
+the broadcast read in about 30 seconds on a CPU, decoding with ffmpeg included.
 
 ## Claude Code review
 

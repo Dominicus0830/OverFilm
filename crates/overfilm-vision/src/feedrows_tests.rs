@@ -67,10 +67,12 @@ impl Canvas {
             }
         }
     }
-    /// A whole row at `y0`: killer (name, side, hero) → victim.
+    /// A whole row at `y0`: killer (name, side, hero) → victim, ending 20 px from the right (a
+    /// feed is lined up on the right).
     fn row(&mut self, y0: usize, killer: Option<(&str, [u8; 3], u32)>, victim: (&str, [u8; 3], u32), ult: bool) {
         let pw = (ROW as f32 * PORTRAIT) as usize;
-        let mut x = 20;
+        let width = killer.map_or(0, |(n, _, _)| 10 + n.len() * 7 + pw) + 36 + pw + 10 + victim.0.len() * 7;
+        let mut x = W - 20 - width;
         if let Some((n, c, h)) = killer {
             x = self.name(x, y0, n, c);
             self.hero(x, y0, h);
@@ -171,10 +173,10 @@ fn a_row_on_screen_is_one_kill() {
     // not live (a replay): ignored
     r.push(3000, &frame(&[(10, "EEEEEEE", "FFF")]), false);
     r.push(3500, &frame(&[(10, "EEEEEEE", "FFF")]), false);
-    // gone, then the same pair again much later: a second kill
+    // gone, then the same pair again much later (after a respawn): a second kill
     r.push(4000, &frame(&[]), true);
-    r.push(9000, &frame(&[(10, "AAA", "BBBBB")]), true);
-    r.push(9500, &frame(&[(10, "AAA", "BBBBB")]), true);
+    r.push(11000, &frame(&[(10, "AAA", "BBBBB")]), true);
+    r.push(11500, &frame(&[(10, "AAA", "BBBBB")]), true);
     let scan = r.finish();
     let got: Vec<(i64, String)> = scan.events.iter().map(|e| (e.at, scan.line(e))).collect();
     assert_eq!(
@@ -182,7 +184,7 @@ fn a_row_on_screen_is_one_kill() {
         [
             (1000, "선수 1 (영웅 1) → 선수 2 (영웅 2)".to_string()),
             (2000, "선수 3 (영웅 1) → 선수 4 (영웅 2)".to_string()),
-            (9000, "선수 1 (영웅 1) → 선수 2 (영웅 2)".to_string())
+            (11000, "선수 1 (영웅 1) → 선수 2 (영웅 2)".to_string())
         ]
     );
 }

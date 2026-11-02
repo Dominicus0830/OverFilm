@@ -64,26 +64,73 @@ fn main() {
                 }
             }
         }
+        "cross" => {
+            // how alike the names and pictures of two pictures read (for tuning)
+            let read = |f: String| {
+                let px = std::fs::read(f).unwrap_or_default();
+                rect(&get(6)).and_then(|r| Rgb::crop_rgba(&px, w, h, r, 1024)).map(|img| read_rows(&img, None)).unwrap_or_default()
+            };
+            let (a, b) = (read(get(4)), read(get(5)));
+            let sides = |rows: &[overfilm_vision::feedrows::FeedRow]| -> Vec<(String, overfilm_vision::feedrows::FeedSide)> {
+                rows.iter()
+                    .enumerate()
+                    .flat_map(|(i, r)| r.killer.iter().map(move |k| (format!("{i}k"), k.clone())).chain(std::iter::once((format!("{i}v"), r.victim.clone()))))
+                    .collect()
+            };
+            let (sa, sb) = (sides(&a), sides(&b));
+            for (x, p) in &sa {
+                let line: Vec<String> = sb
+                    .iter()
+                    .map(|(y, q)| {
+                        format!("{y}:{:.2}/{:.2}", p.name.similarity(&q.name), p.hero.as_ref().zip(q.hero.as_ref()).map_or(0.0, |(m, n)| m.similarity(n)))
+                    })
+                    .collect();
+                println!("{x} {}", line.join(" "));
+            }
+        }
         "run" => {
             let fps: f64 = get(4).parse().unwrap_or(2.0);
             let Some(r) = rect(&get(5)) else { return eprintln!("bad rect") };
-            let mut reader = FeedReader::new(FeedNames::default(), 2, None);
+            let trace = std::env::var_os("FEED_TRACE").is_some();
+            // optional: the row height as a share of the rectangle's height
+            let row: Option<f32> = get(6).parse().ok();
+            let mut reader = FeedReader::new(FeedNames::default(), 2, row);
             let mut buf = vec![0u8; w * h * 4];
             let mut stdin = std::io::stdin().lock();
             let mut n = 0u64;
             while stdin.read_exact(&mut buf).is_ok() {
                 let at = (n as f64 * 1000.0 / fps) as i64;
                 if let Some(img) = Rgb::crop_rgba(&buf, w, h, r, 1024) {
+                    if trace {
+                        // FEED_TRACE=1: the rows read on each frame
+                        let rows = read_rows(&img, None);
+                        let s: Vec<String> = rows
+                            .iter()
+                            .map(|r| {
+                                let s = |f: &overfilm_vision::feedrows::FeedSide| format!("{}[{:.1}-{:.1}]", f.side.as_str(), f.x0, f.x1);
+                                format!("y{:.2} {}>{}{}", r.y, r.killer.as_ref().map_or("-".into(), s), s(&r.victim), if r.ult { "*" } else { "" })
+                            })
+                            .collect();
+                        eprintln!("{} {}", clock(at), s.join(" "));
+                    }
                     reader.push(at, &img, true);
                 }
                 n += 1;
             }
             let scan = reader.finish();
             for e in &scan.events {
-                println!("{} {}{}", clock(e.at), scan.line(e), if e.ult { " [궁극기]" } else { "" });
+                let side = |w: &overfilm_vision::Who| w.side.as_str();
+                println!(
+                    "{} {}{} ({}>{})",
+                    clock(e.at),
+                    scan.line(e),
+                    if e.ult { " [궁극기]" } else { "" },
+                    e.killer.as_ref().map_or("-", side),
+                    side(&e.victim)
+                );
             }
             println!("{} kill(s) in {n} frames", scan.events.len());
         }
-        _ => eprintln!("usage: feed_raw rows W H file.rgba x,y,w,h | run W H fps x,y,w,h"),
+        _ => eprintln!("usage: feed_raw rows W H file.rgba x,y,w,h | run W H fps x,y,w,h [row]"),
     }
 }

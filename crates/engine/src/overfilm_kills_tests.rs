@@ -199,7 +199,7 @@ fn sig(seed: u8) -> overfilm_vision::feedrows::Sig {
 fn feed_scan() -> FeedScan {
     use overfilm_vision::feedrows::Cluster;
     use overfilm_vision::{FeedEvent, Who};
-    let c = |seed| Cluster { sig: sig(seed), label: None, seen: 1 };
+    let c = |seed| Cluster { sig: sig(seed), label: None, seen: 1, side: None, hero: None, more: Vec::new() };
     let who = |side, player, hero| Who { side, player, hero: Some(hero) };
     FeedScan {
         events: vec![
