@@ -75,6 +75,36 @@ impl Luma {
         Some(Luma { width: w, height: h, px })
     }
 
+    /// A frame from a video's 8-bit Y' plane (`width`×`height`, row by row), as [`Luma::from_rgba`]
+    /// would read the same picture: the same box filter, and `limited` range (16–235) stretched to
+    /// 0–255 (Y' is the BT.709 weighted sum of R'G'B' that `from_rgba` takes), without making the
+    /// whole frame's RGB first.
+    pub fn from_y(y: &[u8], width: usize, height: usize, max_width: usize, limited: bool) -> Option<Luma> {
+        let need = width.checked_mul(height)?;
+        if width == 0 || height == 0 || y.len() < need {
+            return None;
+        }
+        let max_w = max_width.clamp(8, MAX_WIDTH);
+        let f = width.div_ceil(max_w).max(1);
+        let (w, h) = ((width / f).max(1), (height / f).max(1));
+        let mut px = Vec::with_capacity(w * h);
+        for yy in 0..h {
+            for x in 0..w {
+                let (mut acc, mut n) = (0u32, 0u32);
+                for r in yy * f..(yy * f + f).min(height) {
+                    for c in x * f..(x * f + f).min(width) {
+                        acc += y.get(r * width + c).copied().unwrap_or(0) as u32;
+                        n += 1;
+                    }
+                }
+                let v = acc as f32 / n.max(1) as f32;
+                let v = if limited { (v - 16.0) * 255.0 / 219.0 } else { v };
+                px.push(v.round().clamp(0.0, 255.0) as u8);
+            }
+        }
+        Some(Luma { width: w, height: h, px })
+    }
+
     /// A frame from 8-bit gray rows (tests and already-gray sources).
     pub fn from_gray(px: Vec<u8>, width: usize, height: usize) -> Option<Luma> {
         (width > 0 && height > 0 && width.checked_mul(height) == Some(px.len())).then_some(Luma { width, height, px })
@@ -213,6 +243,22 @@ mod tests {
         let l = Luma::from_rgba(&rgba, 4, 2, 8).unwrap();
         assert_eq!((l.width, l.height), (4, 2));
         assert!(l.px[0] >= 254 && l.px[3] == 0);
+    }
+
+    #[test]
+    fn a_y_plane_reads_as_its_rgb_would() {
+        // a gray ramp: R'G'B' v, its limited-range Y' 16 + v·219/255
+        let (w, h) = (64usize, 8usize);
+        let v = |x: usize| (x * 4) as u8;
+        let rgba: Vec<u8> = (0..h).flat_map(|_| (0..w).flat_map(|x| [v(x), v(x), v(x), 255])).collect();
+        let y: Vec<u8> = (0..h).flat_map(|_| (0..w).map(|x| (16.0 + v(x) as f32 * 219.0 / 255.0).round() as u8)).collect();
+        let (a, b) = (Luma::from_rgba(&rgba, w, h, 32).unwrap(), Luma::from_y(&y, w, h, 32, true).unwrap());
+        assert_eq!((a.width, a.height), (b.width, b.height));
+        assert!(a.px.iter().zip(&b.px).all(|(p, q)| p.abs_diff(*q) <= 2), "{:?} {:?}", a.px, b.px);
+        let full: Vec<u8> = (0..h).flat_map(|_| (0..w).map(v)).collect();
+        assert_eq!(Luma::from_y(&full, w, h, 64, false).unwrap().px, full);
+        assert!(Luma::from_y(&[0; 8], 4, 4, 64, true).is_none());
+        assert!(Luma::from_y(&[], 0, 4, 64, true).is_none());
     }
 
     #[test]

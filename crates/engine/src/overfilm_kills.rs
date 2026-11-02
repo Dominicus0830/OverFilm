@@ -275,31 +275,31 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
         let feed_rect = set.killfeed.as_ref().map(|f| f.rect);
         let mut done = 0u64;
         let mut stopped = false;
-        'clips: for w in &work {
+        // the kill feed's names are small: decode bigger while it is read
+        let scales: Vec<f32> = work
+            .iter()
+            .map(|w| match (&reader, w.src.info().video.as_ref()) {
+                (Some(_), Some(v)) => ((FEED_WIDTH as f64 / v.width.max(1) as f64).min(1.0) as f32).max(w.scale),
+                _ => w.scale,
+            })
+            .collect();
+        'clips: for (i, w) in work.iter().enumerate() {
+            let scale = scales.get(i).copied().unwrap_or(w.scale);
             for (st, mt) in &w.times {
                 if prog.cancel.load(Ordering::Relaxed) {
                     stopped = true;
                     break 'clips;
                 }
-                // the kill feed's names are small: decode bigger while it is read
-                let scale = match (&reader, w.src.info().video.as_ref()) {
-                    (Some(_), Some(v)) => ((FEED_WIDTH as f64 / v.width.max(1) as f64).min(1.0) as f32).max(w.scale),
-                    _ => w.scale,
-                };
-                if let Ok(f) = w.src.video_frame(filmcraft_media::FrameRequest { time: *mt, scale })
-                    && let rgba = f.to_rgba8()
-                    && let Some(l) = Luma::from_rgba(&rgba, f.width as usize, f.height as usize, WIDTH)
-                {
-                    if let (Some(r), Some(rect)) = (reader.as_mut(), feed_rect)
-                        && let Some(crop) = Rgb::crop_rgba(&rgba, f.width as usize, f.height as usize, rect, FEED_CROP)
-                    {
-                        r.push(st.0 / TICKS_PER_MS, &crop, !has_live || set.live(&l));
+                let at = st.0 / TICKS_PER_MS;
+                if let Some(r) = prepare_sample(&w.src, *mt, scale, &set, has_live, feed_rect) {
+                    if let (Some(fr), Some(crop)) = (reader.as_mut(), r.feed.as_ref()) {
+                        fr.push(at, crop, r.live);
                     }
-                    let live = !has_live || set.live(&l);
-                    tracker.push(st.0 / TICKS_PER_MS, &l, live);
-                    ult_tracker.push(st.0 / TICKS_PER_MS, &l, live);
+                    // under each bar: a hero change keeps the health segments, a death has a cross
+                    tracker.push_with(at, &r.luma, r.live, &r.health);
+                    ult_tracker.push(at, &r.luma, r.live);
                     if let Some(f) = feed_tracker.as_mut() {
-                        f.push(st.0 / TICKS_PER_MS, &l, live);
+                        f.push(at, &r.luma, r.live);
                     }
                 }
                 done += 1;
@@ -387,6 +387,57 @@ fn clock(ms: i64) -> String {
 
 fn fight_json(f: &Fight) -> Value {
     json!({"from": clock(f.start), "to": clock(f.end), "kills": f.kills(), "team1Dead": f.dead[0], "team2Dead": f.dead[1]})
+}
+
+/// What the kill scan reads off one sample.
+struct Read {
+    luma: Luma,
+    live: bool,
+    /// The kill feed's rectangle, when one is read.
+    feed: Option<Rgb>,
+    /// Per bar: whether each plate has health segments under it.
+    health: Vec<Vec<bool>>,
+}
+
+/// Decode the frame at media time `mt` and cut it down to what the scan reads. A Y'CbCr frame
+/// (nearly every video) is read without making the whole frame's RGB: the gray picture from its
+/// Y' plane, colour only for the kill feed and the strips under the plates.
+fn prepare_sample(
+    src: &filmcraft_media::SharedSource,
+    mt: Tick,
+    scale: f32,
+    set: &overfilm_vision::TemplateSet,
+    has_live: bool,
+    feed_rect: Option<overfilm_vision::NRect>,
+) -> Option<Read> {
+    use filmcraft_frame::{PixelData, Region};
+    // only the sampled frame is looked at: pictures nothing else refers to before it need not be
+    // decoded (the decoder skips them; the sampled one is always made)
+    let f = filmcraft_media::cancel::with_catch_up(Some(Tick::ZERO), || src.video_frame(filmcraft_media::FrameRequest { time: mt, scale })).ok()?;
+    let (w, h) = (f.width as usize, f.height as usize);
+    let direct = matches!(f.color.transfer, filmcraft_color::Transfer::Bt709 | filmcraft_color::Transfer::Srgb);
+    let (luma, rgb_of): (Luma, Box<dyn Fn(overfilm_vision::NRect) -> Option<Rgb> + '_>) = match &f.data {
+        PixelData::Yuv8 { planes, alpha: None, .. } if direct => {
+            let luma = Luma::from_y(&planes[0], w, h, WIDTH, f.color.range == filmcraft_color::Range::Limited)?;
+            let part = move |r: overfilm_vision::NRect| -> Option<Rgb> {
+                let r = r.clamped()?;
+                let (x0, y0) = ((r.x * w as f32).floor() as usize, (r.y * h as f32).floor() as usize);
+                let (x1, y1) = (((r.x + r.w) * w as f32).ceil() as usize, ((r.y + r.h) * h as f32).ceil() as usize);
+                let c = f.cropped(Region { x: x0, y: y0, w: x1.saturating_sub(x0).max(1), h: y1.saturating_sub(y0).max(1) });
+                Rgb::crop_rgba(&c.to_rgba8(), c.width as usize, c.height as usize, overfilm_vision::NRect::new(0.0, 0.0, 1.0, 1.0), FEED_CROP)
+            };
+            (luma, Box::new(part))
+        }
+        _ => {
+            let rgba = f.to_rgba8();
+            let luma = Luma::from_rgba(&rgba, w, h, WIDTH)?;
+            (luma, Box::new(move |r| Rgb::crop_rgba(&rgba, w, h, r, FEED_CROP)))
+        }
+    };
+    let live = !has_live || set.live(&luma);
+    let feed = feed_rect.and_then(&rgb_of);
+    let health = set.bars.iter().map(|b| rgb_of(b.under_rect()).map(|r| b.health(&r)).unwrap_or_default()).collect();
+    Some(Read { luma, live, feed, health })
 }
 
 pub fn poll(s: &mut Session) {

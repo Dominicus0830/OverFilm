@@ -342,7 +342,10 @@ stream) is harder to read; it adds who killed whom (see "Who killed whom" below)
 - `Sequence ▸ OverFilm ▸ Find Kills, Ultimates and Team Fights` (`overfilm.kills.scan {fps=2, clips?,
   templates?, fightGap=10, minKills=3, wait}`): a background job reads the plates while the game
   HUD (`live`) template matches. A plate reads dead when over 35 % of it is near black (the white
-  name stays bright) and must read so for half a second; samples where most plates are dark at
+  name stays bright) and must read so for half a second. A plate also goes black for a few seconds
+  while its player changes hero; then the white health segments stay under it, where a dead
+  player's plate has a red cross instead, so a black plate over white segments (and no red) is not
+  a death; samples where most plates are dark at
   once (replays, transitions) are skipped. Each death becomes a point marker
   "OverFilm 처치: N팀 M번" (team colour) and each run of 3+ deaths no more than 10 s apart a range
   marker "OverFilm 교전 N" (5 s before the first death to 3 s after the last). Running it again
@@ -355,7 +358,17 @@ Measured on the 84-minute OWCS broadcast (bars learnt at 30:58, `overfilm_kills_
 HUD template), about 147 deaths and 23 team fights over the three maps. Checked against the frames:
 the fights at 31:06 and 34:30 (a team wipe) died in the order and at the times the plates show,
 and two of the four sound-only highlights (31:06, 1:15:19) fall on fights. A plate that flickers back
-mid-respawn made a few double deaths, hence no second death of a player within 8 s.
+mid-respawn made a few double deaths, hence no second death of a player within 8 s. Hero changes
+were counted as deaths until the strip under the plates was read: over 30:00 to 1:00:00 of that
+broadcast they were 11 of 112 "deaths" (each a black plate for about 3 s over the health segments).
+
+The scan's time goes into decoding the video: every frame of a stream has to be decoded to reach
+the sampled ones (that broadcast's stream has no frames nothing refers to; on recordings that have
+them, the scan now skips them). After decoding, the gray picture comes straight from the video's
+Y' plane, and only the kill feed and the strips under the plates are made into colour. Two minutes
+of the 720p broadcast take about 14 s on a 4-thread CPU (the decoder already uses the threads;
+decoding stretches at once on more decoders saved a few seconds there for four times the memory,
+so it is not done).
 
 ## Ultimates and ultimate kills
 
