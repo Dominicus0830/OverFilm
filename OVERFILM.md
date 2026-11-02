@@ -298,8 +298,16 @@ track. Then:
   opacity, size, corner radius) and shadow on/off; fonts are matched to installed families and
   the ones not installed are reported. From an After Effects `.mogrt`: the first text control's
   font and size (scaled to 1080 lines) and the colours its control names place (text, stroke,
-  background; a gradient's start colour as the fill), with a motion guessed from the names; the
-  AE animation itself is not rendered. The FlatBuffers layout was worked out from text styles
+  background; a gradient's start colour as the fill), and its **motion**: the `.aep` inside
+  (`overfilm_captions::aep`, a bounds-checked RIFX walker) gives the text layer's scale,
+  position, opacity and rotation keyframes; the keys before the longest still stretch become
+  the caption's custom motion in, the keys after it the motion out (`CaptionPreset::custom_motion`,
+  values relative to the rest pose, eased or linear per key), sped up so in and out take at most
+  60 % of a caption. A per-character text animator becomes the typewriter. Not carried over:
+  effects (glow, gradients, light sweeps), expressions, masks, parented or shape layers and
+  every layer but the first animated one; a template with no readable keyframes falls back to
+  a motion guessed from its names. Choosing a motion in the dialog replaces the template's.
+  The FlatBuffers layout was worked out from text styles
   people share publicly (14 `.prtextstyle` and 8 `.mogrt` files all read); unknown fields are
   skipped. No Adobe file is shipped or read by us: the user picks their own files. Upstream's
   `.fcgt` templates still refuse `.mogrt`; this is a separate OverFilm reader.

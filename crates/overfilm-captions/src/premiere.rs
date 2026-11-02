@@ -10,9 +10,11 @@
 //!   graphic's `Source Text` is read the same way, one style per different look.
 //! - **`.mogrt`** (ZIP): a template made in Premiere carries the same `Source Text`; one made in
 //!   After Effects only has `definition.json`, whose editable controls give the font, its size
-//!   and the colours whose names say what they colour (fill, outline, background). The motion is
-//!   guessed from the template's name (pop, slide, bounce, typewriter, fade). After Effects
-//!   animation itself is not rendered.
+//!   and the colours whose names say what they colour (fill, outline, background). The motion
+//!   comes from the After Effects project inside ([`crate::aep`]): the text layer's scale,
+//!   position, opacity and rotation keyframes; a per-character animator becomes the typewriter.
+//!   When none can be read, it is guessed from the template's name (pop, slide, bounce,
+//!   typewriter, fade).
 //!
 //! What is read from a Premiere text style: font (PostScript name), size, fill colour, outline
 //! (colour, width, on/off), background box (colour, opacity, size, corner radius, on/off) and
@@ -381,11 +383,18 @@ fn legacy_json(d: &[u8]) -> Option<PrStyle> {
 // .mogrt (ZIP)
 
 fn mogrt(bytes: &[u8], name: &str, out: &mut Imported, depth: u32) -> Result<(), String> {
-    let entries = unzip(bytes)?;
+    let entries = unzip(bytes, depth == 0)?;
     let mut definition: Option<Value> = None;
+    let mut aep: Option<&[u8]> = None;
+    let mut inner_aep: Vec<(String, Vec<u8>)> = Vec::new();
     for (path, data) in &entries {
         let lower = path.to_ascii_lowercase();
-        if lower.ends_with("definition.json") {
+        if lower.ends_with(".aegraphic") {
+            // the After Effects project, for its motion
+            inner_aep = unzip(data, true).unwrap_or_default();
+        } else if lower.ends_with(".aep") {
+            aep = Some(data);
+        } else if lower.ends_with("definition.json") {
             definition = serde_json::from_slice(data).ok();
         } else if data.starts_with(b"PK\x03\x04") && depth < 2 {
             // a Premiere-made template keeps its graphic in a nested package
@@ -398,10 +407,13 @@ fn mogrt(bytes: &[u8], name: &str, out: &mut Imported, depth: u32) -> Result<(),
             document(&String::from_utf8_lossy(data), name, out);
         }
     }
+    let aep = aep.or_else(|| inner_aep.iter().find(|(p, _)| p.to_ascii_lowercase().ends_with(".aep")).map(|(_, d)| d.as_slice()));
     if let Some(def) = &definition {
         let title = capsule_name(def).map(|t| clean_name(&t)).unwrap_or_else(|| name.to_string());
         if out.presets.is_empty() {
-            if let Some((preset, font)) = from_definition(def, &title, &mut out.notes) {
+            if let Some((mut preset, font)) = from_definition(def, &title) {
+                let moved = aep.and_then(|a| crate::aep::motion(a, frame_short(def)));
+                apply_ae_motion(&mut preset, moved, &mut out.notes);
                 out.presets.push(preset);
                 out.fonts.push(font);
             }
@@ -446,16 +458,9 @@ const SHADOW_WORDS: &[&str] = &["shadow", "그림자"];
 
 /// An After Effects template's editable controls: font and size from the first text control
 /// (sizes are scaled from the template's frame to 1080 lines), colours by their names.
-fn from_definition(def: &Value, title: &str, notes: &mut Vec<String>) -> Option<(CaptionPreset, String)> {
+fn from_definition(def: &Value, title: &str) -> Option<(CaptionPreset, String)> {
     let controls = def.get("clientControls")?.as_array()?;
-    let frame = def
-        .get("sourceInfoLocalized")
-        .and_then(Value::as_object)
-        .and_then(|m| m.values().next())
-        .or_else(|| def.get("sourceInfo"))
-        .and_then(|s| s.get("framesize"))
-        .and_then(|f| f.get("size"));
-    let short = frame.and_then(|f| Some(f.get("x")?.as_f64()?.min(f.get("y")?.as_f64()?))).filter(|s| s.is_finite() && *s >= 16.0).unwrap_or(1080.0);
+    let short = frame_short(def);
     let mut preset = CaptionPreset { name: title.to_string(), ..CaptionPreset::default() };
     let mut font = String::new();
     let mut seen_text = false;
@@ -521,8 +526,46 @@ fn from_definition(def: &Value, title: &str, notes: &mut Vec<String>) -> Option<
     if preset.motion_in != Motion::None {
         preset.motion_out = Motion::Fade;
     }
-    notes.push("After Effects로 만든 템플릿이라 글꼴·크기·이름으로 알 수 있는 색만 가져오고, 움직임은 비슷한 OverFilm 모션으로 바꿨어요.".into());
     Some((preset, font))
+}
+
+/// The shorter side of the template's frame (1080 when it doesn't say).
+fn frame_short(def: &Value) -> f64 {
+    let frame = def
+        .get("sourceInfoLocalized")
+        .and_then(Value::as_object)
+        .and_then(|m| m.values().next())
+        .or_else(|| def.get("sourceInfo"))
+        .and_then(|s| s.get("framesize"))
+        .and_then(|f| f.get("size"));
+    frame.and_then(|f| Some(f.get("x")?.as_f64()?.min(f.get("y")?.as_f64()?))).filter(|s| s.is_finite() && *s >= 16.0).unwrap_or(1080.0)
+}
+
+/// Put an After Effects template's own motion on its preset (else keep the motion guessed from
+/// its name), and tell the user what came over.
+fn apply_ae_motion(preset: &mut CaptionPreset, moved: Option<crate::aep::AeMotion>, notes: &mut Vec<String>) {
+    let mut took = Vec::new();
+    if let Some(m) = moved {
+        if m.per_character {
+            preset.motion_in = Motion::Typewriter;
+            took.push("글자가 하나씩 나오는 움직임은 한 글자씩(타자기)으로");
+        }
+        if let Some(c) = m.custom {
+            if !m.per_character {
+                preset.motion_in = Motion::None;
+            }
+            preset.motion_out = Motion::None;
+            preset.custom_motion = Some(c);
+            took.push("크기·위치·투명도·회전 키프레임은 그대로");
+        }
+    }
+    if took.is_empty() {
+        notes.push(
+            "After Effects로 만든 템플릿이라 글꼴·크기·이름으로 알 수 있는 색만 가져오고, 움직임은 이름을 보고 비슷한 OverFilm 모션으로 골랐어요.".into(),
+        );
+    } else {
+        notes.push(format!("After Effects 템플릿의 움직임을 가져왔어요: {}. 효과(빛, 그라데이션, 글로우 등)와 표현식은 가져오지 못해요.", took.join(", ")));
+    }
 }
 
 fn first_str(v: &Value) -> Option<String> {
@@ -576,7 +619,7 @@ fn guess_motion(def: &Value) -> Motion {
 
 /// The entries of a ZIP archive (stored or deflated), at most 256, each inflated to at most
 /// 64 MB. Media entries (pictures, video, sound, fonts) and After Effects projects are skipped.
-fn unzip(b: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
+fn unzip(b: &[u8], keep_ae: bool) -> Result<Vec<(String, Vec<u8>)>, String> {
     let fb = Fb(b);
     // end of central directory: the last "PK\5\6" in the final 64 KB + 22 bytes
     let from = b.len().saturating_sub(22 + 65535);
@@ -599,8 +642,9 @@ fn unzip(b: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
         let name = String::from_utf8_lossy(sl(b, at(46), nlen).unwrap_or_default()).into_owned();
         p = at(46 + nlen + elen + clen);
         let lower = name.to_ascii_lowercase();
-        const SKIP: &[&str] = &[".png", ".jpg", ".jpeg", ".gif", ".mov", ".mp4", ".wav", ".mp3", ".aif", ".ttf", ".otf", ".aep", ".psd", ".ai"];
-        if name.ends_with('/') || SKIP.iter().any(|s| lower.ends_with(s)) || lower.ends_with(".aegraphic") {
+        const SKIP: &[&str] = &[".png", ".jpg", ".jpeg", ".gif", ".mov", ".mp4", ".wav", ".mp3", ".aif", ".ttf", ".otf", ".psd", ".ai"];
+        let ae = lower.ends_with(".aep") || lower.ends_with(".aegraphic");
+        if name.ends_with('/') || SKIP.iter().any(|s| lower.ends_with(s)) || (ae && !keep_ae) {
             continue;
         }
         if sl(b, local, 4) != Some(&b"PK\x03\x04"[..]) {

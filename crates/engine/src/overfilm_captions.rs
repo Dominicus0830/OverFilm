@@ -310,8 +310,10 @@ fn stylize(s: &mut Session, p: &Value) -> Result<Value> {
     let name = str_p(p, "preset").unwrap_or("기본");
     let mut preset = all_presets(s, p)?.into_iter().find(|x| x.name == name).ok_or_else(|| bad(CMD, format!("no caption style named {name}")))?;
     for (k, slot) in [("motionIn", &mut preset.motion_in), ("motionOut", &mut preset.motion_out)] {
-        if let Some(m) = str_p(p, k) {
+        if let Some(m) = str_p(p, k).filter(|m| !m.is_empty()) {
             *slot = Motion::parse(m).ok_or_else(|| bad(CMD, format!("{k}: unknown motion {m}")))?;
+            // a motion chosen here replaces the one taken from a template
+            preset.custom_motion = None;
         }
     }
     let track = crate::captions::track_param(s, p).ok_or_else(|| bad(CMD, "no such caption track"))?;

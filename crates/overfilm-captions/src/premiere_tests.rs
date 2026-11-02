@@ -288,6 +288,25 @@ fn an_after_effects_mogrt_gives_font_colours_and_motion() {
 }
 
 #[test]
+fn an_after_effects_mogrt_brings_its_keyframed_motion() {
+    let aegraphic = zip(&[("anim.aep", &crate::aep::tests::zoom_project()), ("animReport.txt", b"report")], true);
+    let def = AE_DEFINITION.replace("Pop Subtitle", "Title").replace("팝 자막", "제목");
+    let z = zip(&[("definition.json", def.as_bytes()), ("project.aegraphic", &aegraphic)], true);
+    let r = import(&z, "file").unwrap();
+    let p = &r.presets[0];
+    let c = p.custom_motion.as_ref().expect("the template's own motion");
+    assert_eq!(c.lengths(), (0.5, 0.5));
+    assert_eq!(p.motion_in, Motion::None);
+    assert!(r.notes.iter().any(|n| n.contains("키프레임")), "{:?}", r.notes);
+    // the caption it makes moves like the template
+    let e = crate::styles::caption_layer(p, "제목", None, filmcraft_time::Tick::from_seconds_f64(3.0), crate::styles::Frame { width: 1920, height: 1080 });
+    let sc = &e.params["scale"].keyframes;
+    assert_eq!(sc.first().map(|k| k.value.clone()), Some(filmcraft_project::ParamValue::Float(0.0)));
+    assert!(e.params["opacity"].is_animated());
+    assert!(e.params["position"].is_animated());
+}
+
+#[test]
 fn a_premiere_mogrt_uses_its_text_style_and_name() {
     let xml = prtextstyle("ignored", &yellow_boxed());
     let inner = zip(&[("graphic.xml", xml.as_bytes())], true);
