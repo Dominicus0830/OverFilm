@@ -524,6 +524,8 @@ fn prepare_sample(
     let f = filmcraft_media::cancel::with_catch_up(Some(Tick::ZERO), || src.video_frame(filmcraft_media::FrameRequest { time: mt, scale })).ok()?;
     let (w, h) = (f.width as usize, f.height as usize);
     let direct = matches!(f.color.transfer, filmcraft_color::Transfer::Bt709 | filmcraft_color::Transfer::Srgb);
+    // teams, players and heroes are read off the whole frame in RGBA
+    let full = want_rgba.then(|| (f.to_rgba8(), w, h));
     let (luma, rgb_of): (Luma, Box<dyn Fn(overfilm_vision::NRect) -> Option<Rgb> + '_>) = match &f.data {
         PixelData::Yuv8 { planes, alpha: None, .. } if direct => {
             let luma = Luma::from_y(&planes[0], w, h, WIDTH, f.color.range == filmcraft_color::Range::Limited)?;
@@ -537,14 +539,14 @@ fn prepare_sample(
             (luma, Box::new(part))
         }
         _ => {
-            let rgba = f.to_rgba8();
+            let rgba = match &full {
+                Some((v, _, _)) => v.clone(),
+                None => f.to_rgba8(),
+            };
             let luma = Luma::from_rgba(&rgba, w, h, WIDTH)?;
-            let full = want_rgba.then(|| (rgba.clone(), w, h));
-            let part = move |r| Rgb::crop_rgba(&rgba, w, h, r, FEED_CROP);
-            return Some(finish(luma, Box::new(part), set, has_live, feed_rect, full));
+            (luma, Box::new(move |r| Rgb::crop_rgba(&rgba, w, h, r, FEED_CROP)))
         }
     };
-    let full = want_rgba.then(|| (f.to_rgba8(), w, h));
     Some(finish(luma, rgb_of, set, has_live, feed_rect, full))
 }
 
