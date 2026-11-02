@@ -200,6 +200,12 @@ const GLUE_AFTER: &[&str] = &[
     "저런",
     "이러한",
     "그러한",
+    "이번",
+    "지난",
+    "저번",
+    "요번",
+    "다음",
+    "매",
     "어떤",
     "무슨",
     "몇",
@@ -257,6 +263,38 @@ const GLUE_AFTER: &[&str] = &[
     "사실",
     "또한",
     "아니면",
+];
+/// Demonstrative pronouns that open a new clause (`…했었고 그게 사라졌습니다`): they go at the
+/// start of the next line or caption, never at the end of one.
+const PRONOUNS: &[&str] = &[
+    "그게",
+    "이게",
+    "저게",
+    "그건",
+    "이건",
+    "저건",
+    "그걸",
+    "이걸",
+    "저걸",
+    "그거",
+    "이거",
+    "저거",
+    "그거는",
+    "이거는",
+    "그거를",
+    "이거를",
+    "그것도",
+    "이것도",
+    "그것은",
+    "이것은",
+    "그것이",
+    "이것이",
+    "그것을",
+    "이것을",
+    "그거도",
+    "이거도",
+    "그게요",
+    "이게요",
 ];
 /// Words that open a clause: breaking right before them is natural.
 const CONNECTORS: &[&str] = &[
@@ -391,6 +429,9 @@ fn break_cost(w: &str, next: Option<&str>) -> u32 {
     if GLUE_AFTER.contains(&core) {
         return 150;
     }
+    if PRONOUNS.contains(&core) {
+        return 150;
+    }
     let ends = |list: &[&str]| list.iter().any(|e| core.ends_with(e));
     let cost = if ends(FINAL_ENDINGS) {
         5
@@ -407,7 +448,7 @@ fn break_cost(w: &str, next: Option<&str>) -> u32 {
         100
     } else if core.ends_with('게') && core.chars().count() > 1 {
         // `빠르게 넘어가다`, `쉽게 하다`
-        60
+        90
     } else if ends(PARTICLES) {
         25
     } else if !core.is_empty() && core.chars().all(|c| c.is_ascii_digit()) {
@@ -416,7 +457,7 @@ fn break_cost(w: &str, next: Option<&str>) -> u32 {
     } else {
         70
     };
-    if CONNECTORS.contains(&n) { cost.min(6) } else { cost }
+    if CONNECTORS.contains(&n) || PRONOUNS.contains(&n) { cost.min(6) } else { cost }
 }
 
 /// How much a silence between two words makes a break there more natural.
@@ -785,6 +826,21 @@ mod tests {
         // `6개의 / 전환` splits a noun phrase; the break after the particle is better
         let c = layout(&seq("측정 가능한 여섯 개의 전환 중에 1위입니다.", 250), &Layout::default());
         assert_eq!(texts(&c), vec!["측정 가능한 여섯 개의 전환 중에 / 1위입니다.".to_string()]);
+    }
+
+    #[test]
+    fn a_pronoun_opening_a_clause_starts_the_next_line_or_caption() {
+        let text = "밴되는 문화가 존재 했었고 그게 이번 시즌 확실하게 사라졌습니다.";
+        // wide enough for two lines: `그게` starts the second line
+        let c = layout(&seq(text, 250), &Layout { max_line: 38, ..Layout::default() });
+        assert_eq!(texts(&c), vec!["밴되는 문화가 존재 했었고 / 그게 이번 시즌 확실하게 사라졌습니다.".to_string()]);
+        // 16 Hangul a line: the second half doesn't fit on one line, so it becomes the next
+        // caption rather than leaving `그게` at the end of a line
+        for o in [Layout::default(), Layout { max_lines: 1, ..Layout::default() }, Layout { max_lines: 1, max_line: 36, ..Layout::default() }] {
+            let all = texts(&layout(&seq(text, 250), &o)).join(" | ");
+            assert!(!all.contains("그게 /") && !all.contains("그게 |"), "{all}");
+            assert!(all.contains("했었고 | 그게") || all.contains("했었고 / 그게"), "{all}");
+        }
     }
 
     #[test]

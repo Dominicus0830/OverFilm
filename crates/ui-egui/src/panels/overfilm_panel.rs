@@ -5,8 +5,9 @@
 //!
 //! Automation ids: `overfilm.panel.<param>` for each control (`autoCut`, `templates`,
 //! `keepBefore`, `applyCuts`, `reviewCuts`, `captions`, `audioTrack`, `mode`, `who`, `gameVoice`,
-//! `reviewCaptions`), `overfilm.panel.run`, `overfilm.panel.stop`, `overfilm.panel.step.<n>` for
-//! each step of the run, `overfilm.panel.reviewSettings`, `overfilm.panel.tool.<command id>`,
+//! `maxLines`, `lineChars`, `reviewCaptions`), `overfilm.panel.run`, `overfilm.panel.stop`,
+//! `overfilm.panel.step.<n>` for each step of the run, `overfilm.panel.reviewSettings`,
+//! `overfilm.panel.tool.<command id>`,
 //! `overfilm.panel.kill.<n>` for each kill in the kill list (click: go there),
 //! `overfilm.panel.name.<player|hero>.<id>` and `overfilm.panel.name.<player|hero>.<id>.save` to
 //! name a player or hero read off the kill feed.
@@ -52,6 +53,8 @@ fn defaults(app: &mut FilmcraftApp) -> Value {
         "mode": "general",
         "who": "auto",
         "gameVoice": "drop",
+        "maxLines": 2,
+        "lineChars": 16,
         "reviewCaptions": false,
     })
 }
@@ -69,6 +72,8 @@ fn run_params(p: &Value) -> Value {
         "mode": p["mode"],
         "who": p["who"],
         "gameVoice": p["gameVoice"],
+        "maxLines": p["maxLines"],
+        "lineChars": p["lineChars"],
         "reviewCaptions": p["reviewCaptions"].as_bool().unwrap_or(false),
     });
     if out["captions"] == "reuse" {
@@ -249,6 +254,8 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                             ("keep", tl!("Keep as speech").to_string()),
                         ],
                     );
+                    number(ui, &mut elems, format!("{PRE}.maxLines"), tl!("Lines per caption:"), &mut p["maxLines"], 1.0..=2.0, "");
+                    number(ui, &mut elems, format!("{PRE}.lineChars"), tl!("Characters per line:"), &mut p["lineChars"], 8.0..=30.0, "");
                 }
             });
             if p["captions"] != "off" {
@@ -459,5 +466,9 @@ mod tests {
             json!({"autoCut": false, "applyCuts": true, "reviewCuts": false, "captions": "reuse", "gameVoice": "label", "reviewCaptions": false})
         );
         assert_eq!(run_params(&Value::Null)["captions"], "new");
+        // the caption shape set in the panel goes to the run
+        let p = json!({"captions": "reuse", "maxLines": 1.0, "lineChars": 20.4});
+        let r = run_params(&p);
+        assert_eq!((r["maxLines"].clone(), r["lineChars"].clone()), (json!(1), json!(20)));
     }
 }
