@@ -4,18 +4,25 @@
 //! and dark (black) while they wait to respawn. A **player bar** is learnt from a frame of the
 //! same broadcast (the rectangle around one team's plates and how many players it holds); each
 //! plate is a slot. A slot that turns dark and stays dark is a death; the times become kills and
-//! team fights. Like the screen templates, the bars carry no artwork of anyone else's: only where
+//! team fights. A plate also goes dark while its player changes hero; a dead player's plate has a
+//! red cross under it instead of the white health segments, so a dark plate with the segments
+//! still under it is a hero change, not a death. Like the screen templates, the bars carry no artwork of anyone else's: only where
 //! the plates are.
 
 use serde::{Deserialize, Serialize};
 
 use crate::VisionError;
-use crate::luma::{Luma, NRect};
+use crate::luma::{Luma, NRect, Rgb};
 
 /// A pixel this dark (gray level) counts as a dead plate's black.
 const DARK: f32 = 45.0;
 /// Share of dark pixels over which a plate reads dead (white name text stays bright).
 const DEAD_SHARE: f32 = 0.35;
+/// Share of white (health segment) pixels under a plate over which its player is alive.
+const HEALTH_SHARE: f32 = 0.05;
+/// Share of red (cross) pixels under a plate from which its player reads dead whatever else is
+/// there (a bright game behind the bar).
+const CROSS_SHARE: f32 = 0.03;
 /// Grid samples across and down a plate.
 const GX: usize = 24;
 const GY: usize = 6;
@@ -57,6 +64,40 @@ impl PlayerBar {
         let n = self.players.max(1) as f32;
         let w = self.rect.w / n;
         NRect::new(self.rect.x + w * (k as f32 + 0.15), self.rect.y, w * 0.7, self.rect.h)
+    }
+
+    /// The strip under the plates (frame-relative): a living player's white health segments, a dead
+    /// one's red cross.
+    pub fn under_rect(&self) -> NRect {
+        NRect::new(self.rect.x, self.rect.y + self.rect.h * 1.15, self.rect.w, self.rect.h * 0.95)
+    }
+
+    /// Whether each plate has a living player's health segments under it: white pixels and no red
+    /// cross. `strip`: the frame cropped to [`PlayerBar::under_rect`].
+    pub fn health(&self, strip: &Rgb) -> Vec<bool> {
+        let n = self.players.max(1) as usize;
+        (0..n)
+            .map(|k| {
+                let x0 = strip.width * (20 * k + 1) / (20 * n);
+                let x1 = (strip.width * (20 * k + 19) / (20 * n)).min(strip.width);
+                let (mut white, mut red, mut all) = (0usize, 0usize, 0usize);
+                for y in 0..strip.height {
+                    for x in x0..x1 {
+                        let [r, g, b] = strip.at(x, y);
+                        let (lo, hi) = (r.min(g).min(b), r.max(g).max(b));
+                        if lo >= 170 && hi - lo <= 45 {
+                            white += 1;
+                        }
+                        if r >= 130 && r.saturating_sub(g) >= 60 && r.saturating_sub(b) >= 30 {
+                            red += 1;
+                        }
+                        all += 1;
+                    }
+                }
+                let share = |c: usize| if all == 0 { 0.0 } else { c as f32 / all as f32 };
+                all > 0 && share(white) >= HEALTH_SHARE && share(red) < CROSS_SHARE
+            })
+            .collect()
     }
 
     /// Whether each player reads dead on `frame`.
@@ -119,11 +160,24 @@ impl DeathTracker {
 
     /// Feed the sample at `at`. `live`: the game HUD is on screen (pass true without a HUD template).
     pub fn push(&mut self, at: i64, frame: &Luma, live: bool) {
+        self.push_with(at, frame, live, &[]);
+    }
+
+    /// [`DeathTracker::push`] with what is under each bar's plates (per bar in order,
+    /// [`PlayerBar::health`]): a dark plate with health segments under it is a hero change.
+    pub fn push_with(&mut self, at: i64, frame: &Luma, live: bool, health: &[Vec<bool>]) {
         if !live || self.state.is_empty() {
             return;
         }
-        let read: Vec<(u8, u8, bool)> =
-            self.bars.iter().flat_map(|b| b.dead(frame).into_iter().enumerate().map(move |(k, d)| (b.team, k as u8 + 1, d))).collect();
+        let read: Vec<(u8, u8, bool)> = self
+            .bars
+            .iter()
+            .enumerate()
+            .flat_map(|(i, b)| {
+                let alive = health.get(i);
+                b.dead(frame).into_iter().enumerate().map(move |(k, d)| (b.team, k as u8 + 1, d && !alive.and_then(|h| h.get(k)).copied().unwrap_or(false)))
+            })
+            .collect();
         let dark = read.iter().filter(|r| r.2).count();
         if dark * 10 > read.len() * 8 {
             return;
