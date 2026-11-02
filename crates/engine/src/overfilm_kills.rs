@@ -10,12 +10,25 @@
 //!   seconds apart as a range marker "OverFilm 교전 N" (5 s before the first death to 3 s after
 //!   the last). Running it again replaces them. `overfilm.assist.suggest` scores the deaths in
 //!   its highlights.
+//! - `overfilm.ultIcon.learn {team: 1|2, rect: [x, y, w, h], player=1, time?, clip?, templates?}`
+//!   learns the team's ready-ultimate icon (the white circle that replaces the charge number on
+//!   a name plate) from player `player`'s plate on a frame where that ultimate is ready.
+//! - With icons learnt, the same scan also follows the ultimates (one more pass over frames it
+//!   decodes anyway; the deaths it finds are the same): each use is a point marker
+//!   "OverFilm 궁극기: N팀 M번" and each death of the other team no more than `ultWindow`
+//!   (6) seconds after a use a point marker "OverFilm 궁극기 처치: N팀 M번 ← N팀 M번 궁극기".
+//!   The broadcast shows no kill feed, so such a kill is the ultimate's by timing, not certainly.
+//! - `overfilm.killFeed.learn {rect: [x, y, w, h], icon: [x, y, w, h], time?, clip?, templates?}`:
+//!   on broadcasts that show the game's kill feed, `rect` around the feed and `icon` round one
+//!   ultimate kill's icon (the white disc before the arrow). The scan then takes the ultimate
+//!   kills from the feed instead ("OverFilm 궁극기 처치: N팀 M번 (킬피드)"), each matched to the
+//!   death on the plates and to the killer's ultimate when it can be.
 
 use std::sync::{Arc, Mutex};
 
 use filmcraft_project::{ItemId, Label, Marker, MarkerId, MarkerKind};
 use filmcraft_time::{TICKS_PER_SECOND, Tick};
-use overfilm_vision::{Death, DeathTracker, Fight, Luma, PlayerBar};
+use overfilm_vision::{Death, DeathTracker, FeedTracker, Fight, KillFeed, Luma, PlayerBar, UltIcon, UltTracker, UltUse, ults};
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, bad, bool_p, f64_p, has_seq, u64_p};
@@ -26,6 +39,12 @@ use crate::{EngineError, Result, Session};
 pub const MARK_KILL: &str = "OverFilm 처치";
 /// Name prefix of the team-fight markers.
 pub const MARK_FIGHT: &str = "OverFilm 교전";
+/// Name prefix of the ultimate markers (the ultimate-kill markers start with it too).
+pub const MARK_ULT: &str = "OverFilm 궁극기";
+/// Name prefix of the ultimate-kill markers.
+pub const MARK_ULT_KILL: &str = "OverFilm 궁극기 처치";
+/// A use whose own player is found dead this soon after (ms) was the plate turning dark.
+const ULT_DEATH_GUARD: i64 = 1_500;
 const TICKS_PER_MS: i64 = TICKS_PER_SECOND / 1000;
 
 pub(crate) fn commands() -> Vec<CommandSpec> {
@@ -42,12 +61,32 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
         },
         CommandSpec {
             id: "overfilm.kills.scan",
-            label: "Find Kills and Team Fights (OverFilm)",
+            label: "Find Kills, Ultimates and Team Fights (OverFilm)",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"fps":0.5..8=2,"clips":[id]?,"templates":path?,"fightGap":seconds=10,"minKills":n=3,"wait":bool=false}"#,
+            params: r#"{"fps":0.5..8=2,"clips":[id]?,"templates":path?,"fightGap":seconds=10,"minKills":n=3,"ultWindow":seconds=6,"wait":bool=false}"#,
             enabled: has_seq,
             run: scan,
+            journal: true,
+        },
+        CommandSpec {
+            id: "overfilm.ultIcon.learn",
+            label: "Learn Ultimate Icon (OverFilm)",
+            menu: &[],
+            shortcut: None,
+            params: r#"{"team":1|2,"rect":[x,y,w,h],"player":n=1,"time":ticks?,"clip":id?,"templates":path?}"#,
+            enabled: has_seq,
+            run: learn_ult,
+            journal: true,
+        },
+        CommandSpec {
+            id: "overfilm.killFeed.learn",
+            label: "Learn Kill Feed (OverFilm)",
+            menu: &[],
+            shortcut: None,
+            params: r#"{"rect":[x,y,w,h],"icon":[x,y,w,h],"time":ticks?,"clip":id?,"templates":path?}"#,
+            enabled: has_seq,
+            run: learn_feed,
             journal: true,
         },
     ]
@@ -69,18 +108,70 @@ fn learn(s: &mut Session, p: &Value) -> Result<Value> {
     let bar = PlayerBar::learn(&frame, team, overfilm_vision::NRect::new(*x, *y, *w, *h), players).map_err(|e| bad(CMD, e.to_string()))?;
     let dead = bar.dead(&frame);
     let mut set = load_set(&path)?;
+    let mut bar = bar;
+    // the ultimate icon sits on the first plate, wherever the bar was drawn: keep it
+    bar.ult = set.bars.iter().find(|b| b.team == team).and_then(|b| b.ult.clone());
     set.insert_bar(bar);
     crate::overfilm_autocut::write_file(&path, &set.to_json())?;
     Ok(json!({"templates": path, "team": team, "players": players, "bars": set.bars.len(), "readDead": dead}))
 }
 
-/// A running scan; [`poll`] marks its deaths.
+fn learn_ult(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "overfilm.ultIcon.learn";
+    let team = u64_p(p, "team").filter(|t| (1..=2).contains(t)).ok_or_else(|| bad(CMD, "`team` is 1 or 2"))? as u8;
+    let r: Vec<f32> = p.get("rect").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).map(|f| f as f32).collect()).unwrap_or_default();
+    let [x, y, w, h] = r.as_slice() else { return Err(bad(CMD, "`rect` is [x, y, w, h] in 0..1 around one ready ultimate icon")) };
+    let player = u64_p(p, "player").unwrap_or(1).clamp(1, overfilm_vision::kills::MAX_PLAYERS as u64) as u8;
+    let path = templates_path(s, p, CMD)?;
+    let mut set = load_set(&path)?;
+    let Some(bar) = set.bars.iter_mut().find(|b| b.team == team) else {
+        return Err(bad(CMD, format!("{path} has no player bar for team {team} yet; learn its name plates first (overfilm.playerBar.learn)")));
+    };
+    let t = p.get("time").and_then(Value::as_i64).map(Tick).unwrap_or_else(|| s.playhead());
+    let frame = frame_at(s, crate::commands::clip_p(p, "clip"), t)?;
+    let icon = UltIcon::learn(&frame, bar, overfilm_vision::NRect::new(*x, *y, *w, *h), player).map_err(|e| bad(CMD, e.to_string()))?;
+    bar.ult = Some(icon);
+    let ready = bar.ult_ready(&frame).unwrap_or_default();
+    crate::overfilm_autocut::write_file(&path, &set.to_json())?;
+    Ok(json!({"templates": path, "team": team, "player": player, "readReady": ready}))
+}
+
+fn rect4(p: &Value, key: &str) -> Option<overfilm_vision::NRect> {
+    let r: Vec<f32> = p.get(key).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).map(|f| f as f32).collect()).unwrap_or_default();
+    match r.as_slice() {
+        [x, y, w, h] => Some(overfilm_vision::NRect::new(*x, *y, *w, *h)),
+        _ => None,
+    }
+}
+
+fn learn_feed(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "overfilm.killFeed.learn";
+    let rect = rect4(p, "rect").ok_or_else(|| bad(CMD, "`rect` is [x, y, w, h] in 0..1 around the kill feed"))?;
+    let icon = rect4(p, "icon").ok_or_else(|| bad(CMD, "`icon` is [x, y, w, h] in 0..1 round one ultimate kill's icon"))?;
+    let path = templates_path(s, p, CMD)?;
+    let t = p.get("time").and_then(Value::as_i64).map(Tick).unwrap_or_else(|| s.playhead());
+    let frame = frame_at(s, crate::commands::clip_p(p, "clip"), t)?;
+    let feed = KillFeed::learn(&frame, rect, icon).map_err(|e| bad(CMD, e.to_string()))?;
+    let found = feed.icons(&frame).len();
+    let mut set = load_set(&path)?;
+    set.killfeed = Some(feed);
+    crate::overfilm_autocut::write_file(&path, &set.to_json())?;
+    Ok(json!({"templates": path, "icons": found}))
+}
+
+/// A running scan; [`poll`] marks its deaths (and ultimates, when the bars have icons).
 pub struct PendingKills {
     pub job: u64,
     pub seq: ItemId,
     pub gap_ms: i64,
     pub min_kills: usize,
     pub deaths: Arc<Mutex<Option<Vec<Death>>>>,
+    /// Ultimate kill window (ms).
+    pub ult_window_ms: i64,
+    /// `None` without ultimate icons: the ultimate markers are left alone.
+    pub ults: Arc<Mutex<Option<Vec<UltUse>>>>,
+    /// `None` without a kill feed: ultimate kills come from timing.
+    pub feed: Arc<Mutex<Option<Vec<i64>>>>,
 }
 
 fn scan(s: &mut Session, p: &Value) -> Result<Value> {
@@ -88,7 +179,7 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
     let seq = s.state.active_sequence.ok_or(EngineError::NoSequence)?;
     let path = templates_path(s, p, CMD)?;
     let set = load_set(&path)?;
-    if set.bars.is_empty() {
+    if set.bars.is_empty() && set.killfeed.is_none() {
         return Err(bad(
             CMD,
             format!("{path} has no player bars yet; learn each team's name plates first (overfilm.playerBar.learn on a frame where everyone is alive)"),
@@ -100,12 +191,15 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
     let fps = f64_p(p, "fps").filter(|f| f.is_finite()).unwrap_or(2.0).clamp(0.5, 8.0);
     let gap_ms = f64_p(p, "fightGap").filter(|v| v.is_finite()).map(|v| (v.clamp(1.0, 120.0) * 1000.0) as i64).unwrap_or(10_000);
     let min_kills = u64_p(p, "minKills").map(|n| n.clamp(1, 20) as usize).unwrap_or(3);
+    let ult_window_ms = f64_p(p, "ultWindow").filter(|v| v.is_finite()).map(|v| (v.clamp(1.0, 30.0) * 1000.0) as i64).unwrap_or(6_000);
     let (work, total) = sample_plan(s, p, fps)?;
     let id = s.jobs.iter().map(|j| j.id).max().unwrap_or(0) + 1;
     let job = crate::Job { id, label: "OverFilm Kills".into(), progress: Default::default(), result: Default::default() };
     job.progress.total.store(total, std::sync::atomic::Ordering::Relaxed);
     let deaths: Arc<Mutex<Option<Vec<Death>>>> = Arc::default();
-    let (prog, res, out) = (job.progress.clone(), job.result.clone(), deaths.clone());
+    let ults: Arc<Mutex<Option<Vec<UltUse>>>> = Arc::default();
+    let feed: Arc<Mutex<Option<Vec<i64>>>> = Arc::default();
+    let (prog, res, out, ult_out, feed_out) = (job.progress.clone(), job.result.clone(), deaths.clone(), ults.clone(), feed.clone());
     let has_live = set.templates.iter().any(|t| t.screen == overfilm_vision::Screen::Live);
     // a plate must read the other way for half a second (at least two samples) to count
     let confirm = (fps / 2.0).ceil().max(2.0) as u8;
@@ -114,6 +208,8 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
         let t0 = web_time::Instant::now();
         // nobody respawns in under 8 s
         let mut tracker = DeathTracker::new(set.bars.clone(), confirm, 8_000);
+        let mut ult_tracker = UltTracker::new(set.bars.clone(), confirm);
+        let mut feed_tracker = set.killfeed.clone().map(|f| FeedTracker::new(f, confirm));
         let mut done = 0u64;
         let mut stopped = false;
         'clips: for w in &work {
@@ -127,6 +223,10 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
                 {
                     let live = !has_live || set.live(&l);
                     tracker.push(st.0 / TICKS_PER_MS, &l, live);
+                    ult_tracker.push(st.0 / TICKS_PER_MS, &l, live);
+                    if let Some(f) = feed_tracker.as_mut() {
+                        f.push(st.0 / TICKS_PER_MS, &l, live);
+                    }
                 }
                 done += 1;
                 prog.done.store(done, Ordering::Relaxed);
@@ -141,6 +241,12 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
         let r = if stopped {
             Err("stopped".to_string())
         } else {
+            if let Some(f) = feed_tracker {
+                *lock(&feed_out) = Some(f.into_kills());
+            }
+            if !ult_tracker.is_empty() {
+                *lock(&ult_out) = Some(ults::without_deaths(&ult_tracker.into_uses(), &d, ULT_DEATH_GUARD));
+            }
             *lock(&out) = Some(d);
             Ok(filmcraft_export::Report {
                 path: String::new(),
@@ -156,16 +262,23 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let run = crate::export_tools::guard_job(job.progress.clone(), job.result.clone(), run);
     s.jobs.push(job);
-    s.overfilm_kill_jobs.push(PendingKills { job: id, seq, gap_ms, min_kills, deaths: deaths.clone() });
+    s.overfilm_kill_jobs.push(PendingKills { job: id, seq, gap_ms, min_kills, deaths: deaths.clone(), ult_window_ms, ults: ults.clone(), feed: feed.clone() });
     let mut out = json!({"job": id, "frames": total, "templates": path});
     if bool_p(p, "wait").unwrap_or(false) || cfg!(target_arch = "wasm32") {
         run();
         let found = lock(&deaths).clone();
+        let found_ults = lock(&ults).clone();
+        let found_feed = lock(&feed).clone();
         poll(s);
         if let Some(d) = found {
             let f = overfilm_vision::kills::fights(&d, gap_ms, min_kills);
             out["deaths"] = json!(d.len());
             out["fights"] = f.iter().map(fight_json).collect();
+            if found_ults.is_some() || found_feed.is_some() {
+                let u = found_ults.unwrap_or_default();
+                out["ultimates"] = json!(u.len());
+                out["ultimateKills"] = json!(ult_kill_marks(&u, &d, ult_window_ms, found_feed.as_deref()).len());
+            }
         }
     } else {
         std::thread::Builder::new().name("overfilm-kills".into()).spawn(run).map_err(|e| EngineError::Other(e.to_string()))?;
@@ -197,12 +310,19 @@ pub fn poll(s: &mut Session) {
         }
         let pj = s.overfilm_kill_jobs.remove(i);
         let Some(deaths) = lock(&pj.deaths).take().filter(|_| !cancelled) else { continue };
+        let found_ults = lock(&pj.ults).take();
+        let found_feed = lock(&pj.feed).take();
         if s.state.active_sequence != Some(pj.seq) {
             s.error_toast("overfilm.kills.scan", "the kill scan finished on a sequence that is no longer open; nothing was changed");
             continue;
         }
         if let Err(e) = mark(s, &deaths, pj.gap_ms, pj.min_kills) {
             s.error_toast("overfilm.kills.scan", format!("Kills: {e}"));
+        }
+        if (found_ults.is_some() || found_feed.is_some())
+            && let Err(e) = mark_ults(s, &found_ults.unwrap_or_default(), &deaths, pj.ult_window_ms, found_feed.as_deref())
+        {
+            s.error_toast("overfilm.kills.scan", format!("Ultimates: {e}"));
         }
     }
 }
@@ -249,6 +369,65 @@ pub fn mark(s: &mut Session, deaths: &[Death], gap_ms: i64, min_kills: usize) ->
         Ok(())
     })?;
     s.toast(format!("OverFilm: {} death(s), {n} team fight(s) marked", deaths_len(s)));
+    Ok(n)
+}
+
+/// One ultimate-kill marker: time, victim, killer's ultimate, read off the kill feed.
+type UltKillMark = (i64, Option<Death>, Option<UltUse>, bool);
+
+/// The ultimate kills to mark: from the kill feed when the broadcast shows one (`feed`), else the
+/// deaths of the other team no more than `window_ms` after an ultimate.
+fn ult_kill_marks(uses: &[UltUse], deaths: &[Death], window_ms: i64, feed: Option<&[i64]>) -> Vec<UltKillMark> {
+    match feed {
+        Some(f) => ults::feed_kills(f, deaths, uses, window_ms).into_iter().map(|k| (k.at, k.death, k.by, true)).collect(),
+        None => ults::ult_kills(uses, deaths, window_ms).into_iter().map(|k| (k.death.at, Some(k.death), Some(k.by), false)).collect(),
+    }
+}
+
+/// Mark ultimate uses and ultimate kills (see [`ult_kill_marks`]) on the active sequence,
+/// replacing earlier ones (one undo step). Returns (uses, ultimate kills).
+pub fn mark_ults(s: &mut Session, uses: &[UltUse], deaths: &[Death], window_ms: i64, feed: Option<&[i64]>) -> Result<(usize, usize)> {
+    let kills = ult_kill_marks(uses, deaths, window_ms, feed);
+    let uses = uses.to_vec();
+    let end = s.active_sequence().ok_or(EngineError::NoSequence)?.duration();
+    let t = |ms: i64| Tick(ms.saturating_mul(TICKS_PER_MS)).clamp(Tick::ZERO, end);
+    let n = (uses.len(), kills.len());
+    s.edit("OverFilm Ultimates", move |pr, st| {
+        let seq = st.active_sequence.ok_or(EngineError::NoSequence)?;
+        let ids: Vec<u64> = (0..uses.len() + kills.len()).map(|_| pr.alloc_id()).collect();
+        let mut ids = ids.into_iter();
+        let q = pr.sequence_mut(seq).ok_or(EngineError::NoSequence)?;
+        q.markers.retain(|m| !m.name.starts_with(MARK_ULT));
+        for u in &uses {
+            let Some(id) = ids.next() else { break };
+            let k = kills.iter().filter(|k| k.2 == Some(*u)).count();
+            let how = if feed.is_some() { "" } else { " (킬피드가 없어 시간으로 추정)" };
+            q.markers.push(Marker {
+                id: MarkerId(id),
+                start: t(u.at),
+                duration: Tick::ZERO,
+                name: format!("{MARK_ULT}: {}팀 {}번", u.team, u.player),
+                comment: if k > 0 { format!("{k}킬로 이어짐{how}") } else { String::new() },
+                kind: MarkerKind::Comment,
+                color: Label::Violet,
+            });
+        }
+        for (at, death, by, from_feed) in &kills {
+            let Some(id) = ids.next() else { break };
+            let victim = death.map(|d| format!(": {}팀 {}번", d.team, d.player)).unwrap_or_default();
+            let killer = by.map(|u| format!(" ← {}팀 {}번 궁극기", u.team, u.player)).unwrap_or_default();
+            let name = if *from_feed { format!("{MARK_ULT_KILL}{victim}{killer} (킬피드)") } else { format!("{MARK_ULT_KILL}{victim}{killer}") };
+            let comment = match (from_feed, by) {
+                (true, _) => "킬피드의 궁극기 아이콘".to_string(),
+                (false, Some(u)) => format!("궁극기 {:.1}초 뒤 처치 (킬피드가 없어 시간으로 추정)", at.saturating_sub(u.at) as f64 / 1000.0),
+                (false, None) => String::new(),
+            };
+            q.markers.push(Marker { id: MarkerId(id), start: t(*at), duration: Tick::ZERO, name, comment, kind: MarkerKind::Comment, color: Label::Yellow });
+        }
+        q.markers.sort_by_key(|m| m.start);
+        Ok(())
+    })?;
+    s.toast(format!("OverFilm: {} ultimate(s), {} ultimate kill(s) marked", n.0, n.1));
     Ok(n)
 }
 

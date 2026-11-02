@@ -22,7 +22,7 @@ const TOOLS: &[(&str, &str)] = &[
     ("overfilm.autoCut", "Auto Cut…"),
     ("overfilm.autoCut.apply", "Apply Cut Markers"),
     ("overfilm.assist.suggest", "Suggest Silences and Highlights"),
-    ("overfilm.kills.scan", "Find Kills and Team Fights"),
+    ("overfilm.kills.scan", "Find Kills, Ultimates and Team Fights"),
     ("overfilm.highlights.reel", "Make Highlight Reel"),
     ("overfilm.captions.generate", "Captions…"),
     ("overfilm.captions.stylize", "Styled Captions…"),

@@ -63,6 +63,9 @@ pub struct TemplateSet {
     /// The HUD's player bars (deaths), one per team.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bars: Vec<crate::kills::PlayerBar>,
+    /// The game's kill feed (ultimate kills), on broadcasts that show it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub killfeed: Option<crate::killfeed::KillFeed>,
 }
 
 impl Part {
@@ -122,7 +125,13 @@ impl Part {
     /// Best normalised cross-correlation (−1..1) of the part against `frame` within its search
     /// distance. 0 for a damaged part or a flat picture.
     pub fn score(&self, frame: &Luma) -> f32 {
-        let Some(rect) = self.rect.clamped() else { return 0.0 };
+        self.score_at(frame, self.rect)
+    }
+
+    /// [`Part::score`] with the part placed at `rect` instead of where it was learnt (the same
+    /// icon on another player's name plate).
+    pub fn score_at(&self, frame: &Luma, rect: NRect) -> f32 {
+        let Some(rect) = rect.clamped() else { return 0.0 };
         if !self.valid() || frame.width == 0 || frame.height == 0 {
             return 0.0;
         }
@@ -375,5 +384,6 @@ mod tests {
         assert!(set.templates.iter().any(|t| t.screen == Screen::Setup));
         assert!(set.templates.iter().any(|t| t.screen == Screen::Live));
         assert_eq!(set.bars.iter().map(|b| b.team).collect::<Vec<_>>(), [1, 2]);
+        assert!(set.bars.iter().all(|b| b.ult.is_some()), "both teams' ready-ultimate icons");
     }
 }

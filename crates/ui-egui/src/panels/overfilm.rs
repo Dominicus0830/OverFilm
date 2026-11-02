@@ -11,7 +11,11 @@
 //!   the playhead; drag on it to mark the parts that always look the same on that screen (green),
 //!   switch to "ignore" to mark what changes (red: the clock, a camera). Choosing a team's name
 //!   plates instead learns where they are (`overfilm.playerBar.learn`, the first green rectangle
-//!   around the team's plates, on a frame where the whole team is alive), for kill detection.
+//!   around the team's plates, on a frame where the whole team is alive), for kill detection;
+//!   a team's ready ultimate icon learns that (`overfilm.ultIcon.learn`, the first green rectangle
+//!   around the white ultimate circle on the chosen player's plate), for ultimates; the kill feed
+//!   learns that (`overfilm.killFeed.learn`: the first green rectangle around the feed, the second
+//!   round one ultimate kill's icon), for ultimate kills on broadcasts that show the feed.
 //!
 //! Automation ids: `overfilm.<dialog>.ok`, `.cancel` and `overfilm.<dialog>.<param>` for each
 //! control (`<dialog>` = captions, style, autoCut, learn); `overfilm.learn.frame` is the picture.
@@ -216,8 +220,17 @@ fn learn_body(ui: &mut egui::Ui, elems: &mut Elems, d: &mut Draft) {
                 ("live", tl!("Game HUD (in play)").to_string()),
                 ("bar1", tl!("Team 1 name plates (kills)").to_string()),
                 ("bar2", tl!("Team 2 name plates (kills)").to_string()),
+                ("ult1", tl!("Team 1 ready ultimate icon").to_string()),
+                ("ult2", tl!("Team 2 ready ultimate icon").to_string()),
+                ("killfeed", tl!("Kill feed (ultimate kills)").to_string()),
             ],
         );
+        if p["screen"].as_str().is_some_and(|v| v.starts_with("ult")) {
+            if p["player"].is_null() {
+                p["player"] = json!(1);
+            }
+            number(ui, elems, format!("{pre}.player"), tl!("On player's plate:"), &mut p["player"], 1.0..=12.0, "");
+        }
         if p["screen"].as_str().is_some_and(|v| v.starts_with("bar")) {
             if p["players"].is_null() {
                 p["players"] = json!(5);
@@ -333,6 +346,13 @@ pub(crate) fn plain_error(e: &str) -> String {
         ),
         ("has no player bars", "No name plates learnt yet: learn each team's name plates first (Learn Screen Template, Team 1/2 name plates)."),
         ("every plate looks dark", "Every plate looks dark: learn them on a frame where the whole team is alive."),
+        ("no bright round icon", "No ready ultimate icon in the box: draw it around one white ultimate circle, not the charge number."),
+        ("has no player bar for team", "Learn that team's name plates first (Team 1/2 name plates)."),
+        ("around one ready ultimate icon", "Draw one green box around a ready ultimate icon."),
+        ("around the kill feed", "Draw a green box around the kill feed, then a second one round one ultimate icon in it."),
+        ("round one ultimate kill's icon", "Draw a second green box round one ultimate icon in the kill feed."),
+        ("no round ultimate icon in the box", "No ultimate icon in the second box: draw it tight round one white ultimate icon of the kill feed."),
+        ("not inside the kill feed", "The ultimate icon is outside the kill feed's box: draw the feed's box around it."),
         ("flat colour", "That box is one flat colour: pick a part with text or graphics."),
         ("empty or outside the frame", "The box is empty or outside the picture: draw it again."),
         ("no video clip at that time", "No picture at the playhead: move it onto the broadcast first."),
@@ -560,6 +580,8 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
             Ok(v) => {
                 app.ui.status = match command {
                     "overfilm.playerBar.learn" => tlf!("Learnt team {team}'s name plates", team = v["team"]),
+                    "overfilm.ultIcon.learn" => tlf!("Learnt team {team}'s ultimate icon", team = v["team"]),
+                    "overfilm.killFeed.learn" => tlf!("Learnt the kill feed ({n} ultimate icon(s) on this frame)", n = v["icons"]),
                     "overfilm.screenTemplate.learn" => {
                         tlf!("Learnt \"{name}\" ({n} templates in the file)", name = v["name"].as_str().unwrap_or_default(), n = v["count"])
                     }
@@ -575,21 +597,43 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
 }
 
 /// Learning a team's name plates instead of a screen template: the first green rectangle is the
-/// bar around the team's plates.
+/// bar around the team's plates. Or its ready-ultimate icon: the first green rectangle is around
+/// the icon on the given player's plate.
 fn learn_call(d: &Draft) -> Option<(&'static str, Value)> {
-    let team = match d.params["screen"].as_str()? {
-        "bar1" => 1,
-        "bar2" => 2,
+    if d.params["screen"].as_str()? == "killfeed" {
+        // the first green box around the feed, the second round one ultimate icon
+        let rects = d.params["rects"].as_array().cloned().unwrap_or_default();
+        let mut p = json!({});
+        if let Some(r) = rects.first() {
+            p["rect"] = r.clone();
+        }
+        if let Some(r) = rects.get(1) {
+            p["icon"] = r.clone();
+        }
+        if let Some(t) = d.params["templates"].as_str().filter(|t| !t.is_empty()) {
+            p["templates"] = json!(t);
+        }
+        return Some(("overfilm.killFeed.learn", p));
+    }
+    let (cmd, team) = match d.params["screen"].as_str()? {
+        "bar1" => ("overfilm.playerBar.learn", 1),
+        "bar2" => ("overfilm.playerBar.learn", 2),
+        "ult1" => ("overfilm.ultIcon.learn", 1),
+        "ult2" => ("overfilm.ultIcon.learn", 2),
         _ => return None,
     };
-    let mut p = json!({"team": team, "players": d.params["players"].as_f64().unwrap_or(5.0).round().clamp(1.0, 12.0) as u64});
+    let mut p = if cmd == "overfilm.ultIcon.learn" {
+        json!({"team": team, "player": d.params["player"].as_f64().unwrap_or(1.0).round().clamp(1.0, 12.0) as u64})
+    } else {
+        json!({"team": team, "players": d.params["players"].as_f64().unwrap_or(5.0).round().clamp(1.0, 12.0) as u64})
+    };
     if let Some(r) = d.params["rects"].as_array().and_then(|a| a.first()) {
         p["rect"] = r.clone();
     }
     if let Some(t) = d.params["templates"].as_str().filter(|t| !t.is_empty()) {
         p["templates"] = json!(t);
     }
-    Some(("overfilm.playerBar.learn", p))
+    Some((cmd, p))
 }
 
 /// The command's parameters from the dialog's (empty choices left out).
@@ -679,6 +723,15 @@ mod tests {
         let (cmd, p) = learn_call(&d).unwrap();
         assert_eq!(cmd, "overfilm.playerBar.learn");
         assert_eq!(p, json!({"team": 2, "players": 5, "rect": [0.7, 0.14, 0.27, 0.02], "templates": "s.json"}));
+        d.params["screen"] = json!("ult1");
+        d.params["player"] = json!(3);
+        let (cmd, p) = learn_call(&d).unwrap();
+        assert_eq!(cmd, "overfilm.ultIcon.learn");
+        assert_eq!(p, json!({"team": 1, "player": 3, "rect": [0.7, 0.14, 0.27, 0.02], "templates": "s.json"}));
+        d.params["screen"] = json!("killfeed");
+        let (cmd, p) = learn_call(&d).unwrap();
+        assert_eq!(cmd, "overfilm.killFeed.learn");
+        assert_eq!(p, json!({"rect": [0.7, 0.14, 0.27, 0.02], "icon": [0.1, 0.1, 0.1, 0.1], "templates": "s.json"}));
         d.params["screen"] = json!("setup");
         assert!(learn_call(&d).is_none());
     }
