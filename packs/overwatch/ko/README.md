@@ -77,6 +77,11 @@ cargo run -p overfilm-eval -- --terms packs/overwatch/ko/glossary reference.srt 
   abilities added and 216 perks (`noeval`). 30 more regional teams from owtics.gg (`verify` readings),
   and tech words (`캔슬`, `노줌`, `지뢰 점프`, `갈고리 스윙`) and match words (`팟지`, `킬딸`, `막거점`) in
   `slang.tsv`.
+- 2026-11-02 user report: commentary words that come out wrong (`궁극기` heard as `공격기`, `렐리` → `랠리`,
+  `잭팩켓` → `제트팩 캣`, `자랴` → `자리야`, `오투 블러스터` → `오투 블래스트`), hero short names (`라위`, `바스`,
+  `트레`), team names checked on 나무위키 (`로데 잔사이드 게이밍`, `오투 블래스트`) and play verbs
+  (`물다`, `눕다`, `끊다`, `녹이다`, `궁 빼다`, `비비다`, `밀다`; `noeval`). `눕다` means dying, so it moved
+  off `앵커링`. Floors: `이층` → `2층`; `이 층` stays unless next to another floor number.
 - Team short names from the DCinside OWCS gallery: 라쿤, 제타, 팔콘, 티원, 로제, O2, 치벅/처벅/CB,
   세이지 (SEIJI ESPORTS).
 - Rosters: 나무위키 (namu.moe mirror) team and player pages, 2026 OWCS Korea Stage 3

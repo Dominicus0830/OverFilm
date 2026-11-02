@@ -4,7 +4,7 @@
 //!
 //! - `overfilm.captions.generate {items?, audioTrack?, mode="general"|"commentary", speakers=true,
 //!   numSpeakers?, extraTerms?, gpu=true, gameVoice="drop"|"label"|"keep", lineChars=16,
-//!   maxLines=2, leadMs=120, holdMs=400, readingCps=12, cleanFillers=false, wait=false}` recognises the media of the sequence's audio
+//!   maxLines=2, leadMs=120, holdMs=400, readingCps=12, cleanFillers=true, wait=false}` recognises the media of the sequence's audio
 //!   clips (or `items`, or the Project panel selection) in a background job (feature
 //!   `overfilm-qwen`; models are downloaded on first use into the folder OverFilmSubs uses), stores
 //!   each item's transcript (Text panel ▸ Transcript; in-game voice is the speaker "게임 음성"),
@@ -52,7 +52,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "OverFilm Captions (Korean)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"items":[id]?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=false,"wait":bool=false}"#,
+            params: r#"{"items":[id]?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"wait":bool=false}"#,
             enabled: can_generate,
             run: generate,
             journal: true,
@@ -111,7 +111,7 @@ fn caption_options(p: &Value, cmd: &str) -> Result<CaptionOptions> {
             reading_cps: u64_p(p, "readingCps").map_or(Layout::default().reading_cps, |v| v.min(40) as u32),
             ..Layout::default()
         },
-        clean: bool_p(p, "cleanFillers").unwrap_or(false),
+        clean: bool_p(p, "cleanFillers").unwrap_or(true),
         only_items: None,
     })
 }

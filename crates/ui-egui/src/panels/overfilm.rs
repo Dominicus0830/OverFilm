@@ -96,7 +96,7 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
                 .unwrap_or_default();
             (
                 json!({"audioTrack": "", "mode": "general", "who": "auto", "gameVoice": "drop", "lineChars": 16, "maxLines": 2,
-                       "leadMs": 120, "holdMs": 400, "readingCps": 12, "cleanFillers": false, "gpu": true, "extraTerms": ""}),
+                       "leadMs": 120, "holdMs": 400, "readingCps": 12, "cleanFillers": true, "gpu": true, "extraTerms": ""}),
                 json!({"tracks": tracks}),
             )
         }
