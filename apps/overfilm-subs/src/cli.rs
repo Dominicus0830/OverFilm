@@ -3,7 +3,7 @@
 //! ```text
 //! overfilm-subs extract <video or audio> [-o out.srt] [--mode general|commentary]
 //!               [--terms "이름, 용어"] [--no-mask] [--no-digits] [--glossary <folder>] [--line-chars 16]
-//!               [--speakers auto|off|N] [--game-voice drop|label|keep] [--per-speaker] [--clean]
+//!               [--speakers auto|off|N] [--game-voice drop|label|keep] [--per-speaker] [--keep-fillers]
 //!               [--audio-track N]
 //! overfilm-subs review <file.srt>
 //! overfilm-subs fix <file.srt>          apply the glossary (misrecognitions, profanity initials)
@@ -39,13 +39,13 @@ const USAGE: &str = "사용법:
       --per-speaker  사람마다 SRT를 따로 저장 (이름.화자1.srt …)
       --only-voices  등록한 목소리(voice add)의 말만 자막으로 (스트리머 말만 등)
       --no-voices    등록한 목소리로 이름 붙이지 않기
-      --clean        추임새(어, 음)와 말 더듬기(그 그게)를 자막에서 빼기 (단어 시간 파일에는 남음)
+      --keep-fillers 추임새(어, 음)와 말 더듬기(그 그게)를 자막에 남기기 (기본은 뺌, 단어 시간 파일에는 늘 남음)
       --skip-silence / --no-skip-silence   2초 넘는 무음 구간을 인식하지 않고 건너뛰기. 기본: 오디오 트랙이 분리된 영상·오디오 파일은 켜짐,
                      영상에 섞인 소리는 꺼짐 (켜면 게임 소리 밑의 작은 말소리까지 건너뛸 수 있어 경고)
       --from 1:23 --to 4:56   이 구간만 인식 (자막 시간은 원본 기준)
   overfilm-subs review <자막.srt>
   overfilm-subs fix <자막.srt>      단어집 교정 적용 (원본은 .srt.bak)
-  overfilm-subs relayout <이름.overfilm.json> [-o 저장.srt] [--line-chars 16] [--one-line] [--clean] [--game-voice …] [--rename 화자1=이름]   인식 다시 안 하고 자막만 다시 나누기
+  overfilm-subs relayout <이름.overfilm.json> [-o 저장.srt] [--line-chars 16] [--one-line] [--keep-fillers] [--game-voice …] [--rename 화자1=이름]   인식 다시 안 하고 자막만 다시 나누기
   overfilm-subs redo <자막.srt> --from 00:01:23,000 --to 00:01:40,000 [--input 영상] [--terms \"이름\"]   이 부분만 다시 인식 (다른 곳 고친 글자는 그대로)
   overfilm-subs export <자막.srt> [--format srt|vtt|ass|txt] [--fps 29.97] [--gap 2] [-o 저장]   다른 형식으로 (프레임 맞춤, 자막 사이 빈 프레임)
   overfilm-subs voice add <이름> <영상/오디오> [--from 1:23] [--to 1:45]   목소리 등록 (10~30초 권장, 그 사람만 말하는 구간)
@@ -101,6 +101,7 @@ fn extract(args: &[String]) -> Result<(), String> {
             "--clean" => o.clean_fillers = true,
             "--skip-silence" => o.skip_silence = Some(true),
             "--no-skip-silence" => o.skip_silence = Some(false),
+            "--keep-fillers" => o.clean_fillers = false,
             "--from" | "--to" => {
                 let v = val()?;
                 let t = voices::parse_time(&v).and_then(|t| i64::try_from(t).ok()).ok_or_else(|| format!("{a} 뒤에 시간 (예: 1:23)"))?;
@@ -220,6 +221,7 @@ fn redo_cmd(args: &[String]) -> Result<(), String> {
             "--to" => to = Some(review::parse_clock(&val()?).ok_or("--to 시간 형식")?),
             "--cpu" => o.gpu = false,
             "--clean" => o.clean_fillers = true,
+            "--keep-fillers" => o.clean_fillers = false,
             s if s.starts_with('-') => return Err(format!("모르는 옵션: {s}")),
             s => srt = Some(PathBuf::from(s)),
         }
@@ -296,6 +298,7 @@ fn relayout(args: &[String]) -> Result<(), String> {
             "--one-line" => o.max_lines = 1,
             "--cpu" => o.gpu = false,
             "--clean" => o.clean_fillers = true,
+            "--keep-fillers" => o.clean_fillers = false,
             s => input = Some(PathBuf::from(s)),
         }
     }

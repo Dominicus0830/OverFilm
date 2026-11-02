@@ -112,6 +112,11 @@ fn names(g: &Glossary, category: &str) -> Vec<String> {
 /// Recognition context for `mode`, plus the user's extra terms (comma or line separated).
 pub fn context(g: &Glossary, mode: Mode, extra_terms: &str) -> String {
     let mut s = CONTEXT.trim().to_string();
+    // The user's own terms go before the long team and player lists so the length cap never cuts them.
+    let extra: Vec<&str> = extra_terms.split([',', '\n', ';']).map(str::trim).filter(|t| !t.is_empty()).collect();
+    if !extra.is_empty() {
+        s.push_str(&format!(" 추가 용어: {}.", extra.join(", ")));
+    }
     if mode == Mode::Commentary {
         let teams: Vec<String> = g
             .entries
@@ -120,10 +125,6 @@ pub fn context(g: &Glossary, mode: Mode, extra_terms: &str) -> String {
             .flat_map(|e| std::iter::once(e.ko.clone()).chain(e.aliases.iter().filter(|a| a.chars().any(|c| ('가'..='힣').contains(&c))).cloned()))
             .collect();
         s.push_str(&format!(" 팀: {}. 선수: {}.", teams.join(", "), names(g, "players").join(", ")));
-    }
-    let extra: Vec<&str> = extra_terms.split([',', '\n', ';']).map(str::trim).filter(|t| !t.is_empty()).collect();
-    if !extra.is_empty() {
-        s.push_str(&format!(" 추가 용어: {}.", extra.join(", ")));
     }
     s.chars().take(MAX_CONTEXT_CHARS).collect()
 }

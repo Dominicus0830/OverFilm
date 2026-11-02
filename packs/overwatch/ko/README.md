@@ -71,6 +71,17 @@ cargo run -p overfilm-eval -- --terms packs/overwatch/ko/glossary reference.srt 
   pages (2026-11-01). Readings from 나무위키 where it gives one (페이즈/프사제, 크리링, 스큐드, 프로핏); the rest
   are read as spelled and marked `발음 확인 필요`. Misrecognitions from the T1 vs RØDE commentary clip
   (`티온` → `티원`, `동커퀸` → `정커퀸`, `아이언발드` → `아이헨발데`, `델로스피얼` → `댈러스 퓨얼`).
+- 2026-11-02: ability and perk names from Blizzard's Korean hero pages (overwatch.blizzard.com/ko-kr/heroes,
+  54 heroes): the 디몬, 독트린, 솜브라, 로드호그 and other `verify` names filled in, 27 names corrected to the
+  client's (`광란` → `살육`, `표창` → `수리검`, `순보` → `이단뛰기`; the earlier spelling is kept in `old`), 69
+  abilities added and 216 perks (`noeval`). 30 more regional teams from owtics.gg (`verify` readings),
+  and tech words (`캔슬`, `노줌`, `지뢰 점프`, `갈고리 스윙`) and match words (`팟지`, `킬딸`, `막거점`) in
+  `slang.tsv`.
+- 2026-11-02 user report: commentary words that come out wrong (`궁극기` heard as `공격기`, `렐리` → `랠리`,
+  `잭팩켓` → `제트팩 캣`, `자랴` → `자리야`, `오투 블러스터` → `오투 블래스트`), hero short names (`라위`, `바스`,
+  `트레`), team names checked on 나무위키 (`로데 잔사이드 게이밍`, `오투 블래스트`) and play verbs
+  (`물다`, `눕다`, `끊다`, `녹이다`, `궁 빼다`, `비비다`, `밀다`; `noeval`). `눕다` means dying, so it moved
+  off `앵커링`. Floors: `이층` → `2층`; `이 층` stays unless next to another floor number.
 - Team short names from the DCinside OWCS gallery: 라쿤, 제타, 팔콘, 티원, 로제, O2, 치벅/처벅/CB,
   세이지 (SEIJI ESPORTS).
 - Rosters: 나무위키 (namu.moe mirror) team and player pages, 2026 OWCS Korea Stage 3

@@ -15,6 +15,8 @@
 //! - Native numbers (`두`…`열`) only before `개`, `명`, `킬`, `판`, `마리`; `한` (one) stays a word.
 //! - English numbers after a name: `오버워치 투` → `오버워치 2`, `메인 딜러 투라고` → `메인 딜러
 //!   2라고`, `시즌 원` → `시즌 1`; `투` before another word means "two" and stays (`투 서브 딜러`).
+//! - Floors: `이층` is `2층`, but `이 층` (this floor) only becomes `2층` next to another floor
+//!   number (`1층 이 층`), and `2층 저 층` goes back to `이 층 저 층`.
 
 use crate::ko::Tidied;
 
@@ -36,6 +38,7 @@ const SINO_COUNTERS: &[Counter] = &[
     Counter { spoken: "연승", written: "연승", glued: true, not_before: &[] },
     Counter { spoken: "연패", written: "연패", glued: true, not_before: &[] },
     Counter { spoken: "레벨", written: "레벨", glued: true, not_before: &['업'] },
+    Counter { spoken: "층", written: "층", glued: true, not_before: &['계', '간', '층', '위', '별'] },
     Counter {
         spoken: "위",
         written: "위",
@@ -164,7 +167,49 @@ pub fn write_digits(text: &str) -> Tidied {
         out.push(c);
         i += 1;
     }
-    Tidied { text: out, changes }
+    floors(&out, changes)
+}
+
+/// `이 층` is "this floor" or "the second floor". It is the second floor next to another floor
+/// number (`1층 이 층`, `이 층 3층`), and `2층 저 층` is "this floor, that floor".
+fn floors(text: &str, mut changes: Vec<(String, String)>) -> Tidied {
+    fn is_floor(w: &str) -> bool {
+        let digits = w.chars().take_while(char::is_ascii_digit).count();
+        digits > 0 && w.chars().skip(digits).take(1).eq(['층'])
+    }
+    fn floor_word(w: &str) -> bool {
+        w.starts_with('층') && !["층계", "층간", "층층", "층위", "층별"].iter().any(|x| w.starts_with(x))
+    }
+    let words: Vec<&str> = text.split(' ').collect();
+    let mut out: Vec<String> = Vec::with_capacity(words.len());
+    let mut i = 0;
+    while let Some(&w) = words.get(i) {
+        let next = words.get(i + 1).copied().unwrap_or_default();
+        if w == "이" && floor_word(next) {
+            let before = i.checked_sub(1).and_then(|j| words.get(j)).is_some_and(|p| is_floor(p));
+            let after = words.get(i + 2).is_some_and(|a| is_floor(a));
+            if before || after {
+                let to = format!("2{next}");
+                changes.push((format!("이 {next}"), to.clone()));
+                out.push(to);
+                i += 2;
+                continue;
+            }
+        }
+        if let Some(tail) = w.strip_prefix("2층")
+            && next == "저"
+            && words.get(i + 2).is_some_and(|a| floor_word(a))
+        {
+            let to = format!("이 층{tail}");
+            changes.push((w.to_string(), to.clone()));
+            out.push(to);
+            i += 1;
+            continue;
+        }
+        out.push(w.to_string());
+        i += 1;
+    }
+    Tidied { text: out.join(" "), changes }
 }
 
 /// Particles after a numbered name (`오버워치 투에서`, `메인 딜러 투라고`).
@@ -252,9 +297,6 @@ fn number_at(rest: &[char]) -> Option<(usize, String)> {
     for n in (1..=len).rev() {
         let num = rest.get(..n)?;
         let Some(value) = sino_value(num) else { continue };
-        if n == 1 && matches!(num.first(), Some('이' | '사')) {
-            continue;
-        }
         let mut p = n;
         let spaced = rest.get(p) == Some(&' ');
         if spaced {
@@ -262,6 +304,10 @@ fn number_at(rest: &[char]) -> Option<(usize, String)> {
         }
         let after = rest.get(p..).unwrap_or_default();
         let Some(counter) = SINO_COUNTERS.iter().find(|k| counter_at(after, std::iter::once((k.spoken, k.not_before))).is_some()) else { continue };
+        // `이` (this) and `사` (buy) stay words, except glued to 층: `이층` is the second floor.
+        if n == 1 && matches!(num.first(), Some('이' | '사')) && (spaced || counter.spoken != "층") {
+            continue;
+        }
         if n == 1 && !spaced && !counter.glued {
             continue;
         }
@@ -349,6 +395,18 @@ mod tests {
         ] {
             assert_eq!(d(s), s, "{s}");
         }
+    }
+
+    #[test]
+    fn floors() {
+        assert_eq!(d("이층으로 올라가서 일 층 보고"), "2층으로 올라가서 1층 보고");
+        assert_eq!(d("1층 이 층 다 봐야 돼요"), "1층 2층 다 봐야 돼요");
+        assert_eq!(d("이 층 삼층"), "2층 3층");
+        assert_eq!(d("2층 저 층 다녀요"), "이 층 저 층 다녀요");
+        for s in ["이 층에서 싸우면", "이 층계", "층간", "이 층 저 층"] {
+            assert_eq!(d(s), s, "{s}");
+        }
+        assert_eq!(d("이층맵"), "2층맵");
     }
 
     #[test]

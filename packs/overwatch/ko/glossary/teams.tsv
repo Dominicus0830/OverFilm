@@ -2,27 +2,58 @@ id	ko	en	aliases	old	misheard	flags	note
 crazy_raccoon	크레이지 라쿤	Crazy Raccoon	크라; 라쿤; CR; 너굴단	WAC; 왁			OWCS 코리아. 2026 챔피언스 클래시 우승. 2024년 3~4월 팀명 WAC(왁). 팬 이름 너굴단
 zeta_division	제타 디비전	ZETA DIVISION	제타; 2374; ZETA	JUPITER; 주피터			OWCS 코리아
 team_falcons	팔콘	Team Falcons	팀 팰컨스; 팰컨스; 팔콘스; FLC				OWCS 코리아. 2025 미드시즌 챔피언십 우승
-t1	티원	T1			티온; 피원; T 원; 티 원		OWCS 코리아
-rode_zanside	로제	RØDE ZANSIDE GAMING	로데 잔사이드; 로제 잔사이드; ROZE; RODE ZANSIDE	온사이드; ONSIDE GAMING; 잔; ZAN Esports			OWCS 코리아. 2026-05 온사이드와 잔 합병. 약칭 ROZE(로제)
+t1	티원	T1	T1		티온; 피원; T 원; 티 원		OWCS 코리아
+rode_zanside	로데 잔사이드	RØDE ZANSIDE GAMING	로데 잔사이드 게이밍; 잔사이드; 로데; ROZE; RØDE; RODE ZANSIDE; 로제; 로잔사	온사이드; ONSIDE GAMING; 잔; ZAN Esports; 로데 온사이드 게이밍	로제 잔사이드; 로대 잔사이드		OWCS 코리아. 2026-05 온사이드와 잔 합병. 약칭 ROZE(로제); 나무위키 표기 로데 잔사이드 게이밍
 cheeseburger	치즈버거	Cheeseburger	치벅; 처벅; CB				OWCS 코리아. 마스코트 버거
-o2_blast	오투 블래스트	O2 Blast	오투; O2				OWCS 코리아
-poker_face	포커페이스	Poker Face	포커 페이스				OWCS 코리아. 2026 스테이지 3 9위
-superbad	슈퍼배드	SuperBad	슈퍼 배드				2026-08-31 운영 중단
+o2_blast	오투 블래스트	O2 Blast	오투; O2		오투 블러스터; 오투 블러스트; 오투 블래스터; 오투 블리스터; 오투 블라스트		OWCS 코리아; 나무위키 표기. 사용자 제보: 오투 블러스터로 들림
+poker_face	포커페이스	Poker Face	포커 페이스; 포페				OWCS 코리아. 2026 스테이지 3 9위
+superbad	슈퍼배드	SuperBad	슈퍼 배드; 슈배				2026-08-31 운영 중단
 seiji_esports	세이지	SEIJI ESPORTS	세이지 이스포츠; SEJ; 개추팀	RTplz			OWCS 코리아, 2026-08 창단 (RTplz → 2026-09 세이지). 스테이지 3 참가
-new_era	뉴 에라	New Era					2026 해체
-twisted_minds	트위스티드 마인즈	Twisted Minds	트마				해외 (EMEA)
+new_era	뉴 에라	New Era	뉴에라				2026 해체
+twisted_minds	트위스티드 마인즈	Twisted Minds	트마; TM				해외 (EMEA). 나무위키 표기
 spacestation	스페이스스테이션 게이밍	Spacestation Gaming	스페이스스테이션; SSG				해외 (북미)
 virtus_pro	버투스 프로	Virtus.pro	버투스; VP				해외 (EMEA)
 # 해외 팀 (owtics.gg 팀 목록, 2026-11-01): 한국 선수가 뛰거나 국제 대회에서 만나는 팀
 team_liquid	팀 리퀴드	Team Liquid	리퀴드; TL				북미. 한국 선수 어택·키비스, 코치 페이즈
 dallas_fuel	댈러스 퓨얼	Dallas Fuel	댈러스; 퓨얼		델로스피얼; 델러스 퓨어; 델러스 퓨얼; 댈러스 퓨어; 달라스 퓨얼		북미. 한국 선수 켈란·선준
-al_qadsiah	알 카디시야	Al Qadsiah	알카디시야; 카디시야			verify	EMEA
-geekay	긱케이 이스포츠	Geekay Esports	긱케이; GK				EMEA
-team_peps	팀 펩스	Team Peps	펩스			verify	EMEA
-weibo_gaming	웨이보 게이밍	Weibo Gaming	웨이보; WBG				중국. 감독 동수, 한국 지원 이수민·마카
-jd_gaming	징동 게이밍	JD Gaming	징동; JDG; 제이디지			verify	중국
-all_gamers	올 게이머즈	All Gamers	올게이머즈; AG				중국
-varrel	바렐	VARREL	VL				일본
+al_qadsiah	알 카디시야	Al Qadsiah	알카디시야; 카디시야; QAD				EMEA. 나무위키 표기
+geekay	지케이 이스포츠	Geekay Esports	지케이; 긱케이; GK				EMEA. 나무위키 표기 지케이
+team_peps	팀 펩스	Team Peps	펩스; PEPS				EMEA. 나무위키 표기
+weibo_gaming	웨이보 게이밍	Weibo Gaming	웨이보; WBG; 원스 어게인; OA				중국. 감독 동수, 한국 지원 이수민·마카
+jd_gaming	징동 게이밍 이스포츠	JD Gaming	징동 게이밍; 징동; JDG; 제이디지				중국. 나무위키 표기 (JDG Esports)
+all_gamers	올 게이머스	All Gamers	올게이머스; 올 게이머즈; 올게이머즈; AG				중국. 나무위키 표기
+varrel	바렐	VARREL	VL	언솔드 스터프 게이밍; 도너츠 USG			일본
 divine_99	나인티나인 디바인	99DIVINE	99디바인			verify	일본
 team_vision	팀 비전	Team Vision				verify
 team_south_korea	대한민국 국가대표	Team South Korea	한국 대표팀; 국대; 국가대표				오버워치 월드컵
+# 지역 리그 팀 더 (owtics.gg, 2026-11-02). 한국어 표기는 영어 발음대로 (verify: 중계 표기 확인 전)
+amplify	앰플리파이	Amplify				verify	북미
+disguised	디스가이즈드	Disguised				verify	북미
+ntmr	나이트메어	NTMR	엔티엠알			verify	북미
+the_kafe	더 카페	The Kafe				verify	북미
+quick_esports	퀵 이스포츠	Quick Esports				verify	EMEA
+team_risk	팀 리스크	Team Risk				verify	EMEA
+hypnos	힙노스	Hypnos				verify	EMEA
+team_secret	팀 시크릿	Team Secret	시크릿			verify	퍼시픽
+ou_gaming	오유 게이밍	OU Gaming	OU			verify	중국
+huneng_gaming	후넝 게이밍	HUNENG Gaming	후넝			verify	중국. 한국 감독 교민
+shengshi	셩스 이스포츠	SHENGSHI Esports	셩스			verify	중국
+solus_victorem	솔루스 빅토렘	Solus Victorem				verify	중국
+kitsune_kage	키츠네 카게	Kitsune Kage				verify	중국
+black_flag	블랙 플래그	Black Flag				verify	중국
+enter_force36	엔터포스36	ENTER FORCE.36	엔터포스			verify	일본
+murash_gaming	무라쉬 게이밍	MURASH GAMING	무라쉬			verify	일본
+hayabusa_gaming	하야부사 게이밍	Hayabusa Gaming	하야부사			verify	일본
+revati	레바티	REVATI				verify	일본
+lazuli	라즐리	Lazuli				verify	일본
+lostnever	로스트네버 게이밍	LostNever Gaming	로스트네버			verify	일본
+please_not_hero_ban	플리즈 낫 히어로 밴	Please Not Hero Ban				verify	일본
+arise_project	어라이즈 프로젝트	Arise Project				verify	일본
+killer_bee	킬러비	Killer-Bee				verify	일본
+newgens	뉴젠스	Newgens				verify	퍼시픽
+najdorf	나이도르프 이스포츠	Najdorf Esports				verify	퍼시픽
+invaders	인베이더스	INVADERS				verify	퍼시픽
+meng_gong_3	멍공 3	MENG GONG 3	멍공			verify	퍼시픽
+stronghold	스트롱홀드	Stronghold				verify	퍼시픽
+undefined_team	언디파인드	UNDEFINED				verify	퍼시픽
+fury	퓨리	FURY				verify	퍼시픽

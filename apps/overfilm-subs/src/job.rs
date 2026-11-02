@@ -102,7 +102,7 @@ impl Options {
             per_speaker: false,
             use_voices: true,
             only_voices: false,
-            clean_fillers: false,
+            clean_fillers: true,
             range: None,
             audio_track: 0,
             skip_silence: None,

@@ -4,7 +4,7 @@
 //!
 //! - `overfilm.captions.generate {items?, audioTrack?, mode="general"|"commentary", speakers=true,
 //!   numSpeakers?, extraTerms?, gpu=true, gameVoice="drop"|"label"|"keep", lineChars=16,
-//!   maxLines=2, cleanFillers=false, wait=false}` recognises the media of the sequence's audio
+//!   maxLines=2, cleanFillers=true, wait=false}` recognises the media of the sequence's audio
 //!   clips (or `items`, or the Project panel selection) in a background job (feature
 //!   `overfilm-qwen`; models are downloaded on first use into the folder OverFilmSubs uses), stores
 //!   each item's transcript (Text panel ▸ Transcript; in-game voice is the speaker "게임 음성"),
@@ -54,7 +54,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "OverFilm Captions (Korean)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"items":[id]?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"skipSilence":bool?,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"cleanFillers":bool=false,"wait":bool=false}"#,
+            params: r#"{"items":[id]?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"skipSilence":bool?,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"cleanFillers":bool=true,"wait":bool=false}"#,
             enabled: can_generate,
             run: generate,
             journal: true,
@@ -106,7 +106,7 @@ fn caption_options(p: &Value, cmd: &str) -> Result<CaptionOptions> {
     Ok(CaptionOptions {
         game,
         layout: Layout { max_line: chars * 2, max_lines: lines, ..Layout::default() },
-        clean: bool_p(p, "cleanFillers").unwrap_or(false),
+        clean: bool_p(p, "cleanFillers").unwrap_or(true),
         only_items: None,
     })
 }
