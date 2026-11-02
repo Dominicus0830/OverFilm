@@ -525,6 +525,12 @@ git merge upstream/main          # conflicts should only touch the hook points b
 
 Open a PR from the branch, and run the full gate (below) on it before merging.
 
+Syncs so far:
+
+| Date | Upstream | Notes |
+|---|---|---|
+| 2026-11-02 | v0.16.0 (`8c171a0a`) | `Marker` gained `url`, `author`, `custom_color` (OverFilm markers leave them empty); the steady pace in `crates/export/src/pace.rs` sits beside upstream's new batch-aware window |
+
 ## CI
 
 `.github/workflows/overfilm.yml` is OverFilm's CI. On every push to `main` and every PR it runs
@@ -552,6 +558,7 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `mod overfilm_kills`, `mod overfilm_style`, `mod overfilm_review`, `Session::overfilm_jobs`, `overfilm_caption_jobs`, `overfilm_assist_jobs`, `overfilm_kill_jobs` and `overfilm_review`, their `poll` in `poll_persistence` |
 | `crates/engine/src/media_pool.rs` | `MediaPool::reopen`: an uncached second opening of a file the host streams, for Auto Cut's parallel decoders |
 | `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()`, `overfilm_reel::commands()`, `overfilm_kills::commands()`, `overfilm_style::commands()` and `overfilm_review::commands()` |
+| `crates/export/src/pace.rs`, `lib.rs` | the steady pace (`Pace::set_steady`) for speech recognition's long, even steps |
 | `crates/engine/src/transcript.rs` | `targets` is `pub(crate)` (which clips to recognise) |
 | `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |
 | `crates/engine/src/overfilm_assist.rs` (+ `_tests.rs`) | new file: silence and highlight suggestions |

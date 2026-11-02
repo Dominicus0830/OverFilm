@@ -1085,17 +1085,17 @@ dependencies = [
 [[package]]
 name = "craft-docpath"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=92d392cff132eaf53e13afff77f38b5c11b73aa0#92d392cff132eaf53e13afff77f38b5c11b73aa0"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 
 [[package]]
 name = "craft-fonts-build"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=92d392cff132eaf53e13afff77f38b5c11b73aa0#92d392cff132eaf53e13afff77f38b5c11b73aa0"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 
 [[package]]
 name = "craft-i18n"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=92d392cff132eaf53e13afff77f38b5c11b73aa0#92d392cff132eaf53e13afff77f38b5c11b73aa0"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 dependencies = [
  "fixed_decimal",
  "icu_decimal",
@@ -1118,7 +1118,7 @@ dependencies = [
 [[package]]
 name = "craft-media"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=92d392cff132eaf53e13afff77f38b5c11b73aa0#92d392cff132eaf53e13afff77f38b5c11b73aa0"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 dependencies = [
  "thiserror 2.0.21",
 ]
@@ -1126,7 +1126,7 @@ dependencies = [
 [[package]]
 name = "craft-ui"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=92d392cff132eaf53e13afff77f38b5c11b73aa0#92d392cff132eaf53e13afff77f38b5c11b73aa0"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 dependencies = [
  "craft-fonts-build",
  "craft-i18n",
@@ -1147,7 +1147,7 @@ dependencies = [
 [[package]]
 name = "craft-update"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=04aa1703b32d299e54f78fcde4182f2b393a9116#04aa1703b32d299e54f78fcde4182f2b393a9116"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 dependencies = [
  "chrono",
  "dunce",
@@ -1866,7 +1866,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "arboard",
  "chrono",
@@ -1901,7 +1901,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-aac"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -1911,7 +1911,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-ac3"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-testkit",
  "thiserror 2.0.21",
@@ -1919,7 +1919,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-apv"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -1929,14 +1929,14 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-audio-dsp"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-testkit",
 ]
 
 [[package]]
 name = "filmcraft-automation"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "base64",
  "filmcraft-engine",
@@ -1953,7 +1953,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-av1"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -1964,21 +1964,21 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-avi"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-testkit",
 ]
 
 [[package]]
 name = "filmcraft-bitstream"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "craft-media",
 ]
 
 [[package]]
 name = "filmcraft-captions"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-project",
@@ -1991,11 +1991,11 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-cfb"
-version = "0.14.0"
+version = "0.16.0"
 
 [[package]]
 name = "filmcraft-cli"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-automation",
  "filmcraft-codecs",
@@ -2017,7 +2017,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-codecs"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-aac",
  "filmcraft-ac3",
@@ -2055,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-color"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "proptest",
  "serde",
@@ -2063,7 +2063,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-dng"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-dng",
  "rayon",
@@ -2072,7 +2072,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-dnx"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2082,7 +2082,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-edit"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-geom",
  "filmcraft-media",
@@ -2095,7 +2095,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-engine"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "chrono",
  "craft-docpath",
@@ -2137,7 +2137,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-export"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-aac",
  "filmcraft-apv",
@@ -2168,7 +2168,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-flac"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2177,7 +2177,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-format"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "chrono",
  "filmcraft-media",
@@ -2192,7 +2192,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-frame"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-time",
@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-geom"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "proptest",
  "serde",
@@ -2210,7 +2210,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-golden"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-frame",
@@ -2227,7 +2227,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-gpu"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-export",
@@ -2246,7 +2246,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-h264"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2256,7 +2256,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-h264enc"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2266,7 +2266,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-hevc"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2276,7 +2276,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-interchange"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-cfb",
  "filmcraft-color",
@@ -2293,7 +2293,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-isobmff"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "craft-media",
  "filmcraft-testkit",
@@ -2303,7 +2303,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-matroska"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "craft-media",
  "filmcraft-testkit",
@@ -2312,7 +2312,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-media"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-dng",
@@ -2328,7 +2328,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-mpa"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2337,7 +2337,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-mpeg2v"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-testkit",
  "rayon",
@@ -2346,7 +2346,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-mpegts"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-testkit",
  "thiserror 2.0.21",
@@ -2354,7 +2354,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-mxf"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "chrono",
  "filmcraft-testkit",
@@ -2362,21 +2362,21 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-ogg"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-testkit",
 ]
 
 [[package]]
 name = "filmcraft-opus"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-testkit",
 ]
 
 [[package]]
 name = "filmcraft-platform"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-codecs",
@@ -2402,7 +2402,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-project"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-geom",
@@ -2412,11 +2412,12 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "url",
 ]
 
 [[package]]
 name = "filmcraft-prores"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2426,7 +2427,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-render"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-audio-dsp",
  "filmcraft-captions",
@@ -2446,7 +2447,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-scopes"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-color",
  "serde",
@@ -2455,7 +2456,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-speech"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -2474,7 +2475,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-testkit"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "chrono",
  "png",
@@ -2483,7 +2484,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-text"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-color",
  "harfrust",
@@ -2496,7 +2497,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-time"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "proptest",
  "serde",
@@ -2504,7 +2505,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-tts"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -2519,7 +2520,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-tts-text"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -2527,7 +2528,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-ui-egui"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "cpu-time",
  "craft-ui",
@@ -2569,7 +2570,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-vp8"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-testkit",
  "thiserror 2.0.21",
@@ -2577,7 +2578,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-vp9"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2587,7 +2588,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-web"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "eframe",
  "egui",
@@ -2708,6 +2709,15 @@ name = "foreign-types-shared"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
+
+[[package]]
+name = "form_urlencoded"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+dependencies = [
+ "percent-encoding",
+]
 
 [[package]]
 name = "futures"
@@ -3674,6 +3684,27 @@ name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
+
+[[package]]
+name = "idna"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b0875f23caa03898994f6ddc501886a45c7d3d62d04d2d90788d47be1b1e4de"
+dependencies = [
+ "idna_adapter",
+ "smallvec",
+ "utf8_iter",
+]
+
+[[package]]
+name = "idna_adapter"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
+dependencies = [
+ "icu_normalizer",
+ "icu_properties",
+]
 
 [[package]]
 name = "image"
@@ -4761,14 +4792,14 @@ dependencies = [
 
 [[package]]
 name = "overfilm-ai"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "overfilm-asr"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -4787,7 +4818,7 @@ dependencies = [
 
 [[package]]
 name = "overfilm-captions"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-captions",
  "filmcraft-geom",
@@ -4799,7 +4830,7 @@ dependencies = [
 
 [[package]]
 name = "overfilm-eval"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-captions",
  "overfilm-glossary",
@@ -4810,14 +4841,14 @@ dependencies = [
 
 [[package]]
 name = "overfilm-glossary"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "overfilm-pipeline"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "overfilm-asr",
  "overfilm-captions",
@@ -4829,7 +4860,7 @@ dependencies = [
 
 [[package]]
 name = "overfilm-review"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4838,7 +4869,7 @@ dependencies = [
 
 [[package]]
 name = "overfilm-subs"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "chrono",
  "craft-ui",
@@ -4859,7 +4890,7 @@ dependencies = [
 
 [[package]]
 name = "overfilm-vision"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-time",
  "serde",
@@ -7109,6 +7140,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "url"
+version = "2.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+dependencies = [
+ "form_urlencoded",
+ "idna",
+ "percent-encoding",
+ "serde",
+]
+
+[[package]]
 name = "utf16_iter"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8177,7 +8220,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.14.0"
+version = "0.16.0"
 dependencies = [
  "filmcraft-testkit",
  "serde_json",

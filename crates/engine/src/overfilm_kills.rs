@@ -230,6 +230,9 @@ pub fn mark(s: &mut Session, deaths: &[Death], gap_ms: i64, min_kills: usize) ->
                 comment: String::new(),
                 kind: MarkerKind::Comment,
                 color: if d.team == 1 { Label::Cerulean } else { Label::Rose },
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
             });
         }
         for (k, f) in fights.iter().enumerate() {
@@ -243,6 +246,9 @@ pub fn mark(s: &mut Session, deaths: &[Death], gap_ms: i64, min_kills: usize) ->
                 comment: format!("{}킬 (1팀 {}명, 2팀 {}명 처치됨)", f.kills(), f.dead[0], f.dead[1]),
                 kind: MarkerKind::Comment,
                 color: Label::Mango,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
             });
         }
         q.markers.sort_by_key(|m| m.start);
