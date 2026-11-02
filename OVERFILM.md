@@ -600,6 +600,14 @@ different heroes shared one number. No substitute in this video, so substitutes 
 on made-up readings (`lineup_tests`). Evaluation tools: `heroes_raw` (vision) and `lineup_raw`,
 `recognise_raw` (pipeline) examples.
 
+Captions on 10 minutes of commentary (28:20–38:20, CPU, speaker split off), with the prior from
+that scan against without: "오토플라스트" became "오투 블래스트", "오브러/오픈" became "오프너"
+(1 → 5), "일리어" became "에일리언", "로드호그 게이밍" went away. The correction alone
+(`correct_raw`, same recogniser output) changes nothing but those names. The longer context also
+moves some unrelated words ("홈런볼" → "홈런 볼" twice, one "우텐" heard as "오투"), and WuTian is
+still often 우티언/우티안, so the prior helps team and player names most where they are spelled
+nearly right already.
+
 ## Claude Code review
 
 Off until switched on in `Sequence ▸ OverFilm ▸ Claude Code Review Settings…`

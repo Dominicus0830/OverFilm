@@ -337,7 +337,7 @@ impl Corrector {
                 continue;
             }
             let base = if name.syllables >= 5 { 2 } else { 1 };
-            let allowed = if (titled && name.person || name.preferred) && name.syllables >= 3 { base + 1 } else { base };
+            let allowed = if titled && name.person && name.syllables >= 3 { base + 1 } else { base };
             // Shorter windows only for long names: `자리` is a word, not a clipped `자리야`.
             let shortest = if name.syllables >= 4 { name.syllables - 1 } else { name.syllables };
             for n in shortest..=name.syllables + 1 {
@@ -345,6 +345,9 @@ impl Corrector {
                 let loose = titled && name.person;
                 let Some(j) = jamo_with(window, loose) else { continue };
                 let d = distance(&j, if loose { &name.loose } else { &name.jamo });
+                // a name in play allows one more edit, but only over its own length (`그러니까요`
+                // is no clipped `아이러니`)
+                let allowed = if name.preferred && !titled && name.syllables >= 3 && n == name.syllables { allowed + 1 } else { allowed };
                 if d > allowed {
                     continue;
                 }
@@ -566,6 +569,8 @@ mod preferred_tests {
         assert_eq!(c.apply("홈넌보 들어가").text, "홈넌보 들어가");
         let p = Preferred::new([("홈런볼", true), ("우톈", true), ("트레이서", false)]);
         assert_eq!(c.apply_preferring("홈넌보 들어가", &p).text, "홈런볼 들어가");
+        // the commentary's own words stay: a clipped or stretched window gets no extra edit
+        assert_eq!(c.apply_preferring("그러니까요 그러니 아이러니까", &Preferred::new([("아이러니", true)])).text, "그러니까요 그러니 아이러니까");
         // a two-syllable player still needs a title, even in play (and even flagged `verify`)
         assert_eq!(c.apply_preferring("우텐이 잘하네", &p).text, "우텐이 잘하네");
         assert_eq!(c.apply_preferring("우텐 선수", &p).text, "우톈 선수");
