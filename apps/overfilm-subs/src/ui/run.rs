@@ -17,6 +17,8 @@ use crate::{App, Step};
 const LIVE_ROWS: usize = 4;
 /// Characters shown of a chunk still being written: the words being heard now.
 const LIVE_TAIL: usize = 120;
+/// Characters shown of a finished chunk (its last sentences; the whole text is in the result).
+const DONE_TAIL: usize = 240;
 
 pub fn page(app: &mut App, ui: &mut egui::Ui) {
     let (running, progress, message) = {
@@ -81,6 +83,9 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
                 });
             });
         });
+        // the text first: it is what tells early whether a name keeps coming out wrong
+        heard(app, ui, now_stage);
+        ui.add_space(10.0);
         ui.spacing_mut().item_spacing.y = 4.0;
         let skip_speakers = !app.prefs.options.speakers;
         for (k, (label, _)) in STAGES.iter().enumerate() {
@@ -105,9 +110,8 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
                 });
             });
         }
-        heard(app, ui, now_stage);
         if batch {
-            queue_list(app, ui);
+            queue_list(app, ui, true);
         }
         ui.add_space(8.0);
         caption(ui, "창을 줄여 두어도 계속 진행합니다. 다른 파일을 끌어다 놓으면 대기열 끝에 들어갑니다.");
@@ -163,7 +167,7 @@ fn heard(app: &App, ui: &mut egui::Ui, now_stage: usize) {
             ui.horizontal_top(|ui| {
                 let time = RichText::new(live::clock(c.start_ms)).monospace().small().color(p.text3);
                 ui.add_sized(vec2(56.0, 18.0), egui::Label::new(time));
-                let (text, color) = if c.done { (c.text.clone(), p.text) } else { (live::tail(&c.text, LIVE_TAIL), p.text2) };
+                let (text, color) = if c.done { (live::tail(&c.text, DONE_TAIL), p.text) } else { (live::tail(&c.text, LIVE_TAIL), p.text2) };
                 ui.add(egui::Label::new(RichText::new(text).color(color)).wrap());
             });
         }
@@ -172,13 +176,14 @@ fn heard(app: &App, ui: &mut egui::Ui, now_stage: usize) {
 }
 
 /// The files of the batch with where each one is; finished ones open for review.
-fn queue_list(app: &mut App, ui: &mut egui::Ui) {
+fn queue_list(app: &mut App, ui: &mut egui::Ui, can_add: bool) {
     ui.spacing_mut().item_spacing.y = 4.0;
     ui.add_space(10.0);
     ui.horizontal(|ui| {
         ui.label(RichText::new(format!("대기열 {}개", app.queue.items.len())).strong());
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if widgets::subtle_button(ui, "파일 추가").clicked()
+            if can_add
+                && widgets::subtle_button(ui, "파일 추가").clicked()
                 && let Some(files) = rfd::FileDialog::new().add_filter("영상·오디오", overfilm_subs::MEDIA_EXTENSIONS).pick_files()
             {
                 app.add_files(files);
@@ -258,7 +263,8 @@ fn summary(app: &mut App, ui: &mut egui::Ui) {
             line.push_str(&format!(", {skipped}개는 건너뛰었습니다"));
         }
         caption(ui, format!("{line}. 모두 '최근'에도 들어 있습니다."));
-        queue_list(app, ui);
+        // finished: new files start a new batch from 새 자막 (adding here would start nothing)
+        queue_list(app, ui, false);
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             if widgets::accent_button(ui, "새 자막").clicked() {
