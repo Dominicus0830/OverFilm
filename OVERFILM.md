@@ -749,7 +749,12 @@ panel and stays in the saved workspace. It runs the ticked steps one after anoth
    the chosen `renderFormat` (MP4 H.264/H.265/AV1, MOV ProRes/DNxHR, GIF, WAV, M4A), captions burnt
    in unless `burnCaptions` is off, or with `overfilm.premiere.export` (`renderFormat: "premiere"`:
    FCP XML + SRT for Premiere Pro). `renderPath` is a folder or a file; empty puts it beside the
-   project.
+   project. A broadcast day with several matches (different teams, the "OverFilm 경기" markers the
+   kill scan writes) goes out as one file per match by default (`renderSplit: "match"`), named
+   `<date>-<team 1>vs<team 2>.<ext>` (`<date>-경기<n>` when no team was read), each from its
+   marker to the next so nothing between matches is dropped; a single match is one file under
+   that name, a sequence with no match marker keeps its own name. `renderSplit: "one"` writes the
+   whole sequence as one file.
 
 Each step waits for the one before (its background job and its result applied). What can be
 known at the start is refused at the start: no step chosen, a review ticked while Claude Code

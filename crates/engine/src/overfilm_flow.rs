@@ -8,7 +8,7 @@
 //!   reviewCuts=false, applyCuts=true, captions="new"|"reuse"|"off", audioTrack?, mode, speakers,
 //!   numSpeakers?, extraTerms?, gpu, gameVoice, lineChars=16, maxLines=2, cleanFillers,
 //!   reviewCaptions=false, kills=true, killFps=2, render=false, renderFormat="h264",
-//!   renderPath?, burnCaptions=true, captionSidecar?, wait=false}`: `captions` "new" recognises the speech
+//!   renderPath?, renderSplit="match"|"one", burnCaptions=true, captionSidecar?, wait=false}`: `captions` "new" recognises the speech
 //!   (`overfilm.captions.generate`), "reuse" lays the transcript the sequence already has out again
 //!   (`overfilm.captions.fromTranscript`, after the cuts: no second recognition). `applyCuts`
 //!   false leaves the cut markers for the user to check (the captions then follow the uncut
@@ -17,7 +17,12 @@
 //!   so a failed scan is noted and the run goes on. `render` exports the finished sequence with
 //!   `file.exportMedia` (`renderFormat` is any of its formats, burnt-in captions by default), or
 //!   with `overfilm.premiere.export` when `renderFormat` is "premiere"; `renderPath` is a folder or
-//!   a file (default: beside the project). The first step starts at once, so its errors come back here; a later step that
+//!   a file (default: beside the project). `renderSplit` "match" (the default) writes one file per
+//!   match when the sequence has several "OverFilm 경기" markers (different teams, from the kill
+//!   scan), named `<date>-<team 1>vs<team 2>.<ext>`, each from its marker to the next one, so no
+//!   part of the sequence is left out; a single match is one file under that name, and no match
+//!   marker keeps the sequence's name. "one" writes the whole sequence as one file. The first step
+//!   starts at once, so its errors come back here; a later step that
 //!   fails stops the run (a review that fails is noted and the run goes on: it is optional).
 //! - `overfilm.flow.status` returns the steps, each `pending`, `running` (with the job's progress
 //!   and status), `done`, `skipped` or `failed` with a message.
@@ -130,6 +135,9 @@ pub struct Flow {
     review_captions: Value,
     kills: Value,
     render: Value,
+    /// The render step's exports still to start (one per match), and the files written.
+    render_queue: Vec<Value>,
+    rendered: Vec<String>,
     wait: bool,
     started: web_time::Instant,
 }
@@ -147,7 +155,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Cut and Caption in One Go (OverFilm)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"autoCut":bool=true,"templates":path?,"keepBefore":seconds=10,"fps":0.5..8=2,"frozenPauses":bool=true,"reviewCuts":bool=false,"applyCuts":bool=true,"captions":"new"|"reuse"|"off"="new","audioTrack":n?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"reviewCaptions":bool=false,"kills":bool=true,"killFps":0.5..8=2,"render":bool=false,"renderFormat":"h264|hevc|av1|prores|dnxhr|mxf-op1a|gif|wav|aac|flac|premiere"="h264","renderPath":path?,"burnCaptions":bool=true,"captionSidecar":"srt|vtt"?,"wait":bool=false}"#,
+            params: r#"{"autoCut":bool=true,"templates":path?,"keepBefore":seconds=10,"fps":0.5..8=2,"frozenPauses":bool=true,"reviewCuts":bool=false,"applyCuts":bool=true,"captions":"new"|"reuse"|"off"="new","audioTrack":n?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"reviewCaptions":bool=false,"kills":bool=true,"killFps":0.5..8=2,"render":bool=false,"renderFormat":"h264|hevc|av1|prores|dnxhr|mxf-op1a|gif|wav|aac|flac|premiere"="h264","renderPath":path?,"renderSplit":"match"|"one"="match","burnCaptions":bool=true,"captionSidecar":"srt|vtt"?,"wait":bool=false}"#,
             enabled: can_run,
             run,
             journal: false,
@@ -219,6 +227,9 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let render_format = str_p(p, "renderFormat").unwrap_or("h264");
     if render && render_format != "premiere" && filmcraft_export::Format::from_name(render_format).is_none() {
         return Err(bad(CMD, format!("renderFormat `{render_format}` is not an export format")));
+    }
+    if !matches!(str_p(p, "renderSplit").unwrap_or("match"), "match" | "one") {
+        return Err(bad(CMD, "renderSplit is match (one file per match) or one (one file)"));
     }
     if !matches!(captions, "new" | "reuse" | "off") {
         return Err(bad(CMD, format!("captions is new, reuse or off, not {captions}")));
@@ -312,6 +323,8 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
         review_captions: rev_p,
         kills: kill_p,
         render: render_p,
+        render_queue: Vec::new(),
+        rendered: Vec::new(),
         wait,
         started: web_time::Instant::now(),
     });
@@ -457,6 +470,7 @@ fn drive(s: &mut Session) -> Result<()> {
             };
             match job_state(s, step.kind, id) {
                 JobState::Running => return Ok(()),
+                JobState::Done(_) if step.kind == StepKind::Render => render_next(s, i)?,
                 JobState::Done(m) => set(s, i, StepState::Done, m),
                 JobState::Stopped => {
                     let _ = stop_cmd(s, &json!({}));
@@ -535,29 +549,12 @@ fn start(s: &mut Session, i: usize, kind: StepKind) -> Result<()> {
             }
         },
         StepKind::Render => {
-            let premiere = render_p["format"] == "premiere";
-            let v = if premiere {
-                let mut q = render_p;
-                if let Some(m) = q.as_object_mut() {
-                    m.remove("format");
-                }
-                s.execute("overfilm.premiere.export", with_wait(q))?
-            } else {
-                s.execute("file.exportMedia", with_wait(render_p))?
-            };
-            let file = if premiere { v["xml"].as_str() } else { v["path"].as_str() };
-            let message = file.map(|f| format!("{f} 로 내보냅니다")).unwrap_or_default();
-            if let Some(st) = s.overfilm_flow.as_mut().and_then(|f| f.steps.get_mut(i)) {
-                st.message = message.clone();
+            let queue = render_exports(s, &render_p);
+            if let Some(f) = s.overfilm_flow.as_mut() {
+                f.render_queue = queue;
+                f.rendered.clear();
             }
-            match v["job"].as_u64() {
-                Some(id) if !wait => {
-                    if let Some(st) = s.overfilm_flow.as_mut().and_then(|f| f.steps.get_mut(i)) {
-                        st.job = Some(id);
-                    }
-                }
-                _ => set(s, i, StepState::Done, file.map(|f| format!("{f} 로 내보냈습니다")).unwrap_or(message)),
-            }
+            render_next(s, i)?;
             return Ok(());
         }
         StepKind::Captions if reuse => {
@@ -592,6 +589,171 @@ fn start(s: &mut Session, i: usize, kind: StepKind) -> Result<()> {
     Ok(())
 }
 
+/// Start the render step's next export, or finish the step when none is left (all of them at once
+/// when the run waits).
+fn render_next(s: &mut Session, i: usize) -> Result<()> {
+    loop {
+        let Some(f) = s.overfilm_flow.as_mut() else { return Ok(()) };
+        let wait = f.wait;
+        if f.render_queue.is_empty() {
+            let files = f.rendered.clone();
+            let message = match files.as_slice() {
+                [] => String::new(),
+                [one] => format!("{one} 로 내보냈습니다"),
+                many => format!("{}개 파일로 내보냈습니다: {}", many.len(), many.join(", ")),
+            };
+            set(s, i, StepState::Done, message);
+            return Ok(());
+        }
+        let mut next = f.render_queue.remove(0);
+        if wait {
+            next["wait"] = json!(true);
+        }
+        let premiere = next["format"] == "premiere";
+        let v = if premiere {
+            if let Some(m) = next.as_object_mut() {
+                m.remove("format");
+            }
+            s.execute("overfilm.premiere.export", next)?
+        } else {
+            s.execute("file.exportMedia", next)?
+        };
+        let file = if premiere { v["xml"].as_str() } else { v["path"].as_str() }.unwrap_or_default().to_string();
+        let Some(f) = s.overfilm_flow.as_mut() else { return Ok(()) };
+        let left = f.render_queue.len();
+        f.rendered.push(file.clone());
+        let n = f.rendered.len();
+        if let Some(st) = f.steps.get_mut(i) {
+            st.message = if n + left > 1 { format!("{n}/{} {file} 로 내보내는 중", n + left) } else { format!("{file} 로 내보내는 중") };
+            match v["job"].as_u64() {
+                Some(id) if !wait => {
+                    st.job = Some(id);
+                    return Ok(());
+                }
+                _ => st.job = None,
+            }
+        }
+    }
+}
+
+/// A match on the sequence: from its "OverFilm 경기" marker to the next one (the first from the
+/// start, the last to the end), and its teams.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct MatchSpan {
+    pub start: filmcraft_time::Tick,
+    pub end: filmcraft_time::Tick,
+    pub teams: Vec<String>,
+}
+
+/// The teams of an "OverFilm 경기: 로제 vs 오투 블래스트" marker (or "OverFilm 경기 2: …"); `None`
+/// for another marker. Unknown teams ("?") are left out.
+fn match_teams(name: &str) -> Option<Vec<String>> {
+    let rest = name.strip_prefix(crate::overfilm_lineup::MARK_MATCH)?;
+    let (head, rest) = rest.split_once(": ")?;
+    if !head.trim().chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(rest.split(" vs ").map(str::trim).filter(|t| !t.is_empty() && *t != "?").map(String::from).collect())
+}
+
+/// The matches on the active sequence, in order, covering it end to end (nothing is left out
+/// between two matches); empty when it has no match marker.
+pub(crate) fn match_spans(s: &Session) -> Vec<MatchSpan> {
+    let Some(q) = s.active_sequence() else { return Vec::new() };
+    let end = q.duration();
+    let mut marks: Vec<(filmcraft_time::Tick, Vec<String>)> =
+        q.markers.iter().filter_map(|m| match_teams(&m.name).map(|t| (m.start.clamp(filmcraft_time::Tick::ZERO, end), t))).collect();
+    marks.sort_by_key(|(at, _)| *at);
+    // two markers at the same time are one match (a re-read): keep the one with more teams
+    marks.dedup_by(|b, a| {
+        if a.0 == b.0 {
+            if b.1.len() > a.1.len() {
+                a.1 = std::mem::take(&mut b.1);
+            }
+            true
+        } else {
+            false
+        }
+    });
+    let n = marks.len();
+    marks
+        .iter()
+        .enumerate()
+        .map(|(k, (at, teams))| MatchSpan {
+            start: if k == 0 { filmcraft_time::Tick::ZERO } else { *at },
+            end: marks.get(k + 1).map_or(end, |(next, _)| *next),
+            teams: teams.clone(),
+        })
+        .filter(|m| m.end > m.start || n == 1)
+        .collect()
+}
+
+/// Today's date on the user's clock (`2026-11-03`), from the app's local UTC offset (UTC without
+/// it, as in tests).
+fn today(s: &Session) -> String {
+    let unix = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+    let offset = s.persistence.as_ref().map_or(0, |p| (p.local_offset)(unix));
+    chrono::DateTime::from_timestamp(unix.saturating_add(i64::from(offset)), 0).map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default()
+}
+
+/// A match's file name: `<date>-<team 1>vs<team 2>` (`<date>-경기<n>` when no team was read).
+fn match_file_name(date: &str, m: &MatchSpan, n: usize) -> String {
+    let teams = if m.teams.is_empty() { format!("경기{n}") } else { m.teams.join("vs") };
+    crate::export_tools::file_safe(&format!("{date}-{teams}"))
+}
+
+/// The render step's exports: one per match ("match", the default) or the whole sequence ("one",
+/// the Premiere hand-over, or a sequence with no match marker).
+fn render_exports(s: &Session, base: &Value) -> Vec<Value> {
+    let split = base["split"].as_str() != Some("one");
+    let mut base = base.clone();
+    if let Some(m) = base.as_object_mut() {
+        m.remove("split");
+    }
+    if base["format"] == "premiere" || !split {
+        return vec![base];
+    }
+    let spans = match_spans(s);
+    if spans.is_empty() {
+        return vec![base];
+    }
+    // the folder: the one given, the folder of a file given, else beside the project
+    let given = base["path"].as_str().unwrap_or_default().to_string();
+    let dir = if given.is_empty() {
+        crate::export_tools::default_export_dir(s)
+    } else if given.ends_with(['/', '\\']) || std::path::Path::new(&given).is_dir() {
+        std::path::PathBuf::from(&given)
+    } else {
+        std::path::Path::new(&given).parent().map(std::path::Path::to_path_buf).unwrap_or_else(|| crate::export_tools::default_export_dir(s))
+    };
+    let date = today(s);
+    let mut names: Vec<String> = Vec::new();
+    let single = spans.len() == 1;
+    spans
+        .iter()
+        .enumerate()
+        .map(|(k, m)| {
+            let mut name = match_file_name(&date, m, k + 1);
+            // the same teams twice in a day: a number keeps both files
+            let mut extra = 2;
+            let first = name.clone();
+            while names.contains(&name) {
+                name = format!("{first}_{extra}");
+                extra += 1;
+            }
+            names.push(name.clone());
+            let mut v = base.clone();
+            v["path"] = json!(dir.join(&name).to_string_lossy());
+            if !single {
+                v["range"] = json!("custom");
+                v["startSeconds"] = json!(m.start.seconds());
+                v["endSeconds"] = json!(m.end.seconds());
+            }
+            v
+        })
+        .collect()
+}
+
 /// Whether the kill scan can run with the run's screen templates (name plates or a kill feed
 /// learnt); a missing or plain template file leaves the step out instead of failing the run.
 fn kill_scan_ready(s: &Session, p: &Value) -> bool {
@@ -610,6 +772,7 @@ fn render_params(s: &Session, p: &Value, format: &str) -> Value {
     }
     let mut v = pick(p, &["captionSidecar"]);
     v["format"] = json!(format);
+    v["split"] = json!(str_p(p, "renderSplit").unwrap_or("match"));
     v["path"] = json!(path.unwrap_or_else(|| crate::export_tools::default_export_dir(s).to_string_lossy().into_owned()));
     v["burnCaptions"] = json!(bool_p(p, "burnCaptions").unwrap_or(true));
     v

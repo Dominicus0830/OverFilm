@@ -7,7 +7,7 @@
 //! Automation ids: `overfilm.panel.<param>` for each control (`autoCut`, `templates`,
 //! `keepBefore`, `applyCuts`, `reviewCuts`, `captions`, `audioTrack`, `mode`, `who`, `gameVoice`,
 //! `maxLines`, `lineChars`, `reviewCaptions`, `kills`, `render`, `renderFormat`, `renderPath`,
-//! `burnCaptions`), `overfilm.panel.run`, `overfilm.panel.stop`,
+//! `renderSplit`, `burnCaptions`), `overfilm.panel.run`, `overfilm.panel.stop`,
 //! `overfilm.panel.step.<n>` for each step of the run, `overfilm.panel.reviewSettings`,
 //! `overfilm.panel.tool.<command id>`,
 //! `overfilm.panel.kill.<n>` for each kill in the kill list (click: go there),
@@ -104,6 +104,7 @@ fn defaults(app: &mut FilmcraftApp) -> Value {
         "render": false,
         "renderFormat": "h264",
         "renderPath": "",
+        "renderSplit": "match",
         "burnCaptions": true,
     })
 }
@@ -128,12 +129,13 @@ fn run_params(p: &Value) -> Value {
         "render": p["render"].as_bool().unwrap_or(false),
         "renderFormat": p["renderFormat"].as_str().unwrap_or("h264"),
         "renderPath": p["renderPath"],
+        "renderSplit": p["renderSplit"].as_str().unwrap_or("match"),
         "burnCaptions": p["burnCaptions"].as_bool().unwrap_or(true),
     });
     if !out["render"].as_bool().unwrap_or(false)
         && let Some(m) = out.as_object_mut()
     {
-        for k in ["renderFormat", "renderPath", "burnCaptions"] {
+        for k in ["renderFormat", "renderPath", "renderSplit", "burnCaptions"] {
             m.remove(k);
         }
     }
@@ -348,6 +350,16 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                             &mut p["renderPath"],
                             tl!("a folder or file; empty = beside the project"),
                         );
+                        if p["renderFormat"] != "premiere" {
+                            combo(
+                                ui,
+                                &mut elems,
+                                format!("{PRE}.renderSplit"),
+                                tl!("Matches:"),
+                                &mut p["renderSplit"],
+                                &[("match", tl!("One file per match (date-team1vsteam2)").to_string()), ("one", tl!("All in one file").to_string())],
+                            );
+                        }
                     });
                     if p["renderFormat"] != "premiere" && p["captions"] != "off" {
                         check(ui, &mut elems, format!("{PRE}.burnCaptions"), tl!("Burn the captions into the picture"), &mut p["burnCaptions"]);

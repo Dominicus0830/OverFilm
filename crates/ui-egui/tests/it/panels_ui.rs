@@ -1009,7 +1009,7 @@ fn overfilm_panel_runs_from_the_window_menu() {
     d.ok("ui.scroll", json!({"id": "overfilm.panel.captions", "dy": -800}));
     d.frames(3);
     d.click("overfilm.panel.render");
-    for key in ["overfilm.panel.renderFormat", "overfilm.panel.renderPath", "overfilm.panel.burnCaptions"] {
+    for key in ["overfilm.panel.renderFormat", "overfilm.panel.renderPath", "overfilm.panel.renderSplit", "overfilm.panel.burnCaptions"] {
         assert!(!d.ids(key).is_empty(), "no {key}");
     }
     d.snapshot("overfilm-panel-render-tools", None);

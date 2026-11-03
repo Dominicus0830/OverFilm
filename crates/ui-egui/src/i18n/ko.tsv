@@ -3891,6 +3891,9 @@
 	Save to:	저장 위치:
 	a folder or file; empty = beside the project	폴더나 파일 경로, 비우면 프로젝트 옆
 	Burn the captions into the picture	자막을 영상에 입히기
+	Matches:	경기:
+	One file per match (date-team1vsteam2)	경기별로 따로 (날짜-팀1vs팀2)
+	All in one file	한 파일로
 	MP4 (H.264)	MP4 (H.264)
 	MP4 (H.265, smaller)	MP4 (H.265, 더 작음)
 	MP4 (AV1)	MP4 (AV1)
