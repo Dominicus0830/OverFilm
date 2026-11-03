@@ -204,7 +204,7 @@ fn load_dir(dir: &Path, quantize: bool, gpu: Option<&Arc<Ctx>>) -> Result<Loaded
     let cfg: RootConfig = serde_json::from_str(&read_text(dir, "config.json")?).map_err(|e| AsrError::Model(format!("config.json: {e}")))?;
     let tok = Tokenizer::new(&read_text(dir, "vocab.json")?, &read_text(dir, "merges.txt")?, &read_text(dir, "tokenizer_config.json")?)?;
     let net = match gpu {
-        Some(ctx) => Net::Gpu(Box::new(ctx.scoped(|| load_gpu(dir, &cfg, quantize, ctx))?)),
+        Some(ctx) => Net::Gpu(Box::new(load_gpu_fitting(dir, &cfg, quantize, ctx)?)),
         None => Net::Cpu(Box::new(load_cpu(dir, &cfg, quantize)?)),
     };
     Ok(Loaded { cfg, net, tok })
@@ -271,8 +271,39 @@ fn cached_q8(dir: &Path, files: &[std::path::PathBuf], quantize: bool) -> (Strin
     (key, cached)
 }
 
+/// Working-memory sizes tried in turn when the card runs out of memory: key/value cache
+/// positions for the recogniser (16 384 hold eight 60-second pieces side by side, 4 096 two)
+/// and bytes of audio patches gathered at once. Smaller ones cost speed, never accuracy.
+pub const GPU_FITS: [(usize, u64); 3] = [(gpu::KV_CAP_SIDE, 256 << 20), (gpu::KV_CAP_SIDE / 2, 128 << 20), (gpu::KV_CAP_SIDE / 4, 64 << 20)];
+
+/// [`load_gpu`] with the largest working memory of [`GPU_FITS`] that the card has room for
+/// (the aligner, a single pass, always takes the smallest cache).
+fn load_gpu_fitting(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Result<GpuNet, AsrError> {
+    let classifier = cfg.thinker_config.classify_num.is_some();
+    let mut last = None;
+    for (kv_side, patch) in GPU_FITS {
+        let kv_cap = if classifier { gpu::KV_CAP } else { kv_side };
+        match ctx.scoped(|| load_gpu(dir, cfg, quantize, ctx, kv_cap, patch)) {
+            Err(AsrError::GpuMemory(e)) => {
+                if std::env::var_os("OVERFILM_ASR_TRACE").is_some() {
+                    eprintln!("gpu: out of memory with a {kv_cap}-position cache ({e}), trying less");
+                }
+                last = Some(AsrError::GpuMemory(e));
+            }
+            r => {
+                if r.is_ok() && std::env::var_os("OVERFILM_ASR_TRACE").is_some() {
+                    eprintln!("gpu: model takes {} MB with a {kv_cap}-position cache", ctx.made() >> 20);
+                }
+                return r;
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| AsrError::GpuMemory(String::new())))
+}
+
 /// Stream the checkpoint to the GPU; only the convolutions and the embedding stay in memory.
-fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Result<GpuNet, AsrError> {
+/// `kv_cap`: the decoder's key/value cache positions; `patch`: bytes of audio patches at once.
+fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>, kv_cap: usize, patch: u64) -> Result<GpuNet, AsrError> {
     let dev = Device::Cpu;
     let ac = &cfg.thinker_config.audio_config;
     let tc = &cfg.thinker_config.text_config;
@@ -321,7 +352,8 @@ fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Res
     }
     let vb = VarBuilder::from_tensors(cpu, DType::F32, &dev);
     let front = AudioFront::new(ac, vb.pp("thinker.audio_tower"))?;
-    let gfront = if std::env::var("OVERFILM_GPU_FRONT").is_ok_and(|v| v == "cpu") { None } else { Some(gpu::front::Front::new(ctx, &front.weights()?)?) };
+    let gfront =
+        if std::env::var("OVERFILM_GPU_FRONT").is_ok_and(|v| v == "cpu") { None } else { Some(gpu::front::Front::with_cap(ctx, &front.weights()?, patch)?) };
     let embed = candle_nn::embedding(tc.vocab_size, tc.hidden_size, vb.pp("thinker.model.embed_tokens"))?;
     let e = gpu::EncDims {
         d: ac.d_model,
@@ -343,7 +375,9 @@ fn load_gpu(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>) -> Res
         theta: tc.rope_theta,
         head_rows,
         // the recogniser decodes pieces side by side; the aligner (a classifier) runs one pass
-        kv_cap: if cfg.thinker_config.classify_num.is_some() { gpu::KV_CAP } else { gpu::KV_CAP_SIDE },
+        kv_cap,
+        // only the aligner reads a class for every row
+        per_row: cfg.thinker_config.classify_num.is_some(),
     };
     let text = gpu::Text::new(ctx, d, &mut st, "thinker")?;
     Ok(GpuNet { front, gfront, embed, enc, text })
@@ -868,6 +902,38 @@ impl Aligner {
     }
 }
 
+/// When the GPU was given up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GpuStage {
+    /// before anything ran (no usable card, or its self-check failed)
+    Start,
+    /// while putting a model on it
+    Load,
+    /// in the middle of the work
+    Run,
+}
+
+/// What to tell the user when work moves from the GPU to the CPU: plain words on why and what it
+/// means (same result, slower). The technical error goes to the log (standard error) only.
+pub fn gpu_note(stage: GpuStage, e: &AsrError) -> String {
+    eprintln!("overfilm-asr: GPU given up ({stage:?}): {e}");
+    let text = e.to_string();
+    let why = match e {
+        AsrError::GpuMemory(_) => "그래픽카드 메모리가 모자라서",
+        _ if text.contains("OVERFILM_GPU=off") => "그래픽카드 사용을 꺼 두어서",
+        _ if text.contains("software renderer") || text.contains("adapter") => "자막 인식에 쓸 수 있는 그래픽카드를 찾지 못해서",
+        _ if stage == GpuStage::Run => "그래픽카드에서 계산하다 문제가 생겨서",
+        _ => "그래픽카드가 자막 인식 준비를 받아 주지 않아서",
+    };
+    let then = if stage == GpuStage::Run { "남은 부분은 CPU로 이어서 합니다" } else { "CPU로 인식합니다" };
+    let hint = if matches!(e, AsrError::GpuMemory(_)) {
+        " 다른 프로그램(게임, 브라우저 등)을 닫고 다시 하면 그래픽카드를 쓸 수 있습니다."
+    } else {
+        ""
+    };
+    format!("{why} {then}. 결과는 같고 시간만 더 걸립니다.{hint}")
+}
+
 /// Load on the GPU when there is one, else (or when that fails) on the CPU; a GPU failure turns
 /// the GPU off for the rest of the run.
 fn load_any<T>(gpu: &mut Option<Arc<Ctx>>, progress: Progress, load: impl Fn(Option<&Arc<Ctx>>) -> Result<T, AsrError>) -> Result<T, AsrError> {
@@ -876,7 +942,7 @@ fn load_any<T>(gpu: &mut Option<Arc<Ctx>>, progress: Progress, load: impl Fn(Opt
             Ok(m) => return Ok(m),
             Err(e) => {
                 *gpu = None;
-                if !progress(0.0, &format!("GPU에 올리지 못해 CPU로 진행합니다: {e}")) {
+                if !progress(0.0, &gpu_note(GpuStage::Load, &e)) {
                     return Err(AsrError::Cancelled);
                 }
             }
@@ -908,7 +974,7 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
         match Ctx::new().and_then(|c| gpu::check::verify(&c).map(|()| c)) {
             Ok(c) => Some(c),
             Err(e) => {
-                if !progress(0.0, &format!("GPU 없이 CPU로 진행합니다 ({e})")) {
+                if !progress(0.0, &gpu_note(GpuStage::Start, &e)) {
                     return Err(AsrError::Cancelled);
                 }
                 None
@@ -953,7 +1019,7 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
         let raws = match r {
             Err(e) if asr.on_gpu() && !matches!(e, AsrError::Cancelled) => {
                 gpu = None;
-                if !progress(0.8 * i as f32 / n, &format!("GPU 오류로 CPU에서 이어 합니다: {e}")) {
+                if !progress(0.8 * i as f32 / n, &gpu_note(GpuStage::Run, &e)) {
                     return Err(AsrError::Cancelled);
                 }
                 asr_before = add_clocks(asr_before, asr.clock());
@@ -999,7 +1065,7 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
         let times = match aligner.align(piece, &units) {
             Err(e) if aligner.on_gpu() => {
                 gpu = None;
-                if !progress(0.8 + 0.2 * i as f32 / n, &format!("GPU 오류로 CPU에서 이어 합니다: {e}")) {
+                if !progress(0.8 + 0.2 * i as f32 / n, &gpu_note(GpuStage::Run, &e)) {
                     return Err(AsrError::Cancelled);
                 }
                 align_before = add_clocks(align_before, aligner.clock());
@@ -1079,6 +1145,35 @@ pub fn gpu_model_check(dir: &Path, quantize: bool, ctx: &Arc<Ctx>) -> Result<Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Moving to the CPU is said in plain words: why, and that only the time changes; no driver
+    /// text such as "Validation Error … In Device::create_bind_group".
+    #[test]
+    fn gpu_fallback_in_plain_words() {
+        let raw = AsrError::Model("GPU: Validation Error\n\nCaused by:\n  In Device::create_bind_group".into());
+        for (stage, e) in [
+            (GpuStage::Load, AsrError::GpuMemory("4643 MB".into())),
+            (GpuStage::Load, raw),
+            (GpuStage::Start, AsrError::Model("GPU: only a software renderer (llvmpipe)".into())),
+            (GpuStage::Start, AsrError::Model("GPU: turned off (OVERFILM_GPU=off)".into())),
+            (GpuStage::Run, AsrError::Model("GPU: read-back did not finish".into())),
+        ] {
+            let note = gpu_note(stage, &e);
+            assert!(note.contains("CPU") && note.contains("결과는 같고"), "{note}");
+            assert!(!note.contains("Validation") && !note.contains("GPU:") && !note.contains("MB"), "{note}");
+        }
+        assert!(gpu_note(GpuStage::Load, &AsrError::GpuMemory(String::new())).contains("메모리가 모자라"));
+        assert!(gpu_note(GpuStage::Run, &AsrError::Model("x".into())).contains("남은 부분"));
+    }
+
+    /// Each smaller working memory really is smaller, and the last still holds two 60-second
+    /// pieces side by side.
+    #[test]
+    fn gpu_fits_shrink() {
+        assert!(GPU_FITS.windows(2).all(|w| w[1].0 < w[0].0 && w[1].1 < w[0].1));
+        assert_eq!(GPU_FITS[0].0, gpu::KV_CAP_SIDE);
+        assert!(GPU_FITS[GPU_FITS.len() - 1].0 >= 4096);
+    }
 
     #[test]
     fn probabilities_and_word_scores() {

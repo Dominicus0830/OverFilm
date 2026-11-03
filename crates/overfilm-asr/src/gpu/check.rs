@@ -548,6 +548,7 @@ fn decoder(c: &Arc<Ctx>, rng: &mut Rng, out: &mut Vec<Report>) -> Result<(), Asr
         theta: tc.rope_theta,
         head_rows,
         kv_cap: super::KV_CAP,
+        per_row: true,
     };
     let mut gpu = Text::new(c, d, &mut st, "thinker")?;
     let h = tc.hidden_size;

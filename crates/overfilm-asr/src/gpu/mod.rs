@@ -12,7 +12,7 @@
 //! and returned as [`AsrError::Model`]; the caller then falls back to the CPU.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -152,6 +152,11 @@ pub struct Ctx {
     tile: AtomicBool,
     /// prefills use the 16-bit tiled kernel (it matched the CPU and was faster)
     half: AtomicBool,
+    /// bytes one [`Ctx::scoped`] may create before it fails as out of memory (`u64::MAX`: no
+    /// limit; `OVERFILM_GPU_BUDGET_MB` or [`Ctx::set_budget`] stand in for a small card)
+    budget: AtomicU64,
+    /// bytes created since the current [`Ctx::scoped`] began
+    made: AtomicU64,
 }
 
 impl Ctx {
@@ -236,7 +241,20 @@ impl Ctx {
         let zero =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("zero"), contents: &[0u8; 16], usage: wgpu::BufferUsages::STORAGE });
         let name = format!("{} ({:?}, {} {})", info.name, info.backend, info.driver, info.driver_info).replace(" ,", "").replace("  ", " ");
-        let ctx = Self { device, queue, err, max_bind, name, k, zero, tile: AtomicBool::new(true), half: AtomicBool::new(false) };
+        let budget = std::env::var("OVERFILM_GPU_BUDGET_MB").ok().and_then(|v| v.parse::<u64>().ok()).map_or(u64::MAX, |mb| mb.saturating_mul(1 << 20));
+        let ctx = Self {
+            device,
+            queue,
+            err,
+            max_bind,
+            name,
+            k,
+            zero,
+            tile: AtomicBool::new(true),
+            half: AtomicBool::new(false),
+            budget: AtomicU64::new(budget),
+            made: AtomicU64::new(0),
+        };
         // Some drivers get the tiled kernel wrong; the row-by-row one then does whole prefills.
         if !ctx.scoped(|| check::tile_ok(&ctx)).unwrap_or(false) {
             ctx.tile.store(false, Ordering::Relaxed);
@@ -286,27 +304,52 @@ impl Ctx {
         }
     }
 
+    /// Limit what one [`Ctx::scoped`] may create to `bytes` (`u64::MAX`: no limit), as if the
+    /// card had only that much free memory.
+    pub fn set_budget(&self, bytes: u64) {
+        self.budget.store(bytes, Ordering::Relaxed);
+    }
+
+    /// Bytes created by the last (or current) [`Ctx::scoped`].
+    pub fn made(&self) -> u64 {
+        self.made.load(Ordering::Relaxed)
+    }
+
+    /// Count `bytes` against the budget.
+    fn charge(&self, bytes: u64) {
+        self.made.fetch_add(bytes, Ordering::Relaxed);
+    }
+
     /// Run `f` (buffer creation) and fail on any out-of-memory or validation error inside it.
     pub fn scoped<T>(&self, f: impl FnOnce() -> Result<T, AsrError>) -> Result<T, AsrError> {
         let oom = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let val = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        self.made.store(0, Ordering::Relaxed);
         let r = f();
         let v = poll_now(val.pop());
         let o = poll_now(oom.pop());
+        let (made, budget) = (self.made.load(Ordering::Relaxed), self.budget.load(Ordering::Relaxed));
+        if made > budget {
+            return Err(AsrError::GpuMemory(format!("{} MB needed, budget {} MB", made >> 20, budget >> 20)));
+        }
+        // out of memory first: a buffer that could not be made then fails every bind group
+        // that uses it, so the validation error is only the consequence
+        if let Some(Some(e)) = o {
+            return Err(AsrError::GpuMemory(e.to_string()));
+        }
         if let Some(Some(e)) = v {
             return Err(gpu_err(e));
-        }
-        if let Some(Some(e)) = o {
-            return Err(gpu_err(format!("out of GPU memory: {e}")));
         }
         self.check()?;
         r
     }
 
     fn storage(&self, bytes: u64) -> wgpu::Buffer {
+        let size = bytes.max(16).div_ceil(16) * 16;
+        self.charge(size);
         self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: bytes.max(16).div_ceil(16) * 16,
+            size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         })
@@ -319,6 +362,7 @@ impl Ctx {
     fn upload(&self, bytes: &[u8]) -> wgpu::Buffer {
         let mut v = bytes.to_vec();
         v.resize(v.len().max(16).div_ceil(16) * 16, 0);
+        self.charge(v.len() as u64);
         self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: &v,
@@ -701,6 +745,9 @@ pub struct TextDims {
     pub head_rows: usize,
     /// key/value cache positions ([`KV_CAP`] or [`KV_CAP_SIDE`])
     pub kv_cap: usize,
+    /// every row's class is wanted (the aligner), not only the next token's: keeps an output
+    /// head for [`MAX_ROWS`] rows (for a 151 936-class vocabulary that alone is 620 MB)
+    pub per_row: bool,
 }
 
 struct DecLayer {
@@ -827,7 +874,7 @@ impl Text {
         };
         let last = head(1, true, false);
         // every row's classes (the aligner): only for small heads
-        let all = ((MAX_ROWS * d.head_rows * 4) as u64 <= c.max_bind).then(|| head(MAX_ROWS, false, false));
+        let all = (d.per_row && (MAX_ROWS * d.head_rows * 4) as u64 <= c.max_bind).then(|| head(MAX_ROWS, false, false));
         // one next token for each of several sequences, with probabilities
         let seqs = head(MAX_SEQS, false, true);
         keep.push(normw);

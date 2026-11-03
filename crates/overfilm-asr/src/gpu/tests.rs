@@ -180,6 +180,7 @@ fn decoder_matches() {
         theta: tc.rope_theta,
         head_rows,
         kv_cap: KV_CAP,
+        per_row: true,
     };
     let mut gpu = Text::new(&c, d, &mut st, "thinker").unwrap();
     let h = tc.hidden_size;
@@ -317,6 +318,7 @@ fn gpu_rows_of_different_sequences() {
         theta: tc.rope_theta,
         head_rows,
         kv_cap: KV_CAP,
+        per_row: true,
     };
     let mut gpu = Text::new(&c, d, &mut st, "thinker").unwrap();
     let prefix = rng.vec(5 * h, 1.0);
@@ -448,4 +450,58 @@ fn encoder_matches() {
     let got = enc.forward(&h.flatten_all().unwrap().to_vec1::<f32>().unwrap()).unwrap();
     assert_eq!(got.len(), model::audio_tokens(frames) * 32);
     assert!(max_rel(&got, &want) < 1e-2, "long input: {}", max_rel(&got, &want));
+}
+
+/// Making more than the card has room for fails as out of memory, and that wins over the
+/// validation errors it causes (a buffer that could not be made fails every bind group using
+/// it): the RX 9060 showed only "Validation Error … In Device::create_bind_group".
+#[test]
+fn running_out_of_memory_is_reported_as_such() {
+    let Some(c) = ctx() else { return };
+    c.set_budget(1 << 20);
+    let r = c.scoped(|| {
+        let b = c.storage(2 << 20);
+        let u = c.uniform(&[0, 0, 0, 0]);
+        let _bg = c.bind(&c.k.ew, &[&u, &u, &b, &b]);
+        Ok(())
+    });
+    assert!(matches!(r, Err(AsrError::GpuMemory(_))), "{r:?}");
+    c.set_budget(u64::MAX);
+    assert!(c.scoped(|| Ok(c.storage(2 << 20))).is_ok());
+}
+
+/// The recogniser only needs the next token's class: no every-row output head for it (620 MB
+/// for the real vocabulary), while the aligner keeps one.
+#[test]
+fn every_row_head_only_when_asked() {
+    let Some(c) = ctx() else { return };
+    let head_rows = 40;
+    let mut made = Vec::new();
+    for per_row in [true, false] {
+        let mut rng = Rng(5);
+        let (tc, tensors, _) = small_decoder(&mut rng, head_rows, false);
+        let mut st = Store::new(Fmt::F16);
+        for (n, s, d) in tensors.iter().filter(|(n, ..)| !n.contains("embed_tokens")) {
+            st.add(&c, n, s, d.clone()).unwrap();
+        }
+        let d = TextDims {
+            hidden: tc.hidden_size,
+            inter: tc.intermediate_size,
+            layers: tc.num_hidden_layers,
+            hq: tc.num_attention_heads,
+            hkv: tc.num_key_value_heads,
+            dh: tc.head_dim,
+            eps: tc.rms_norm_eps as f32,
+            theta: tc.rope_theta,
+            head_rows,
+            kv_cap: KV_CAP,
+            per_row,
+        };
+        let mut gpu = c.scoped(|| Text::new(&c, d, &mut st, "thinker")).unwrap();
+        made.push(c.made());
+        let x = rng.vec(3 * tc.hidden_size, 1.0);
+        assert_eq!(gpu.forward(&x, false, false).is_ok(), per_row);
+        assert_eq!(gpu.forward(&x, false, true).unwrap().len(), 1);
+    }
+    assert!(made[1] < made[0], "{made:?}");
 }
