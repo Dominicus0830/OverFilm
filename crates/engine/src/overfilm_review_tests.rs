@@ -249,6 +249,7 @@ fn captions_get_pure_recognition_and_fixes() {
     assert!(p.contains("자신 없는 단어: 겐지가"), "{p}");
     assert!(p.contains("  - 겐지 (Genji"), "the glossary terms the captions mention: {p}");
     assert!(!p.contains("영상 종류"), "no mode and no match info: {p}");
+    assert!(p.contains("둠피스트 탱커"), "every hero with their role: {p}");
     assert!(!p.contains("- 현재 자막:\n    류승룡"), "game voice is no caption: {p}");
     let after = caption_texts(&s);
     assert!(after.iter().any(|t| t.ends_with("자 겐지가\n들어가고")), "{after:?}");

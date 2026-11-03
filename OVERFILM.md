@@ -701,8 +701,9 @@ the calls it is unsure of to the Claude Code command line on the same computer:
   that make no sense in context with a similar-sounding word or term, and to keep when nothing in
   the sound or the context supports a change. Measured on the aichi set (2026-11-02, real
   Claude Code, `cargo run -p overfilm-pipeline --example review_eval`): CER 5.97 %
-  before review; old instructions 5.83 %; now 5.68 % (172 of 307 captions asked, terms 98.2 →
-  99.1 %); asking every caption 5.62 %.
+  before review; old instructions 5.83 %; with confident misrecognitions asked about 5.68 %; with the
+  hero roster and roles and the "same sound first" rule 5.41 % (172 of 307 captions asked, terms 98.2 →
+  99.1 %); asking every caption (before the roster) 5.62 %.
 - **On its own** (`auto`): after Auto Cut or Suggestions mark cuts, and after OverFilm Captions
   places captions, the matching review starts by itself.
 

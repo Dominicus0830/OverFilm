@@ -594,6 +594,7 @@ fn backgrounds(s: &Session, p: &Value, batches: &[Vec<CaptionQuestion>]) -> Vec<
         None => String::new(),
     };
     let terms = review_terms();
+    let roster = caps::roster(&terms);
     batches
         .iter()
         .map(|b| {
@@ -607,7 +608,12 @@ fn backgrounds(s: &Session, p: &Value, batches: &[Vec<CaptionQuestion>]) -> Vec<
                 }
             }
             let until = b.iter().map(|c| c.end_ms).max().unwrap_or(0);
-            caps::Background { video: video.clone(), on_screen: on_screen(markers, until), terms: caps::relevant_terms(&terms, &texts, MAX_TERMS) }
+            caps::Background {
+                video: video.clone(),
+                on_screen: on_screen(markers, until),
+                terms: caps::relevant_terms(&terms, &texts, MAX_TERMS),
+                roster: roster.clone(),
+            }
         })
         .collect()
 }

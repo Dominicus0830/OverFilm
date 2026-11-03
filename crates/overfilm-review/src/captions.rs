@@ -277,6 +277,11 @@ pub fn system(lim: &Limits) -> String {
 (예: 궁 개이지→궁 게이지, 뒤로 빠저야→뒤로 빠져야). 띄어쓰기·맞춤법 오류도 고친다. \
 오버워치 용어·은어(투섭딜·투 서브 딜러=서브 딜러 둘, 투 히트, 밴률·픽률·승률, 한타, 궁, 냥이=제트팩 캣 등)와 \
 아래 '정식 표기' 목록의 이름을 떠올려 보고, 소리가 비슷한 용어가 있으면 그 표기로 쓴다. \
+고칠 말을 고를 때: 한국어는 받침이 다음 글자로 넘어가 들리므로(짚어→[지퍼], 읽어→[일거]) \
+먼저 소리 나는 대로 읽었을 때 똑같거나 거의 같은 말을 찾고, 그중 문맥에 맞는 것을 쓴다. 뜻만 통하고 소리가 다른 말(지퍼→지켜봐)은 쓰지 않는다. \
+영웅 이름으로 바꾸기 전에 숫자·순위(일이삼위=1, 2, 3위, 이위=2위)나 흔한 낱말일 가능성을 먼저 따진다. \
+영웅 옆의 역할(탱커·딜러·힐러)이 영웅 목록의 역할과 다르면 인식이 틀린 것이니 목록의 역할로 고친다(둠피스트는 탱커). \
+없는 단어가 영웅 이름과 소리가 거의 같으면(자리하네요→자리야네요) 영웅 이름으로 고친다. \
 고칠 근거가 소리와 문맥 어디에도 없으면 keep. 발음과 동떨어진 말을 지어내지 않는다. \
 오버워치 용어는 교정본·정식 표기 목록의 표기를 따른다. 욕설은 초성으로 쓴다(예: ㅅㅂ). '(화자1)' 같은 화자 표시는 그대로 둔다. \
 숫자: 영어로 읽은 '투'(two)·'원'(one)이 이름이나 순번 뒤에 오면 숫자로 쓴다(오버워치 2, 메인 딜러 2, 시즌 1). \
@@ -369,6 +374,24 @@ pub fn relevant_terms(terms: &[Term], texts: &[&str], max: usize) -> Vec<String>
     out
 }
 
+/// The role a hero's note names first (`돌격-투사` → tank), in the words casters use.
+fn role(note: &str) -> Option<&'static str> {
+    [("돌격", "탱커"), ("공격", "딜러"), ("지원", "힐러")].into_iter().filter_map(|(k, r)| note.find(k).map(|i| (i, r))).min_by_key(|(i, _)| *i).map(|(_, r)| r)
+}
+
+/// Every hero with their role (`자리야 탱커`), so the reviewer can tell a hero name from a
+/// common word that sounds like one and check that a role said next to a hero fits.
+pub fn roster(terms: &[Term]) -> Vec<String> {
+    terms
+        .iter()
+        .filter(|t| t.kind == "heroes")
+        .map(|t| match role(&t.note) {
+            Some(r) => format!("{} {r}", t.ko),
+            None => t.ko.clone(),
+        })
+        .collect()
+}
+
 /// What the reviewer should know about the whole video.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Background {
@@ -378,6 +401,8 @@ pub struct Background {
     pub on_screen: Vec<String>,
     /// Glossary terms the captions mention ([`relevant_terms`]).
     pub terms: Vec<String>,
+    /// Every hero with their role ([`roster`]).
+    pub roster: Vec<String>,
 }
 
 impl Background {
@@ -391,6 +416,10 @@ impl Background {
             for l in self.on_screen.iter().take(20) {
                 p.push_str(&format!("  - {}\n", cap(l, 300)));
             }
+        }
+        if !self.roster.is_empty() {
+            let list: Vec<&str> = self.roster.iter().take(80).map(String::as_str).collect();
+            p.push_str(&format!("오버워치 영웅 전체와 역할 (탱커=돌격, 딜러=공격, 힐러=지원): {}\n", list.join(", ")));
         }
         if !self.terms.is_empty() {
             p.push_str("이 자막들에 나온 오버워치 용어의 정식 표기 (자막은 이 표기를 씀):\n");
@@ -650,11 +679,27 @@ mod tests {
     }
 
     #[test]
+    fn heroes_with_roles() {
+        let terms = vec![
+            term("둠피스트", &[], "돌격-개시자"),
+            term("솜브라", &[], "2026-10 5시즌부터 지원 (전에는 공격-수색가)"),
+            term("시온", &[], ""),
+            Term { kind: "maps".into(), ..term("일리오스", &[], "") },
+        ];
+        assert_eq!(roster(&terms), ["둠피스트 탱커", "솜브라 힐러", "시온"]);
+        let bg = Background { roster: roster(&terms), ..Background::default() };
+        assert!(bg.text().contains("둠피스트 탱커, 솜브라 힐러"), "{}", bg.text());
+    }
+
+    #[test]
     fn background_goes_first() {
         let lim = Limits::default();
         let c = CaptionQuestion { id: "7".into(), text: "둠피스트 딜러".into(), ..CaptionQuestion::default() };
         let bg = Background {
-            video: "대회 해설".into(), on_screen: vec!["OverFilm 선수 — 로제: 태종".into()], terms: vec!["둠피스트 (돌격)".into()]
+            video: "대회 해설".into(),
+            on_screen: vec!["OverFilm 선수 — 로제: 태종".into()],
+            terms: vec!["둠피스트 (돌격)".into()],
+            roster: Vec::new(),
         };
         let q = question_with(std::slice::from_ref(&c), &lim, &bg);
         let (v, s, t, case) = (q.prompt.find("영상 종류"), q.prompt.find("로제: 태종"), q.prompt.find("둠피스트 (돌격)"), q.prompt.find("### 자막 id=7"));

@@ -118,6 +118,7 @@ fn main() -> Result<(), String> {
             video: if with_terms { video.into() } else { String::new() },
             on_screen: Vec::new(),
             terms: if with_terms { caps::relevant_terms(&terms, &texts, 60) } else { Vec::new() },
+            roster: if with_terms { caps::roster(&terms) } else { Vec::new() },
         };
         let mut q = caps::question_with(b, &lim, &bg);
         if !context.is_empty() {
