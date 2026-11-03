@@ -24,6 +24,11 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
             caption(ui, "새 자막");
             ui.horizontal(|ui| {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if subtle_button(ui, "파일 추가").on_hover_text("같은 설정으로 이어서 만들 파일을 대기열에 넣습니다").clicked()
+                        && let Some(files) = rfd::FileDialog::new().add_filter("영상·오디오", overfilm_subs::MEDIA_EXTENSIONS).pick_files()
+                    {
+                        app.add_files(files);
+                    }
                     if subtle_button(ui, "파일 바꾸기").clicked()
                         && let Some(f) = rfd::FileDialog::new().add_filter("영상·오디오", overfilm_subs::MEDIA_EXTENSIONS).pick_file()
                     {
@@ -38,6 +43,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
             caption(ui, input.parent().map(|d| d.display().to_string()).unwrap_or_default());
             ui.add_space(12.0);
             super::status_bar(app, ui);
+            queued(app, ui, &input);
             let wide = ui.available_width() > 700.0;
             if wide {
                 let side_w = 240.0;
@@ -230,7 +236,9 @@ fn footer(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
     ui.horizontal(|ui| {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            if accent_button(ui, "자막 만들기").clicked() {
+            let n = app.queue.items.iter().filter(|i| i.state == overfilm_subs::queue::State::Waiting).count();
+            let label = if n > 1 { format!("자막 만들기 ({n}개)") } else { "자막 만들기".to_string() };
+            if accent_button(ui, &label).clicked() {
                 app.start(ctx);
             }
             if button(ui, "취소").clicked() {
@@ -253,6 +261,44 @@ fn footer(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
             });
         });
     });
+}
+
+/// The other files waiting in the queue, with a way to take them out. The settings on this page
+/// apply to all of them.
+fn queued(app: &mut App, ui: &mut egui::Ui, input: &std::path::Path) {
+    use overfilm_subs::queue::State;
+    if !app.queue.is_batch() {
+        return;
+    }
+    let mut remove = None;
+    widgets::card(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        ui.label(RichText::new(format!("대기열 {}개", app.queue.items.len())).strong());
+        caption(ui, "이 화면의 설정을 모든 파일에 똑같이 씁니다. 오디오 트랙은 이 파일만 고른 대로, 나머지는 첫 트랙을 씁니다.");
+        ui.add_space(6.0);
+        for (k, it) in app.queue.items.iter().enumerate() {
+            ui.horizontal(|ui| {
+                let here = it.input == input;
+                let p = pal(ui);
+                let name = format!("{}. {}", k + 1, it.name());
+                ui.add(egui::Label::new(RichText::new(name).color(if here { p.text } else { p.text2 })).truncate());
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if it.state != State::Running && !here && subtle_button(ui, "빼기").clicked() {
+                        remove = Some(k);
+                    }
+                    if here {
+                        caption(ui, "지금 설정 중");
+                    } else if it.state.ended() {
+                        caption(ui, "끝남");
+                    }
+                });
+            });
+        }
+    });
+    if let Some(k) = remove {
+        app.queue.remove(k);
+    }
+    ui.add_space(8.0);
 }
 
 /// Skip long quiet stretches: on by itself for a separate voice track, off for sound inside the

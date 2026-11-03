@@ -48,6 +48,7 @@ pub fn shell(app: &mut App, root: &mut egui::Ui, ctx: &egui::Context) {
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
     }
+    running_bar(app, root);
     // Review needs the width: the rail folds to icons there.
     let compact = app.page == Page::New && app.step == Step::Review;
     egui::Panel::left("nav")
@@ -99,6 +100,34 @@ pub fn shell(app: &mut App, root: &mut egui::Ui, ctx: &egui::Context) {
             Page::Glossary => glossary::page(app, ui),
             Page::Settings => settings::page(app, ui),
         });
+}
+
+/// While a run goes on and another page is open: where it is, and a way back to it.
+fn running_bar(app: &mut App, root: &mut egui::Ui) {
+    let (running, progress) = {
+        let s = app.shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        (s.running, s.progress)
+    };
+    if !running || (app.page == Page::New && app.step == Step::Running) {
+        return;
+    }
+    let p = pal(root);
+    let name = app.input.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let place = match app.queue.position() {
+        Some((k, n)) if n > 1 => format!(" ({k}/{n})"),
+        _ => String::new(),
+    };
+    let mut go = false;
+    egui::Panel::top("running").frame(egui::Frame::new().fill(p.base).inner_margin(Margin::symmetric(12, 6))).show(root, |ui| {
+        widgets::info_bar(ui, widgets::Severity::Info, &format!("자막 만드는 중{place} {:.0}%", progress.clamp(0.0, 1.0) * 100.0), &name, |ui| {
+            go = widgets::button(ui, "진행 보기").clicked()
+        });
+    });
+    if go {
+        app.page = Page::New;
+        app.step = Step::Running;
+    }
+    root.ctx().request_repaint_after(std::time::Duration::from_millis(1000));
 }
 
 /// The status message (last success or error) as an info bar.

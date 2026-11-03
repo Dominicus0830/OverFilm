@@ -199,6 +199,12 @@ pub fn ensure_models(dir: &Path, progress: Progress) -> Result<(), String> {
 /// Run one extraction. Stages share the progress bar: models 0–5 %, sound 5–10 %, recognition
 /// and timing 10–90 %, speakers 90–98 %, writing the rest.
 pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
+    run_live(o, progress, None)
+}
+
+/// [`run`] that shows `live` the text of each chunk as it is recognised (times on the input's
+/// clock; see [`overfilm_asr::Settings::live`]).
+pub fn run_live(o: &Options, progress: Progress, live: Option<&dyn Fn(&overfilm_asr::LiveText)>) -> Result<Done, String> {
     let t0 = std::time::Instant::now();
     let models = models_dir();
     ensure_models(&models, &mut |f, m| progress(0.05 * f, m))?;
@@ -226,7 +232,13 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         skip_silence,
         prior: None,
     };
-    let rec = overfilm_pipeline::recognise::recognise(&audio, &req, &models, &mut |f, m| progress(0.1 + 0.88 * f, m))?;
+    let offset = range.map_or(0, |(from, _)| from);
+    let on_input_clock = |t: &overfilm_asr::LiveText| {
+        if let Some(f) = live {
+            f(&overfilm_asr::LiveText { start_ms: t.start_ms.saturating_add(offset), end_ms: t.end_ms.saturating_add(offset), ..*t });
+        }
+    };
+    let rec = overfilm_pipeline::recognise::recognise_live(&audio, &req, &models, &mut |f, m| progress(0.1 + 0.88 * f, m), Some(&on_input_clock))?;
     let overfilm_pipeline::recognise::Recognised { mut transcript, corrections, device, voice_lines, .. } = rec;
     transcript.stages.insert(0, overfilm_asr::Stage { name: "소리 읽기".into(), seconds: read_s, count: 0 });
     if let Some((from, _)) = range {
@@ -337,6 +349,7 @@ pub fn recognise_span(o: &Options, from_ms: i64, to_ms: i64, progress: Progress)
         gpu: o.gpu,
         // a short range the user picked: recognise all of it
         skip_silence: false,
+        live: None,
     };
     let mut t = overfilm_asr::transcribe(&audio, &settings, &mut |f, m| progress(0.1 + 0.9 * f, m)).map_err(|e| e.to_string())?;
     shift(&mut t, start);

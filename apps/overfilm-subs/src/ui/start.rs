@@ -79,10 +79,11 @@ fn drop_area(app: &mut App, ui: &mut egui::Ui) {
     child.label(RichText::new("mp4, mov, mkv, webm, mp3, m4a, wav 등. 소리는 이 컴퓨터 밖으로 나가지 않습니다.").small().color(p.text2));
     child.add_space(10.0);
     let pick = accent_button(&mut child, "파일 선택").clicked();
+    child.label(RichText::new("여러 개를 고르거나 놓으면 같은 설정으로 차례로 만듭니다").small().color(p.text3));
     if (pick || r.clicked())
-        && let Some(path) = rfd::FileDialog::new().add_filter("영상·오디오", MEDIA_EXTENSIONS).add_filter("모든 파일", &["*"]).pick_file()
+        && let Some(paths) = rfd::FileDialog::new().add_filter("영상·오디오", MEDIA_EXTENSIONS).add_filter("모든 파일", &["*"]).pick_files()
     {
-        app.choose_file(path);
+        app.choose_files(paths);
     }
 }
 

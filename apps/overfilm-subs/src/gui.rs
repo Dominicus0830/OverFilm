@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use eframe::egui;
 use overfilm_subs::edit::{self, Opened, Preset, Recent};
-use overfilm_subs::{export, job, mcp, notify, pack, review, voices};
+use overfilm_subs::{export, job, live, mcp, notify, pack, queue, review, voices};
 use serde::{Deserialize, Serialize};
 
 /// What the navigation rail shows.
@@ -237,6 +237,14 @@ struct App {
     gloss: GlossPage,
     /// When the computer goes to sleep (after a finished run, if asked).
     sleep_at: Option<Instant>,
+    /// The files of this batch (one, or several made one after another).
+    queue: queue::Queue,
+    /// The user cancelled the whole batch, not just the running file.
+    stop_all: bool,
+    /// Text of the running file as it is recognised.
+    live: Arc<Mutex<live::Live>>,
+    /// The window title last set (it shows the progress while a run goes on).
+    title: String,
 }
 
 /// State of the 단어집 page: the user table as last read, the add form and the search.
@@ -285,6 +293,10 @@ impl App {
             status: None,
             gloss: GlossPage::default(),
             sleep_at: None,
+            queue: queue::Queue::default(),
+            stop_all: false,
+            live: Arc::default(),
+            title: String::new(),
         }
     }
 
@@ -315,7 +327,57 @@ impl App {
         Some(o)
     }
 
+    /// Options for a queued file: the same settings for every file of the batch.
+    fn item_options(&self, it: &queue::Item) -> job::Options {
+        let mut o = self.prefs.options.clone();
+        o.input = it.input.clone();
+        o.output = it.output.clone();
+        o.only_voices = o.only_voices && o.speakers;
+        o.audio_track = it.audio_track;
+        o.skip_silence = it.skip_silence;
+        let d = mcp::user_glossary_dir();
+        o.glossary_dir = d.is_dir().then_some(d);
+        o
+    }
+
+    fn is_running(&self) -> bool {
+        self.shared.lock().unwrap_or_else(PoisonError::into_inner).running
+    }
+
+    /// Files dropped or picked: one opens 준비 as before; several make a queue whose settings
+    /// are chosen once on 준비 (from the first file). While a run goes on they join its queue.
+    fn choose_files(&mut self, paths: Vec<PathBuf>) {
+        let paths: Vec<PathBuf> = paths.into_iter().filter(|p| p.is_file()).collect();
+        if self.is_running() || (self.page == Page::New && self.step == Step::Prep && self.input.is_some()) {
+            self.add_files(paths);
+            return;
+        }
+        let mut it = paths.into_iter();
+        if let Some(first) = it.next() {
+            self.choose_file(first);
+            self.queue.add(it);
+        }
+    }
+
+    /// Put files at the end of the queue.
+    fn add_files(&mut self, paths: Vec<PathBuf>) {
+        let asked = paths.len();
+        let added = self.queue.add(paths);
+        self.status = Some(if added == asked {
+            Ok(format!("대기열에 파일 {added}개를 넣었습니다."))
+        } else if added == 0 {
+            Err("이미 대기열에 있거나 대기열이 가득 찼습니다.".into())
+        } else {
+            Ok(format!("대기열에 파일 {added}개를 넣었습니다 ({}개는 이미 있거나 넘쳐서 뺐습니다).", asked - added))
+        });
+    }
+
     fn choose_file(&mut self, p: PathBuf) {
+        if self.is_running() {
+            self.add_files(vec![p]);
+            return;
+        }
+        self.queue.reset(p.clone());
         // a file that cannot be read shows its error when the run starts
         self.audio_tracks = overfilm_subs::media::audio_tracks(&p).unwrap_or_default();
         self.audio_track = 0;
@@ -329,9 +391,37 @@ impl App {
         self.status = None;
     }
 
+    /// Start the queue with the file on 준비 (its track and output as chosen there).
     fn start(&mut self, ctx: &egui::Context) {
         let Some(o) = self.options() else { return };
         self.save_prefs();
+        let k = match self.queue.items.iter().position(|i| i.input == o.input && i.state == queue::State::Waiting) {
+            Some(k) => k,
+            None => {
+                self.queue.items.insert(0, queue::Item::new(o.input.clone()));
+                0
+            }
+        };
+        if let Some(it) = self.queue.items.get_mut(k) {
+            it.audio_track = o.audio_track;
+            it.skip_silence = o.skip_silence;
+            it.output = o.output.clone();
+        }
+        self.stop_all = false;
+        self.start_item(k, ctx);
+    }
+
+    /// Run the queued file `k` in the background.
+    fn start_item(&mut self, k: usize, ctx: &egui::Context) {
+        let Some(it) = self.queue.items.get_mut(k) else { return };
+        it.state = queue::State::Running;
+        let it = it.clone();
+        let o = self.item_options(&it);
+        if self.input.as_ref() != Some(&it.input) {
+            self.input = Some(it.input.clone());
+            self.output = it.output.clone();
+        }
+        self.live.lock().unwrap_or_else(PoisonError::into_inner).clear();
         {
             let mut s = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
             *s = Shared { running: true, message: "시작".into(), ..Shared::default() };
@@ -341,16 +431,24 @@ impl App {
         self.stage_clock = None;
         self.step = Step::Running;
         self.status = None;
-        let (shared, cancel, ctx) = (self.shared.clone(), self.cancel.clone(), ctx.clone());
+        let (shared, cancel, live, ctx) = (self.shared.clone(), self.cancel.clone(), self.live.clone(), ctx.clone());
         std::thread::spawn(move || {
+            let show = |t: &overfilm_asr::LiveText| {
+                live.lock().unwrap_or_else(PoisonError::into_inner).update(t);
+                ctx.request_repaint();
+            };
             let r = job::guarded(|| {
-                job::run(&o, &mut |f, m| {
-                    let mut s = shared.lock().unwrap_or_else(PoisonError::into_inner);
-                    s.progress = f;
-                    s.message = m.to_string();
-                    ctx.request_repaint();
-                    !cancel.load(Ordering::Relaxed)
-                })
+                job::run_live(
+                    &o,
+                    &mut |f, m| {
+                        let mut s = shared.lock().unwrap_or_else(PoisonError::into_inner);
+                        s.progress = f;
+                        s.message = m.to_string();
+                        ctx.request_repaint();
+                        !cancel.load(Ordering::Relaxed)
+                    },
+                    Some(&show),
+                )
             });
             let mut s = shared.lock().unwrap_or_else(PoisonError::into_inner);
             s.running = false;
@@ -359,13 +457,18 @@ impl App {
         });
     }
 
-    fn finished(&mut self, done: job::Done) {
+    /// Remember the device and speed of a finished run (for the next estimate).
+    fn note_speed(&mut self, done: &job::Done) {
         self.models_ready = true;
         self.prefs.last_device = done.device.clone();
         if done.audio_seconds > 0 {
             self.prefs.secs_per_audio_min = done.seconds_taken as f32 * 60.0 / done.audio_seconds as f32;
         }
         self.save_prefs();
+    }
+
+    fn finished(&mut self, done: job::Done) {
+        self.note_speed(&done);
         let options = self.options().unwrap_or_else(|| self.prefs.options.clone());
         let summary = format!(
             "{} 분량을 {}에 만들었습니다 ({}). 단어집 교정 {}곳{}.",
@@ -392,6 +495,16 @@ impl App {
 
     /// Open a result for review (after a run, or from the recent list).
     fn open_result(&mut self, srt: &Path, input: Option<PathBuf>, options: job::Options) -> Result<(), String> {
+        let r = self.load_review(srt, input, options)?;
+        self.push_recent_for(&r);
+        self.review = Some(r);
+        self.page = Page::New;
+        self.step = Step::Review;
+        Ok(())
+    }
+
+    /// A result read for review, with its issues found.
+    fn load_review(&self, srt: &Path, input: Option<PathBuf>, options: job::Options) -> Result<Review, String> {
         let opened = Opened::load(srt)?;
         let mut r = Review {
             opened,
@@ -415,9 +528,15 @@ impl App {
             redo: None,
         };
         r.refresh_issues(self.prefs.options.mask_profanity);
+        Ok(r)
+    }
+
+    /// Put a result at the top of 최근.
+    fn push_recent_for(&mut self, r: &Review) {
+        let srt = &r.opened.srt;
         let entry = Recent {
-            input: input.unwrap_or_else(|| srt.with_extension("")),
-            srt: srt.to_path_buf(),
+            input: r.input.clone().unwrap_or_else(|| srt.with_extension("")),
+            srt: srt.clone(),
             preset: self.prefs.preset,
             captions: r.opened.captions.len(),
             people: r.opened.transcript.as_ref().map_or(0, overfilm_subs::speakers::people),
@@ -426,10 +545,16 @@ impl App {
         if let Err(e) = edit::push_recent(&recent_path(), &mut self.recent, entry) {
             self.status = Some(Err(format!("최근 목록을 저장하지 못했습니다: {e}")));
         }
-        self.review = Some(r);
-        self.page = Page::New;
-        self.step = Step::Review;
-        Ok(())
+    }
+
+    /// Open a finished file of the queue for review.
+    fn open_queued(&mut self, k: usize) {
+        let Some(it) = self.queue.items.get(k).cloned() else { return };
+        let queue::State::Done { srt, .. } = &it.state else { return };
+        let o = self.item_options(&it);
+        if let Err(e) = self.open_result(srt, Some(it.input.clone()), o) {
+            self.status = Some(Err(e));
+        }
     }
 
     fn start_enroll(&mut self, ctx: &egui::Context) {
@@ -479,6 +604,71 @@ impl App {
         });
     }
 
+    /// A file of a batch ended: note it, add it to 최근, and start the next one; after the last,
+    /// tell the user once.
+    fn batch_item_ended(&mut self, ctx: &egui::Context, r: Result<job::Done, String>) {
+        let cancelled = self.cancel.load(Ordering::Relaxed);
+        if let Some(k) = self.queue.running()
+            && let Some(it) = self.queue.items.get_mut(k)
+        {
+            it.state = match &r {
+                Ok(d) => queue::State::Done { srt: d.srt.clone(), captions: d.captions, seconds_taken: d.seconds_taken },
+                Err(_) if cancelled => queue::State::Skipped,
+                Err(e) => queue::State::Failed(e.clone()),
+            };
+            let it = it.clone();
+            if let Ok(d) = &r {
+                let o = self.item_options(&it);
+                let input = it.input.clone();
+                self.note_speed(d);
+                match self.load_review(&d.srt, Some(input), o) {
+                    Ok(rv) => self.push_recent_for(&rv),
+                    Err(e) => self.status = Some(Err(e)),
+                }
+            }
+        }
+        if self.stop_all {
+            self.queue.skip_waiting();
+        }
+        if let Some(next) = self.queue.next_waiting() {
+            self.start_item(next, ctx);
+            return;
+        }
+        let (done, failed, skipped) = self.queue.counts();
+        let mut text = format!("파일 {done}개 끝");
+        if failed > 0 {
+            text.push_str(&format!(", 실패 {failed}개"));
+        }
+        if skipped > 0 {
+            text.push_str(&format!(", 건너뜀 {skipped}개"));
+        }
+        if self.stop_all && done == 0 {
+            return;
+        }
+        if self.prefs.notify_done {
+            let title = if failed == 0 { "대기열의 자막을 다 만들었습니다" } else { "대기열이 끝났습니다 (실패 있음)" };
+            let _ = notify::notify(title, &text);
+            ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+        }
+        if self.prefs.after_done == notify::After::Sleep && !self.stop_all {
+            self.sleep_at = Some(Instant::now() + std::time::Duration::from_secs(notify::SLEEP_COUNTDOWN_SECS));
+        }
+    }
+
+    /// The window title: the progress while a run goes on (it shows on the taskbar too).
+    fn window_title(&self) -> String {
+        const NAME: &str = "OverFilm 자막 추출";
+        let s = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        if !s.running {
+            return NAME.to_string();
+        }
+        let pct = (self.queue.fraction(s.progress) * 100.0).floor();
+        match self.queue.position() {
+            Some((k, n)) if n > 1 => format!("{pct:.0}% ({k}/{n}) · {NAME}"),
+            _ => format!("{pct:.0}% · {NAME}"),
+        }
+    }
+
     /// A run ended: tell the user (notification, taskbar flash) and start the sleep countdown
     /// when asked. A cancelled run does neither: the user is at the desk.
     fn announce(&mut self, ctx: &egui::Context, ok: bool, text: &str) {
@@ -496,6 +686,23 @@ impl App {
     /// Collect finished background work.
     fn poll(&mut self, ctx: &egui::Context) {
         let result = self.shared.lock().unwrap_or_else(PoisonError::into_inner).result.take();
+        let result = match result {
+            Some(r) if self.queue.is_batch() => {
+                self.batch_item_ended(ctx, r);
+                None
+            }
+            Some(r) => {
+                if let Some(it) = self.queue.items.first_mut() {
+                    it.state = match &r {
+                        Ok(d) => queue::State::Done { srt: d.srt.clone(), captions: d.captions, seconds_taken: d.seconds_taken },
+                        Err(_) if self.cancel.load(Ordering::Relaxed) => queue::State::Skipped,
+                        Err(e) => queue::State::Failed(e.clone()),
+                    };
+                }
+                Some(r)
+            }
+            None => None,
+        };
         match result {
             Some(Ok(done)) => {
                 let text = format!("자막 {}개", done.captions);
@@ -569,9 +776,14 @@ impl eframe::App for App {
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = root.ctx().clone();
         self.poll(&ctx);
-        let running = self.shared.lock().unwrap_or_else(PoisonError::into_inner).running;
-        if !running && let Some(p) = ctx.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf())) {
-            self.choose_file(p);
+        let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
+        if !dropped.is_empty() {
+            self.choose_files(dropped);
+        }
+        let title = self.window_title();
+        if title != self.title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.title = title;
         }
         ui::shell(self, root, &ctx);
     }
@@ -640,17 +852,17 @@ fn main() -> eframe::Result {
             cc.egui_ctx.set_fonts(fonts);
             ui::theme::install(&cc.egui_ctx);
             let mut app = App::new();
-            // A file given on the command line (Windows "Open with", a file dropped on the exe):
-            // an SRT opens for review, anything else is the input of a new run.
-            if let Some(arg) = std::env::args_os().nth(1).map(PathBuf::from).filter(|p| p.is_file()) {
-                if arg.extension().is_some_and(|e| e.eq_ignore_ascii_case("srt")) {
-                    let o = app.prefs.options.clone();
-                    if let Err(e) = app.open_result(&arg, None, o) {
-                        app.status = Some(Err(e));
-                    }
-                } else {
-                    app.choose_file(arg);
+            // Files given on the command line (Windows "Open with", files dropped on the exe): an
+            // SRT opens for review, anything else is the input of a new run (several: a queue).
+            let args: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).filter(|p| p.is_file()).take(queue::MAX_ITEMS).collect();
+            let is_srt = |p: &PathBuf| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("srt"));
+            if let Some(srt) = args.iter().find(|p| is_srt(p)) {
+                let o = app.prefs.options.clone();
+                if let Err(e) = app.open_result(srt, None, o) {
+                    app.status = Some(Err(e));
                 }
+            } else if !args.is_empty() {
+                app.choose_files(args);
             }
             Ok(Box::new(app))
         }),

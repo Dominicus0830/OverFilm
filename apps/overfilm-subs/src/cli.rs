@@ -31,7 +31,7 @@ use std::process::ExitCode;
 use overfilm_subs::{export, job, mcp, pack, review, speakers, voices};
 
 const USAGE: &str = "사용법:
-  overfilm-subs extract <영상/오디오> [-o 저장.srt] [--mode general|commentary] [--terms \"이름, 용어\"] [--no-mask] [--no-digits] [--glossary 폴더] [--line-chars 16] [--lead 120] [--hold 400] [--cps 12] [--cpu]
+  overfilm-subs extract <영상/오디오> [-o 저장.srt] [--mode general|commentary] [--terms \"이름, 용어\"] [--no-mask] [--no-digits] [--glossary 폴더] [--line-chars 16] [--lead 120] [--hold 400] [--cps 12] [--cpu] [--live]
                 [--speakers auto|off|숫자] [--game-voice drop|label|keep] [--per-speaker]
       --speakers     목소리 구별: auto(기본, 사람 수 자동), off(끔), 숫자(사람 수를 알 때, 1이면 구별을 건너뛰어 빠름)
       --audio-track  인식할 오디오 트랙 번호 (1부터, 기본 1). OBS에서 마이크를 따로 녹음한 트랙 등
@@ -71,10 +71,12 @@ fn extract(args: &[String]) -> Result<(), String> {
     let mut it = args.iter();
     let mut input = None;
     let mut o = job::Options::new(PathBuf::new());
+    let mut live = false;
     while let Some(a) = it.next() {
         let mut val = || it.next().cloned().ok_or_else(|| format!("{a} 뒤에 값이 필요합니다"));
         match a.as_str() {
             "-o" | "--output" => o.output = Some(PathBuf::from(val()?)),
+            "--live" => live = true,
             "--mode" => o.mode = pack::Mode::parse(&val()?).ok_or("--mode는 general 또는 commentary")?,
             "--terms" => o.extra_terms = val()?,
             "--no-mask" => o.mask_profanity = false,
@@ -121,7 +123,13 @@ fn extract(args: &[String]) -> Result<(), String> {
         o.glossary_dir = d.is_dir().then_some(d);
     }
     let mut p = progress_bar();
-    let done = job::guarded(|| job::run(&o, &mut p))?;
+    // --live: each chunk's text as soon as it is recognised (corrected), on stderr
+    let show = |t: &overfilm_asr::LiveText| {
+        if t.done && !t.text.is_empty() {
+            eprintln!("\r[{}] {}", overfilm_subs::live::clock(t.start_ms), t.text);
+        }
+    };
+    let done = job::guarded(|| job::run_live(&o, &mut p, live.then_some(&show as &dyn Fn(&overfilm_asr::LiveText))))?;
     eprintln!();
     println!("자막 {}개 → {}", done.captions, done.srt.display());
     println!("단어 시간 → {}", done.transcript.display());
