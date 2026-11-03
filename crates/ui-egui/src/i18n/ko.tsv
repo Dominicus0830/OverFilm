@@ -3762,6 +3762,22 @@
 	From the transcript already made (fast)	이미 인식한 글로 다시 배치 (빠름)
 	No captions	자막 안 만듦
 	Claude Code review is off.	Claude Code 검토가 꺼져 있습니다.
+	Check Again	다시 확인
+	Claude Code is installed. Sign in if asked, turn review on and choose a model.	Claude Code가 설치되어 있습니다. 로그인이 필요하면 로그인하고, 검토를 켠 뒤 모델을 고르세요.
+	Claude Code is not installed on this computer. Install it, sign in, then check again.	이 컴퓨터에 Claude Code가 없습니다. 아래 순서대로 설치하고 로그인한 뒤 '다시 확인'을 누르세요.
+	Claude Code is not installed: follow the install guide	Claude Code가 설치되어 있지 않습니다: 설치 안내를 따라 주세요
+	Claude Code is not signed in: sign in in the review settings	Claude Code에 로그인되어 있지 않습니다: 검토 설정에서 로그인해 주세요
+	Claude Code review is off. Turn it on and choose a model.	Claude Code 검토가 꺼져 있습니다. 켜고 모델을 골라 주세요.
+	Claude Code review is off: turn it on in the review settings	Claude Code 검토가 꺼져 있습니다: 검토 설정에서 켜 주세요
+	Claude Code review needs a Claude Pro or Max subscription. OverFilm never uses an API key.	Claude Code 검토에는 Claude Pro 또는 Max 구독이 필요합니다. OverFilm은 API 키를 쓰지 않습니다.
+	Copied: paste it into PowerShell or Terminal	복사했습니다: PowerShell이나 터미널에 붙여 넣으세요
+	Install Claude Code (OverFilm)	Claude Code 설치(OverFilm)
+	Install Guide (web)	설치 안내(웹)
+	Sign In…	로그인…
+	Sign in to Claude Code with your Claude account (Sign In below), then choose a model.	Claude 계정으로 Claude Code에 로그인한 뒤(아래 로그인 버튼) 모델을 골라 주세요.
+	Still not found.	아직 찾지 못했습니다.
+	Type a model name…	모델 이름 직접 입력…
+	full model name, e.g. claude-sonnet-5-5	모델 전체 이름, 예: claude-sonnet-5-5
 	Claude Code Review Settings…	Claude Code 검토 설정…
 	Run	실행
 	Open a sequence first.	먼저 시퀀스를 여세요.

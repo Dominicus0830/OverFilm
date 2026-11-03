@@ -665,6 +665,17 @@ Off until switched on in `Sequence ▸ OverFilm ▸ Claude Code Review Settings�
 maxItems=60}`, saved as `claude-review.json` in the OverFilm data folder). When on, the editor hands
 the calls it is unsure of to the Claude Code command line on the same computer:
 
+- **Getting ready**: asking for a review (`overfilm.review.cuts`, `overfilm.review.captions`, or the
+  one-go run with a review step) checks Claude Code first. Not installed: an install guide opens
+  with the commands for this system (native installer, npm, `claude auth login --claudeai`) and
+  Copy buttons (`overfilm.review.install`). Review off, not signed in, or signed in with an API key:
+  the settings open with what to do and a Sign In button (`overfilm.review.login` starts
+  `claude auth login --claudeai` in its own window). The model is picked from a list
+  (`overfilm.review.models`): Claude Code's default, the aliases the installed version's `--help`
+  names for `--model`, opus/sonnet/haiku, and the user's default from `~/.claude/settings.json`, or
+  typed. A good check is trusted for ten minutes. The review commands stay in the menu while review
+  is off, so they can lead the user there.
+
 - **How it runs** (`overfilm_review::cli`): one `claude -p --output-format json --json-schema …
   --tools "" --no-session-persistence --strict-mcp-config` run per batch of questions, the prompt on
   stdin, in an empty temporary folder. `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are removed
@@ -684,8 +695,9 @@ the calls it is unsure of to the Claude Code command line on the same computer:
   Keep ranges are clipped into the marker. The user's rule goes with every question: waiting time up
   to 10 s before the start, pauses whole, silences only when nothing happens, nothing else.
 - **Captions** (`Ask Claude Code About Unclear Captions`, `overfilm.review.captions {track?,
-  captions?, all, again, lineChars=16, maxLines=2}`): captions with unsure words (confidence under
-  0.7), a glossary correction (the pure recognition differs from the corrected text), over the
+  captions?, all, again, mode?, lineChars=16, maxLines=2}`): captions with unsure words (confidence under
+  0.7) or not-quite-sure ones (under 0.9: the recogniser is often sure of a wrong word that sounds
+  alike), a glossary correction (the pure recognition differs from the corrected text), over the
   line limits, a one- or two-letter line, or a very short caption after them. Each goes with the
   caption, the pure recognition of its words (kept from recognition: `Recognised::raw_texts`,
   lined up with the corrected words by edit distance; beside a saved project as
@@ -693,7 +705,18 @@ the calls it is unsure of to the Claude Code command line on the same computer:
   their own pure recognition. Answers: `keep`, `fix` (new text, at most two lines) or `split`
   (2–4 captions; times cut at the word boundary where each part's letters run out). A fix far from
   both the caption and the pure recognition (over 40 % of the letters changed) or over the line
-  limits is dropped; speaker labels such as `(화자1)` are kept.
+  limits is dropped; speaker labels such as `(화자1)` are kept. Each question also carries the kind
+  of video (`mode`, or commentary when match info markers exist), the match info markers so far
+  ("OverFilm 경기/선수/영웅 선택/영웅 교체") and the glossary terms its captions mention (spelling,
+  other names, known misrecognitions, role). The instructions ask to fix confident misrecognitions
+  that make no sense in context with a similar-sounding word or term, and to keep when nothing in
+  the sound or the context supports a change. Measured on the aichi set (2026-11-02, real
+  Claude Code, `cargo run -p overfilm-pipeline --example review_eval`): CER 5.97 %
+  before review; old instructions 5.83 %; with confident misrecognitions asked about 5.68 %; with the
+  hero roster and roles and the "same sound first" rule 5.41 % (172 of 307 captions asked, terms 98.2 →
+  99.1 %); asking every caption (before the roster) 5.62 %. A `misheard` form marked `@검토`
+  (`경제` for `경쟁`) is never replaced by the correction step; a caption with one is asked about
+  and the form goes with it as a likely misrecognition.
 - **On its own** (`auto`): after Auto Cut or Suggestions mark cuts, and after OverFilm Captions
   places captions, the matching review starts by itself.
 

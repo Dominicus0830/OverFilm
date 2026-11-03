@@ -5,6 +5,8 @@
 //!   the start of a word (start of text, or after a character that is not a letter or digit), so
 //!   Korean particles may follow (`로도그가` → `로드호그가`) but a form inside another word is left
 //!   alone.
+//! - A form ending in `@검토` is never replaced: it is a real word too (`경제` for `경쟁`), shown only
+//!   to the Claude Code review as a likely misrecognition.
 //! - A form ending in `@픽` is a sound-alike that is also an ordinary word (`캐슬`), so it is replaced
 //!   only when a word about picking a hero follows (`캐슬 쓰게 되면` → `캣 쓰게 되면`, `캐슬을 픽하면`;
 //!   one particle may come between), and `캐슬` elsewhere is left alone.
@@ -72,6 +74,10 @@ fn next_to_hero(before: &[char], rest: &[char], len: usize, heroes: &[Vec<char>]
     };
     before.last().is_some_and(|c| c.is_whitespace()) && is_hero(&prev)
 }
+
+/// Marks a `misheard` form that is never replaced here: a likely misrecognition that is also a
+/// real word (`경제` for `경쟁`), shown only to the Claude Code review as a hint.
+pub const REVIEW_MARK: &str = "@검토";
 
 /// Marks a `misheard` form that is replaced only before a hero-pick word.
 const PICK_MARK: &str = "@픽";
@@ -267,7 +273,7 @@ impl Corrector {
         let mut by_first: HashMap<char, Vec<Rule>> = HashMap::new();
         for e in glossary.entries.iter().filter(|e| !e.ko.is_empty()) {
             let anywhere = e.has_flag("mask") || e.has_flag("inword");
-            for m in e.misheard.iter().filter(|m| **m != e.ko) {
+            for m in e.misheard.iter().filter(|m| **m != e.ko && !m.ends_with(REVIEW_MARK)) {
                 let (form, pick, hero) = match (m.strip_suffix(PICK_MARK), m.strip_suffix(HERO_MARK)) {
                     (Some(f), _) => (f.trim(), true, false),
                     (_, Some(f)) => (f.trim(), false, true),
@@ -454,6 +460,14 @@ mod tests {
         let mut g = Glossary::default();
         g.add_table("t", &format!("id\tko\ten\taliases\told\tmisheard\tflags\tnote\n{rows}")).unwrap();
         Corrector::new(&g)
+    }
+
+    #[test]
+    fn review_forms_are_left_alone() {
+        let c = corrector("competitive\t경쟁전\t\t경쟁\t\t경제@검토\n");
+        let r = c.apply("경제하는 걸 추천");
+        assert_eq!(r.text, "경제하는 걸 추천");
+        assert_eq!(r.replaced, 0);
     }
 
     #[test]

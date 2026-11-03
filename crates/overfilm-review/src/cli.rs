@@ -154,6 +154,40 @@ impl ClaudeCode {
         st
     }
 
+    /// The models to choose from (see [`crate::setup::models`]); `saved` is the one in OverFilm's
+    /// settings.
+    pub fn models(&self, saved: &str) -> Vec<crate::setup::Model> {
+        let never = AtomicBool::new(false);
+        let help = run(self.command(&["--help".into()]), "", CHECK_TIMEOUT, &never).map(|(_, out, _)| out).unwrap_or_default();
+        let user = crate::setup::user_settings_path()
+            .filter(|p| std::fs::metadata(p).is_ok_and(|m| m.len() < 1 << 20))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|t| crate::setup::user_default(&t));
+        crate::setup::models(&help, user.as_deref(), saved)
+    }
+
+    /// Start signing in to a Claude account (`claude auth login --claudeai`) in its own window,
+    /// without waiting: the browser opens and the user signs in there.
+    pub fn login(&self) -> Result<(), ReviewError> {
+        let args = ["auth".to_string(), "login".to_string(), "--claudeai".to_string()];
+        let mut cmd = self.command(&args);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // a console of its own, so the sign-in can show its link and wait for the browser
+            const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+            cmd.creation_flags(CREATE_NEW_CONSOLE);
+        }
+        cmd.stdin(Stdio::null());
+        let mut child = cmd.spawn().map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => ReviewError::NotInstalled,
+            _ => ReviewError::Failed(e.to_string()),
+        })?;
+        // reap it when it ends so it never lingers as a zombie
+        let _ = std::thread::Builder::new().name("claude-login".into()).spawn(move || child.wait());
+        Ok(())
+    }
+
     fn args(&self, q: &Question, structured: bool) -> Vec<String> {
         let mut a: Vec<String> = ["-p", "--output-format", "json", "--no-session-persistence", "--strict-mcp-config"].iter().map(|s| s.to_string()).collect();
         if structured {

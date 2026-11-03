@@ -14,7 +14,7 @@ ban_haneu	밴 하느				벤 하느	noeval
 ban_hal	밴 할				벤 할	noeval
 ban_haet2	밴 했				벤 했	noeval
 ban_dang	밴당				벤당; 변당	noeval
-ban_rate_e	밴률				벤률; 벤율; 배률	noeval
+ban_rate_e	밴율				벤률; 벤율; 배률	noeval
 ban_pick	밴픽				벤픽; 벤 픽	noeval
 strong_ban	강밴				강벤	noeval
 annoy_ban	짜증 밴				짜증벤; 짜증 벤	noeval
@@ -64,3 +64,10 @@ back_line	뒷라인				딜라인	noeval
 kkul_ppal	꿀을 빨				꼴을 빨	noeval
 # 냥이 (제트팩 캣 별명): 양이로 들리는 경우. 양이는 흔한 말이라 영웅 이름 바로 앞뒤일 때만 (솜브라와 양이 캐서디 연계)
 nyangi	냥이				양이@영웅	noeval
+# 사용자 지정 표기(2026-11-03): 아무 개수를 뜻하는 N은 대문자 (N개씩)
+n_count	N개				n개	noeval
+# 사용자 지정 표기(2026-11-03): 세 강자는 숫자로 (탱커 3황)
+three_kings	3황				삼황	noeval
+# 사용자 지정(2026-11-03): 예스러운 접속어는 자막에서 요즘 말로
+however_old	그러나				허나	noeval
+but_old	근데				헌데	noeval
