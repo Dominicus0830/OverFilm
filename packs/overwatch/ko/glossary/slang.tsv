@@ -1,0 +1,240 @@
+id	ko	en	aliases	old	misheard	flags	note
+# 커뮤니티 이름
+overwatch_short	옵치		오버워치 줄임말
+ow_gallery	옵갤						디시 오버워치 갤러리
+ow_fan	옵붕이		옵붕				오버워치 유저 (디시)
+# 역할·조합
+main_dps	멘딜		메인딜; 메인딜러				전면에서 에임으로 싸우는 딜러
+sub_dps	섭딜		서브딜; 서브딜러				측면·뒷라인을 노리는 딜러
+two_main_dps	투멘딜						메인 딜러 둘
+two_sub_dps	투 서브 딜러		투섭딜		투섭딜러; 투섭 딜러; 투섭딜; 투섭 딜		서브 딜러 둘. 사용자 지정(2026-11-03): 자막은 줄여 말해도 "투 서브 딜러"로 씀
+x_jangyeon	탱장연		힐장연; 딜장연; 아장연				역할별로 못하는 유저를 부르는 멸칭
+jeongpa_tank	정파탱						윈스턴·자리야·디바·시그마 (수면총·힐밴을 막을 수 있는 탱커)
+sapa_tank	사파탱						둠피스트·로드호그·정커퀸·마우가
+memowi	메모위		메모위주				메르시·모이라·라이프위버(·주노): 혼자 영향력이 적은 지원가 (멸칭)
+akiuil	아키우일						아나·키리코·우양·일리아리 (메모위의 반대)
+one_trick	원챔		원챔충				한 영웅만 하는 유저
+most	모스트						가장 많이 한 영웅
+# 플레이·전술
+ult_short	궁		궁각; 궁 각			noeval	궁극기 (한 글자라 채점 제외)
+teamfight_short	한타
+line_war	라인전						라인하르트끼리 맞붙기
+anchor	앵커링		앵커			noeval	자리를 지키며 상대 진입을 받아 내기
+contest	비비기		홀딩; 터치; 비비다; 비벼야; 거점 비비기			noeval	거점·화물에서 버티기
+pull	당기기		당기다			noeval	탱커가 팀을 앞으로 끌어당기기
+regroup	리그룹
+variable	변수		변수 냈다			noeval	한타를 뒤집는 처치·스킬
+value	밸류					noeval
+baiting	베이팅
+main_body	본대					noeval
+flanking	플랭킹
+side_play	사이드 운영
+standoff	대치		대치하다			noeval	서로 진입하지 않고 버티기
+damage_angle	딜각		양각; 각을 벌린다
+seating	시팅						지원을 한 영웅에게 몰아주기
+turn	턴		리테이크			noeval
+tempo	템포					noeval
+peeking	피킹
+passing	패싱						튼튼한 탱커를 지나쳐 뒷라인으로
+hiding	하이딩
+operation	운영					noeval
+physical	피지컬					noeval
+tracking_aim	트래킹
+flick	플릭샷		끌어치기
+angle_bomb	각폭						디바 자폭·정크랫 등을 각도 잡아 던지기
+collide	맞돌						돌진기끼리 부딪혀 둘 다 넘어짐
+hookshot	훅샷						높은 곳·공중에서 저격
+x_swift_strike	풍참		트풍참; 햄풍참; 윈풍참				이동기+근접으로 마무리 (질풍참에서)
+super_jump	슈점		슈퍼 점프
+bunny_hop	버니합
+one_click	딸깍						버튼 하나로 한타를 뒤집기
+rps	가위바위보						카운터픽 돌려막기
+memorial	추모		추모 방울; 추모 불사			noeval	아군이 죽은 뒤 늦게 쓴 스킬
+heal_cut	치감		치유 감소				치유 감소 지속 능력
+heal_ban	힐밴
+dopamine	도파민						공격만 하는 지원가
+showboat	꺼드럭
+carry	캐리					noeval
+bus	버스		버스 탄다			noeval	캐리에 묻어가기
+throw	던지다		던짐; 던지기			noeval	일부러 지기
+intentional_loss	패작		패작러				일부러 지기 (탈주 후 재접속 등)
+afk	잠수					noeval
+leave	탈주					noeval
+troll	트롤		개트롤
+micromanage	고나리		고나리질				아군에게 지시·참견
+politics	정치질		정치			noeval
+cheat	핵		핵쟁이			noeval	(한 글자라 채점 제외)
+smurf	스머프		스머; 스머닉				부계정
+boosting	대리					noeval	남의 계정 대신 하기
+newbie	뉴비					noeval
+wall	벽		벽 느끼다			noeval	실력 정체 (한 글자라 채점 제외)
+# 등급·시스템
+mineral	광물					noeval	브론즈~다이아
+heaven	천상계						그랜드마스터 이상
+emerald	에메랄드		에메				2025년 추가된 등급
+platinum_short	플레						플래티넘
+quick_play_short	빠대						빠른 대전
+ranked_game	랭겜
+team_ban	팀밴						이 유저와 다시 같은 팀 안 되기
+group_queue	그룹큐		5인큐; 4인큐
+balance_patch	밸패
+rework	리워크
+chat_ban	채금						채팅 금지
+endorsement	추천 레벨
+battle_pass	배틀 패스		배틀패스
+ow_coin	오버워치 코인		옵치코인
+mythic	신화 스킨		신화스킨; 신화 무기
+prism	프리즘		신화 프리즘
+nexon_link	넥슨 연동						2026-08 한국 서비스 넥슨 이관
+# 방송·대회
+soop	숲		SOOP			noeval	OWCS 코리아 중계 플랫폼
+chzzk	치지직
+viewer_play	시참		시청자 참여			noeval
+melmangjeon	멸망전		멸망전 인비테이셔널				SOOP 스트리머 대회
+soc	SOC		SOOP 오버워치 컵
+champions_clash_short	챔클						챔피언스 클래시
+# 밈
+c9	씨나인		C9				한타 이기고 거점을 안 밟기
+ajax	에이잭스		AJAX				루시우 소리 방벽 쓰기 전에 죽기
+heal_illuminati	힐루미나티
+tank_call	탱아		딜아; 힐아
+# 갤러리·대회 (오버워치2·OWCS 갤러리)
+top4_jeraphalti	제라팔티						제타·라쿤·팔콘·티원 상위 4팀
+shu_viol2t	슈바욜						제타 지원 듀오 슈·바이올렛
+champ_gallery	챔갤						디시 OWCS 갤러리
+champ_fan	챔붕이						OWCS 갤러리 유저
+playoffs_short	플옵						플레이오프
+lcq	LCQ		라스트 찬스 퀄리파이어
+round_robin	라운드 로빈
+live_viewing	직관		온라인 직관				경기장에서 직접 관람
+ban_pick	밴픽
+scrim	스크림
+drops	드롭스		트위치 드롭스				중계 시청 보상
+one_v_one	1대1		1ㄷ1
+# 이름과 소리가 비슷한 일반 단어: 교정이 이름으로 바꾸지 않게 둔다
+nice	나이스					noeval	나이프(선수)로 바뀌지 않게
+squad	스쿼드					noeval	스큐드(선수)로 바뀌지 않게
+# 조합 이름 (나무위키 오버워치/조합·고츠 조합, 2026-11-01)
+goats	고츠		고츠 조합; GOATS; 3탱3힐; 33 조합; 쓰리쓰리		고트 조합		3탱 3힐 (라인하르트·디바·자리야 + 브리기테·젠야타·루시우). 역할 고정 뒤 경쟁전에서 불가
+winston_goats	윈고츠		윈스턴 고츠				라인하르트 대신 윈스턴을 쓴 고츠
+sombra_goats	솜츠		솜브라 고츠				서브 탱커 자리에 솜브라를 넣은 고츠
+rush_comp	러시 조합		러쉬; 러쉬 조합; 브롤러 조합; 닥돌			noeval	뭉쳐서 근접 인파이팅
+dive_comp	돌진 조합		다이브 조합; 반돌진				기동 영웅으로 한 명을 끊기 (반돌진 = 아나·브리기테를 넣은 다이브)
+poke_comp	포킹 조합		원거리 조합
+bunker_comp	벙커 조합		앵커 조합; 안티 돌진 조합				한 구역에 자리 잡고 받아치기
+boltosi	볼토시		볼토시 조합				레킹볼(또는 디바·라마트라·오리사·해저드)+토르비욘+시메트라. 2025 챔피언스 코리아 주류
+two_snipers	투스나		투스나 조합				한조+위도우메이커
+pharmercy	파르시						파라+메르시
+echomercy	에르시						에코+메르시
+ashmercy	애르시						애쉬+메르시
+genji_mercy	겐메		겐메 조합			verify	겐지+메르시 (용검 + 부활)
+lucio_moira	루모						루시우+모이라 (극단적 다이브용 지원)
+zarya_bubble_reaper	주방 리퍼		주방리퍼				자리야 방벽 씌우기 + 리퍼 러시
+winsomtra	윈솜트		윈솜트 다이브			verify	윈스턴·솜브라·트레이서 다이브 (오버워치 2 초기)
+radimacmei	라디맥메이						라인하르트·디바·캐서디·메이 (오버워치 1 러시)
+zarya_dva_combo	자자		자자 연계				자리야 중력자탄 + 디바 자폭
+gentwihan	겐트위한						겐지·트레이서·위도우메이커·한조: 초창기 실력 타는 딜러 (메모위주와 짝)
+hedge_hero	혜지챔		혜지 영웅				메르시처럼 실력이 덜 드러나는 영웅 (멸칭)
+three_support	3힐		쓰리힐; 삼힐			noeval	지원가 셋
+# 실력·평가 (나무위키 차이(게임 은어))
+x_gap	딜러차이		탱커차이; 탱차이; 힐러차이; 힐차이; 팀차이; 위메차이; 한조차이		딜러 차이; 탱커 차이; 힐러 차이; 탱 차이; 힐 차이		같은 역할끼리 실력 차이로 졌다는 말
+pecking_order	서열 정리		서열정리				같은 영웅끼리 1대1로 실력 차이 내기
+deep_sea	심해		심해충				낮은 등급 구간
+bsg	브실골		브론즈 실버 골드				낮은 등급 묶음
+yanghak	양학		양민 학살				고수가 낮은 등급에서 이기기
+otp	원트릭		OTP; 주챔				한 영웅 전문 (원챔 참고)
+# 플레이·콜 (나무위키 오버워치/용어)
+dont_come	오지마		오지마 매트릭스; 오지마 케이지			noeval	궁·기술로 그 자리에 못 들어오게 막기
+do_it_x	해줘 나노		해줘 비트; 해줘 궁			noeval	아무 때나 궁을 아군에게 쓰기
+got_rushed	빨렸다		빨리다				상대 러시에 진영이 무너짐
+two_floor_map	2층맵		이층맵				고저차 큰 전장 (윈스턴·디바 강세)
+long_range_map	롱레인지 맵		롱레인지				넓은 전장 (사거리 긴 영웅 강세)
+low_hp	딸피		딸피다; 원딸			noeval	체력이 조금 남음
+half_hp	반피					noeval
+full_hp	풀피					noeval
+squishy	물몸					noeval	체력 낮은 영웅
+burst	극딜					noeval
+one_combo	원콤		원콤 각				한 번의 연계로 처치
+ult_trade	궁 교환		궁교환				서로 궁을 써서 맞바꿈
+ult_combo	합궁		궁 합치기				궁극기를 동시에 쓰기
+counter_ult	역궁					궁에 맞서 쓰는 궁
+spawn_camp	스폰킬		스폰 캠핑				부활 지점 앞에서 잡기
+environmental	환경킬		낙사				벽·낭떠러지로 처치
+staggered	따로 들어오기		따로따로; 스태거			noeval	아군이 하나씩 들어와 죽음
+mecha_refill	리필		자폭 리필			noeval	디바 메카 다시 타기
+# 갤러리·대회 (디시 오버워치2·OWCS 갤러리)
+ow2_short	옵2		옵치2				오버워치 2
+owcs_short	옵챔스		OWCS				오버워치 챔피언스 시리즈
+seed_decider	시드 결정전		2차 라운드 로빈				정규 상위 4팀 라운드 로빈
+double_elim	더블 엘리		더블 엘리미네이션
+single_elim	싱글 엘리		싱글 엘리미네이션
+head_to_head	승자승						승패 같을 때 맞대결 승자 위로
+set_diff	세트 득실		세트득실
+# 영웅 짧은 이름: 해설·스트리머가 줄여 부르는 말. `@픽` 형태는 일반 단어라 '쓰다·픽' 앞에서만 고친다 (캐슬 쓰게 → 캣 쓰게).
+cat_short	캣		켓; 냥이		캐슬@픽; 캐스@픽; 캐츠@픽; 켓트@픽		제트팩 캣 (사용자 제보: 캐슬 쓰게 되면 → 캣)
+# 조작·잡기술 (나무위키 오버워치/용어 조작·기술, 커뮤니티 공략글에서 흔한 말, 2026-11-02)
+cancel	캔슬		애니메이션 캔슬; 모션 캔슬; 평캔; 근캔; 장캔				동작을 다른 동작으로 끊어 빨리 이어 가기 (평타·근접·장전 캔슬)
+melee_weave	근접 섞기		평근; 평타 근접			noeval	평타 뒤 바로 근접 공격
+moving	무빙		AD 무빙; 에디 무빙; 좌우 무빙; 앉무빙; 에어 무빙			noeval	피하려고 좌우·앉기·공중에서 움직이기
+crouch_spam	앉았다 일어나기		크라우치; 앉기 스팸			noeval
+preaim	프리에임		프리 에임				적이 나올 자리에 미리 조준
+prefire	프리샷		프리파이어; 선딜				적이 보이기 전에 미리 쏘기
+noscope	노줌		노줌샷; 노스코프				저격총 확대 없이 쏘기 (위도우·아나)
+quickscope	퀵샷		퀵스코프; 줌샷			noeval	확대 직후 바로 쏘기
+headline	헤드라인		헤드 높이				조준선을 머리 높이에 두기
+body_shot	몸샷					noeval
+aim	에임		에임 연습; 에임맵			noeval	조준
+sensitivity	감도		DPI; 인게임 감도			noeval	마우스 감도
+off_angle	오프앵글		오프 앵글; 이상한 각				예상 못 한 자리에서 쏘기
+high_angle	고각		저각			noeval	높은 곳·낮은 곳에서 쏘는 각
+cover	엄폐		엄폐물			noeval
+chokepoint	초크		초크포인트; 길목			noeval	좁은 진입로
+flank_route	뒷길		사이드 길; 플랭크 루트			noeval
+mine_jump	지뢰 점프		지뢰점프; 지뢰 날기				정크랫 충격 지뢰로 날아오르기
+rocket_jump	로켓 점프		로켓점프; 헬릭스 점프; 콘커 점프				폭발로 높이 뛰기 (솔저·파라·에코)
+ga_cancel	수호천사 캔슬		GA 캔슬; 백점; 슈퍼 점프 캔슬				메르시 수호천사 끊어 날기 (슈점 참고)
+wall_ride	벽타기 각		벽 타기 각			noeval	루시우·키리코·한조 벽 이동
+grapple_swing	갈고리 스윙		그래플 스윙; 스윙				레킹볼·위도우 갈고리로 속도 붙이기
+piledriver_combo	파일드라이버 콤보		파일 콤보; 볼 콤보				레킹볼 고공 강하 연계
+dva_combo	디바 콤보		부스터 근접; 부근				디바 미사일·부스터·근접 연계
+dash_reset	질풍참 초기화		풍참 리셋; 대시 리셋				겐지 처치로 질풍참 쿨 초기화
+blade_angle	용검 각		용검각			noeval
+sleep_angle	수면 각		재우기 각			noeval
+pulse_stick	펄스 붙이기		펄스 스틱; 펄스 박기				트레이서 펄스 폭탄을 적에 붙이기
+recall_bait	리콜 각					noeval	트레이서 역행 타이밍
+tp_angle	텔포 각		텔포; 순간이동 각			noeval	리퍼·시메트라·키리코 이동기 타이밍
+bunny_jump	점프 무빙		점프샷			noeval
+# 경기 흐름·통계 말
+potg	팟지		POTG; 최고의 플레이				경기 끝 최고의 플레이
+damage_dealt	딜량		힐량; 막은 피해량			noeval	통계 수치
+stat_padding	킬딸		딜딸; 힐딸; 스탯딸				통계 수치만 챙기는 플레이
+cooldown_check	쿨 체크		쿨 돈다; 쿨 빠졌다; 쿨 돌다; 스킬 돈다; 스킬이 돌다			noeval	상대 기술 재사용 대기 확인
+survival_skill	생존기		이동기; 보호기; 진입기			noeval	살아남는·움직이는·들어가는 기술
+aggro	어그로		어그로 끌기			noeval	적의 시선·공격을 끌기
+tanking	탱킹		탱킹하다			noeval
+mind_game	수싸움					noeval
+numbers_adv	인원 우위		5대4; 6대5; 숫자 싸움			noeval	한 명 더 많은 상태
+first_pick	선픽		첫 킬			noeval	한타 첫 처치 (퍼스트 블러드)
+spawn_door	스폰 문		공격 스폰; 수비 스폰			noeval
+last_point	막거점		마지막 거점; 1거점; 2거점			noeval
+cart_push	화물 밀기		화물 위; 화물 막기			noeval
+double_jump	2단점프		이단점프; 더블점프; 이단 점프			noeval	겐지·한조 공중에서 한 번 더 뛰기 (나무위키 겐지/운용)
+flat_map	평지맵		1층맵; 일층맵				고저차가 적고 좁은 전장 (나무위키 오버워치/용어, 2층맵의 반대)
+# 2026-11-02 사용자 제보: 해설에서 자주 틀리는 말
+prediction	승부 예측		승부예측			noeval	방송 승부 예측 이벤트
+zoom_in	줌인	Zoom in	줌 인; zoom in			noeval	화면 확대
+point_touch	거점 터치		거점터치			noeval	거점을 밟아 점령 진행 끊기
+rally_spoken	랠리	Rally			렐리	noeval	브리기테 궁극기 집결을 영어 이름으로 부르는 말
+first_blood	퍼블	First blood	퍼스트 블러드; 퍼스트 블레이드			noeval	한타 첫 처치
+push_verb	밀기		밀다; 밀어야; 밀든가; 밀거나; 밀고			noeval	화물·거점 앞으로 나아가기
+bite	물기		물다; 물었다; 무는; 물어; 물렸다			noeval	적 하나를 붙잡아 처치각 만들기 (물렸다 = 우리 쪽이 잡힘)
+lie_down	눕다		누웠다; 누워; 눕혔다; 눕히다			noeval	죽다 (눕히다 = 처치하다)
+cut_off	끊기		끊다; 끊었다; 끊어; 짜르다; 잘랐다			noeval	혼자 떨어진 적 처치
+melt	녹이기		녹이다; 녹였다; 녹아			noeval	빠르게 체력 깎아 처치
+bait_ult	궁 빼기		궁 빼다; 궁 뺐다; 궁을 빼			noeval	상대 궁극기를 먼저 쓰게 만들기
+waste_ult	궁 흘리기		궁 흘렸다; 궁을 흘려			noeval	궁극기를 헛되이 쓰기
+eat	먹기		먹다; 먹었다			noeval	디바 매트릭스·키리코 정화 등으로 기술 없애기
+ult_up	궁 돌다		궁 돌았다; 궁 돌아; 궁이 돌			noeval	궁극기가 다시 찼다
+dive_in	들어가기		들어가다; 들어갔다; 들어가야			noeval	진입
+fall_back	빠지기		빠지다; 빠졌다; 빠져야			noeval	후퇴
+skill_eaten	씹히다		씹혔다; 씹혀			noeval	기술이 막히거나 안 나감

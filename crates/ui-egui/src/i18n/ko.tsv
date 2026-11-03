@@ -73,7 +73,7 @@
 	AAF Export Settings	AAF 내보내기 설정
 	AAF…	AAF…
 	About	정보
-	About FilmCraft	FilmCraft 정보
+	About FilmCraft	OverFilm 정보
 	Accent Color	강조 색상
 	Accessible color contrast	접근성 색상 대비
 	Animate zoom, scrolling and menus	확대/축소, 스크롤 및 메뉴 애니메이션
@@ -231,6 +231,9 @@
 	APV 422-10	APV 422-10
 	APV 422-12	APV 422-12
 	Are you sure you want to discard your changes to '{file}'?	'{file}'의 변경 사항을 버릴까요?
+	Replace File	파일 바꾸기
+	“{file}” already exists in “{folder}”. Do you want to replace it?	“{folder}”에 “{file}” 파일이 이미 있습니다. 바꿀까요?
+	Replace	바꾸기
 	Arrange	배치
 	ArtCraft Website	ArtCraft 웹사이트
 	ASC CDL	ASC CDL
@@ -510,6 +513,10 @@
 	Center align text	텍스트 가운데 정렬
 	Center Channel Pan	센터 채널 팬
 	Center Gradient	중앙 그레이디언트
+	Center at Cut	컷 중앙
+	Start at Cut	컷 시작
+	End at Cut	컷 끝
+	Custom Start	사용자 정의 시작
 	Center Horizontally	가로 중앙
 	Center Input	센터 입력
 	Center Left	중앙 왼쪽
@@ -526,7 +533,7 @@
 	Ch. {n}	채널 {n}
 	Change Mask	마스크 변경
 	Change to Color	색상 변경
-	Changes are copied in the background a moment after each edit. If FilmCraft quits unexpectedly, they are offered the next time it starts.	변경 사항은 편집 직후 백그라운드에서 복사됩니다. FilmCraft가 비정상 종료되면 다음 실행 시 복구할 수 있습니다.
+	Changes are copied in the background a moment after each edit. If FilmCraft quits unexpectedly, they are offered the next time it starts.	변경 사항은 편집 직후 백그라운드에서 복사됩니다. OverFilm이 비정상 종료되면 다음 실행 시 복구할 수 있습니다.
 	Channel	채널
 	Channel Blur	채널 흐림
 	Channel Format:	채널 형식:
@@ -613,7 +620,7 @@
 	Close All Other Projects	다른 프로젝트 모두 닫기
 	Close All Projects	모든 프로젝트 닫기
 	Close Bin	빈 닫기
-	Close Gap	간격 닫기
+	Close Gap	빈 구간 제거
 	Close Other Timeline Panels	다른 타임라인 패널 닫기
 	Close Panel	패널 닫기
 	Close Project	프로젝트 닫기
@@ -1095,10 +1102,10 @@
 	Extend Selection Right	선택 영역 오른쪽으로 확장
 	Extend Selection Up	선택 영역 위로 확장
 	Extended Dynamic Range Monitoring	확장 다이내믹 레인지 모니터링
-	Extract	추출
-	Extract (')	추출(')
+	Extract	구간 삭제 (간격 닫기)
+	Extract (')	구간 삭제 (간격 닫기) (')
 	Extract Audio	오디오 추출
-	Extract selected text	선택한 텍스트 추출
+	Extract selected text	선택한 텍스트 구간 삭제 (간격 닫기)
 	Eyedropper (pick a color from the Program monitor)	스포이드(프로그램 모니터에서 색상 선택)
 	Eyedropper: no picture to sample	스포이드: 샘플링할 화면 없음
 	Face Detection (protect skin tones)	얼굴 감지(피부 톤 보호)
@@ -1158,16 +1165,16 @@
 	Film Dissolve (Legacy)	필름 디졸브(레거시)
 	Film Emulation	필름 에뮬레이션
 	Film Roll	필름 롤
-	FilmCraft always composites in linear light	FilmCraft는 항상 선형 광원으로 합성합니다
-	FilmCraft Graphics Template	FilmCraft 그래픽 템플릿
-	FilmCraft Help…	FilmCraft 도움말…
-	FilmCraft hit an error	FilmCraft 오류 발생
-	FilmCraft keeps the rest of the RAM free for other applications.	FilmCraft는 나머지 RAM을 다른 앱용으로 비워 둡니다.
+	FilmCraft always composites in linear light	OverFilm은 항상 선형 광원으로 합성합니다
+	FilmCraft Graphics Template	OverFilm 그래픽 템플릿
+	FilmCraft Help…	OverFilm 도움말…
+	FilmCraft hit an error	OverFilm 오류 발생
+	FilmCraft keeps the rest of the RAM free for other applications.	OverFilm은 나머지 RAM을 다른 앱용으로 비워 둡니다.
 	FilmCraft on getartcraft.com	getartcraft.com의 FilmCraft
 	FilmCraft on GitHub	GitHub의 FilmCraft
-	FilmCraft Project	FilmCraft 프로젝트
-	FilmCraft quit unexpectedly while “{name}” had unsaved changes.	“{name}”의 변경 사항을 저장하지 않은 채 FilmCraft가 비정상 종료되었습니다.
-	FilmCraft was closed while “{name}” had unsaved changes.	“{name}”의 변경 사항을 저장하지 않은 채 FilmCraft가 닫혔습니다.
+	FilmCraft Project	OverFilm 프로젝트
+	FilmCraft quit unexpectedly while “{name}” had unsaved changes.	“{name}”의 변경 사항을 저장하지 않은 채 OverFilm이 비정상 종료되었습니다.
+	FilmCraft was closed while “{name}” had unsaved changes.	“{name}”의 변경 사항을 저장하지 않은 채 OverFilm이 닫혔습니다.
 	Filter	필터
 	Filter and EQ	필터 및 EQ
 	Filter Frequency	필터 주파수
@@ -1195,7 +1202,7 @@
 	Flare Color	플레어 색상
 	Flash	플래시
 	Flash Cue Marker	Flash 큐 마커
-	Flatten	병합
+	Flatten	멀티카메라 클립 펼치기
 	Flicker	깜박임
 	Flicker Removal	깜박임 제거
 	Flickers	깜박임
@@ -1307,7 +1314,7 @@
 	Glow Width	광선 너비
 	Go Back	뒤로
 	Go Forward	앞으로
-	Go to Gap	간격으로 이동
+	Go to Gap	빈 구간으로 이동
 	Go to In	시작 표시로 이동
 	Go to In (Shift+I)	시작으로 이동(Shift+I)
 	Go to In Point	시작 표시(In)로 이동
@@ -1399,7 +1406,7 @@
 	Hardware (AV1 has no software encoder)	하드웨어 (AV1은 소프트웨어 인코더 없음)
 	Hardware (H.265 has no software encoder)	하드웨어 (H.265는 소프트웨어 인코더 없음)
 	Hardware decoding	하드웨어 디코딩
-	Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and FilmCraft's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.	하드웨어 디코딩: 자동은 지원 스트림에 시스템 비디오 디코더(macOS는 VideoToolbox, Windows는 Media Foundation, Linux는 H.264·HEVC용 VA-API 또는 NVDEC)를 쓰고, 그 외나 하드웨어 실패 시 FilmCraft 자체 디코더를 씁니다. 이미 열린 미디어는 다시 열 때까지 기존 디코더를 유지합니다.
+	Hardware decoding: Auto uses the system's video decoder (VideoToolbox on macOS, Media Foundation on Windows, VA-API or NVDEC for H.264 and HEVC on Linux) for the streams it supports, and FilmCraft's own decoder for everything else or if the hardware fails. Media that is already open keeps its decoder until it is reopened.	하드웨어 디코딩: 자동은 지원 스트림에 시스템 비디오 디코더(macOS는 VideoToolbox, Windows는 Media Foundation, Linux는 H.264·HEVC용 VA-API 또는 NVDEC)를 쓰고, 그 외나 하드웨어 실패 시 OverFilm 자체 디코더를 씁니다. 이미 열린 미디어는 다시 열 때까지 기존 디코더를 유지합니다.
 	HD Anamorphic 1080 (1.333)	HD 아나모픽 1080(1.333)
 	HDR	HDR
 	HDR Graphics White (Nits)	HDR 그래픽 흰색(Nits)
@@ -1646,11 +1653,11 @@
 	Level 4	레벨 4
 	Levels	레벨
 	Libraries	라이브러리
-	Lift	들어올리기
-	Lift (;)	들어내기(;)
-	Lift selected text	선택한 텍스트 들어내기
+	Lift	구간 삭제 (간격 유지)
+	Lift (;)	구간 삭제 (간격 유지) (;)
+	Lift selected text	선택한 텍스트 구간 삭제 (간격 유지)
 	Lift Shadows	섀도 올리기
-	Lifted blacks, softer contrast, muted colour	들뜬 검정, 부드러운 대비, 차분한 색상
+	Lifted blacks, softer contrast, muted colour	검정 레벨을 높이고 대비를 부드럽게, 색은 차분하게
 	Ligatures	합자
 	Light	밝게
 	Light 1	조명 1
@@ -2059,7 +2066,7 @@
 	No model credits were built into this copy.	이 사본에 모델 크레딧이 포함되지 않았습니다.
 	No Motion	모션 없음
 	No multi-camera clip at the playhead	재생 헤드에 멀티 카메라 클립 없음
-	No plugins are installed. Changes will take effect the next time you start FilmCraft.	설치된 플러그인이 없습니다. 변경 사항은 FilmCraft를 다음에 시작할 때 적용됩니다.
+	No plugins are installed. Changes will take effect the next time you start FilmCraft.	설치된 플러그인이 없습니다. 변경 사항은 OverFilm을 다음에 시작할 때 적용됩니다.
 	No saved guide templates.	저장된 안내선 템플릿 없음.
 	No Scroll	스크롤 없음
 	No templates match.	일치하는 템플릿 없음.
@@ -2080,8 +2087,8 @@
 	not available in this session	이 세션에서 사용할 수 없음
 	Not matched yet	아직 일치 안 됨
 	Not Now	나중에
-	Not supported by FilmCraft's encoders yet	FilmCraft 인코더에서 아직 지원 안 됨
-	Not supported in FilmCraft yet	FilmCraft에서 아직 지원되지 않음
+	Not supported by FilmCraft's encoders yet	OverFilm 인코더에서 아직 지원 안 됨
+	Not supported in FilmCraft yet	OverFilm에서 아직 지원되지 않음
 	Notch 1	노치 1
 	Notch 2	노치 2
 	Notch 3	노치 3
@@ -2405,7 +2412,7 @@
 	QuickTime, ProRes 4444 (4:4:4) with alpha channel, 24-bit 48 kHz PCM	QuickTime, ProRes 4444 (4:4:4) 알파 채널 포함, 24비트 48 kHz PCM
 	QuickTime, ProRes 4444 (4:4:4), 24-bit 48 kHz PCM	QuickTime, ProRes 4444 (4:4:4), 24비트 48 kHz PCM
 	QuickTime, ProRes 4444 XQ (4:4:4), 24-bit 48 kHz PCM	QuickTime, ProRes 4444 XQ (4:4:4), 24비트 48 kHz PCM
-	Quit FilmCraft	FilmCraft 종료
+	Quit FilmCraft	OverFilm 종료
 	Radial	방사형
 	Radial Blur	방사형 흐림
 	Radial Ramp	방사형 램프
@@ -2631,7 +2638,6 @@
 	Saturation	채도
 	Saturation at 50 %	50%에서 채도
 	Saturation Min	채도 최소
-	Save	저장
 	Save .cfa and .pek media cache files next to original media files when possible	가능하면 .cfa 및 .pek 미디어 캐시 파일을 원본 옆에 저장
 	Save a Copy…	사본 저장…
 	Save All	모두 저장
@@ -2652,11 +2658,11 @@
 	Save preset as:	사전 설정 저장 이름:
 	Save Preset…	사전 설정 저장…
 	Save Project	프로젝트 저장
-	Saved as a FilmCraft graphics template (.fcgt) in your templates folder.	템플릿 폴더에 FilmCraft 그래픽 템플릿(.fcgt)으로 저장했습니다.
+	Saved as a FilmCraft graphics template (.fcgt) in your templates folder.	템플릿 폴더에 OverFilm 그래픽 템플릿(.fcgt)으로 저장했습니다.
 	Saved preset “{name}”	사전 설정 “{name}” 저장됨
 	Saved template {path}	템플릿 저장됨: {path}
 	Saves the view, columns, sort, thumbnail and font size.	보기, 열, 정렬, 썸네일, 글꼴 크기를 저장합니다.
-	Scale	비율
+	Scale	배율
 	Scale (Degrees)	비율(도)
 	Scale Amount	비율 양
 	Scale Attribute Times	속성 시간 비율 조정
@@ -2719,7 +2725,7 @@
 	Select Camera 9	카메라 9 선택
 	Select Clip at Playhead	재생 헤드 위치 클립 선택
 	Select Find Box	찾기 상자 선택
-	Select items to clear	지울 항목 선택
+	Select one clip (or a linked clip) in the Timeline, or one item in the Project panel, to rename	이름을 바꾸려면 타임라인에서 클립(또는 연결된 클립) 하나나 프로젝트 패널에서 항목 하나를 선택하세요
 	Select Label Group	레이블 그룹 선택
 	Select Next Clip	다음 클립 선택
 	Select Next Graphic	다음 그래픽 선택
@@ -2736,7 +2742,7 @@
 	Select to Segment End	세그먼트 끝까지 선택
 	Select to Segment Start	세그먼트 시작까지 선택
 	Selected: {command}	선택됨: {command}
-	Selection as FilmCraft Project…	선택 항목을 FilmCraft 프로젝트로…
+	Selection as FilmCraft Project…	선택 항목을 OverFilm 프로젝트로…
 	Selection Follows Playhead	재생 헤드 따라 선택
 	Selection Order	선택 순서
 	Selection Tool	선택 도구
@@ -3119,7 +3125,6 @@
 	Temperature	색온도
 	Template Name:	템플릿 이름:
 	Template Properties	템플릿 속성
-	Temporal Interpolation	시간 보간
 	Text	텍스트
 	Text (graphics and captions)	텍스트(그래픽 및 자막)
 	Text Animator	텍스트 애니메이터
@@ -3133,7 +3138,7 @@
 	TextPanel	텍스트 패널
 	The default graphics are used from the next start.	다음 시작부터 기본 그래픽을 사용합니다.
 	The language changed but could not be saved: {e}	언어가 변경되었으나 저장하지 못했습니다: {e}
-	The media cache holds render previews of unsaved projects and other files FilmCraft can recreate. Deleting them is always safe; FilmCraft rebuilds them as needed.	미디어 캐시에는 저장되지 않은 프로젝트의 렌더 미리 보기 등 FilmCraft가 다시 만들 수 있는 파일이 있습니다. 삭제해도 안전하며 필요 시 FilmCraft가 다시 생성합니다.
+	The media cache holds render previews of unsaved projects and other files FilmCraft can recreate. Deleting them is always safe; FilmCraft rebuilds them as needed.	미디어 캐시에는 저장되지 않은 프로젝트의 렌더 미리 보기 등 OverFilm이 다시 만들 수 있는 파일이 있습니다. 삭제해도 안전하며 필요 시 OverFilm이 다시 생성합니다.
 	The project had not been saved yet.	프로젝트가 아직 저장되지 않았습니다.
 	The selected clips have different audio types. Assign one type to edit them together.	선택한 클립의 오디오 유형이 다릅니다. 함께 편집하려면 한 유형을 지정하세요.
 	The sequence has no caption track.	시퀀스에 자막 트랙이 없습니다.
@@ -3593,10 +3598,9 @@
 	32 bit float	32비트 부동 소수점
 	FLAC stores whole-number samples only	FLAC은 정수 샘플만 저장합니다
 	MXF export writes integer PCM only	MXF 내보내기는 정수 PCM만 기록합니다
-	Opens in your web browser: {url}	웹 브라우저에서 엽니다: {url}
 	Saves this session's log and shows it in your file manager.	이 세션의 로그를 저장하고 파일 관리자에서 보여 줍니다.
 	Shows a report on this computer.	이 컴퓨터에 대한 보고서를 보여 줍니다.
-	Shows the version, community links and credits in a FilmCraft window.	FilmCraft 창에 버전, 커뮤니티 링크, 제작진을 보여 줍니다.
+	Shows the version, community links and credits in a FilmCraft window.	OverFilm 창에 버전, 커뮤니티 링크, 제작진을 보여 줍니다.
 	Couldn't open your web browser	웹 브라우저를 열 수 없습니다
 	Open this address in your browser yourself:	이 주소를 브라우저에서 직접 여세요:
 # View > Reset Interface Zoom (#2253).
@@ -3605,8 +3609,338 @@
 	Open a sequence to search its graphics	그래픽을 검색하려면 시퀀스를 여세요
 	No text graphics in this sequence. Add text with the Type tool.	이 시퀀스에는 텍스트 그래픽이 없습니다. 문자 도구로 텍스트를 추가하세요.
 	No matching text.	일치하는 텍스트가 없습니다.
+	Enter a positive duration within the supported speed range.	지원되는 속도 범위 내에서 양수인 길이를 입력하세요.
+	Show Video Names	비디오 이름 표시
+	Show Audio Names	오디오 이름 표시
+	Video Names	비디오 이름
+	Audio Names	오디오 이름
 
 # Control server: the status-bar notice when --control cannot serve.
 	The control server is disabled: FILMCRAFT_CONTROL_TOKEN must contain 64 random hex characters (see docs/control-protocol.md)	제어 서버가 비활성화되었습니다: FILMCRAFT_CONTROL_TOKEN에는 64자리 무작위 16진수 문자가 필요합니다(docs/control-protocol.md 참조)
 
+# Markers: the Edit Marker dialog (#2416).
+	Edit Marker…	마커 편집…
+	In:	시작:
+	Marker Color:	마커 색상:
+	Options:	옵션:
+	Comment Marker	주석 마커
+	Chapter Marker	챕터 마커
+	Segmentation Marker	세그먼트 마커
+	Web Link	웹 링크
+	Flash Cue Point	Flash 큐 포인트
+	Invalid duration: {error}	잘못된 지속 시간: {error}
 # Control server: the bind-failure notice (port collisions; #3318 may show it too).
+	Select items to clear	지울 항목 선택
+	Temporal Interpolation	시간 보간
+	Opens in your web browser: {url}	웹 브라우저에서 엽니다: {url}
+	A range marker needs a positive duration	범위 마커에는 양수 길이가 필요합니다
+	Add Custom Color	사용자 지정 색상 추가
+	Add and apply	추가 및 적용
+	Add color	색상 추가
+	Add custom color	사용자 지정 색상 추가
+	Add custom color…	사용자 지정 색상 추가…
+	Author	작성자
+	Chapter	챕터
+	Choose Color…	색상 선택…
+	Choose color with system picker	시스템 선택기로 색상 선택
+	Color picker	색상 선택기
+	Color selected markers	선택한 마커 색상 변경
+	Custom Color…	사용자 지정 색상…
+	Delete Marker	마커 삭제
+	Delete selected markers	선택한 마커 삭제
+	Edit Custom Color	사용자 지정 색상 편집
+	Edit Marker	마커 편집
+	Edit color	색상 편집
+	Editing or removing a swatch leaves assigned colors unchanged.	견본을 편집하거나 제거해도 지정된 색상은 변경되지 않습니다.
+	Enter six hex digits, for example FF80C0.	16진수 여섯 자리를 입력하세요. 예: FF80C0.
+	Hex	16진수
+	Hex color	16진수 색상
+	Manage Colors	색상 관리
+	Manage Colors…	색상 관리…
+	Marker owner is unavailable	마커가 속한 항목을 사용할 수 없습니다
+	No markers	마커 없음
+	No matching markers	일치하는 마커 없음
+	No saved colors	저장된 색상 없음
+	No sequence open	열린 시퀀스 없음
+	No source clip open	열린 소스 클립 없음
+	Notes	메모
+	Project Colors	프로젝트 색상
+	Range marker	범위 마커
+	Remove saved color	저장된 색상 제거
+	Save color	색상 저장
+	Search markers	마커 검색
+	Search name, notes, author	이름, 메모, 작성자 검색
+	Select all	모두 선택
+	Select all visible markers	보이는 모든 마커 선택
+	Sequence: {name}	시퀀스: {name}
+	Source: {name}	소스: {name}
+	Source: {name} (shared source markers)	소스: {name} (공유 소스 마커)
+	System color picker unavailable: {error}	시스템 색상 선택기를 사용할 수 없음: {error}
+	Time is outside the supported range	시간이 지원 범위를 벗어났습니다
+	{count} selected	{count}개 선택됨
+	Remove Custom Color	사용자 지정 색상 제거
+	Edit Markers	마커 편집
+	Delete Markers	마커 삭제
+	Marker changed or was removed. Reopen it to continue.	마커가 변경되거나 제거되었습니다. 계속하려면 다시 여세요.
+	URL	URL
+	Open Link	링크 열기
+	Opens this address in your web browser	이 주소를 웹 브라우저에서 엽니다
+	Enter a valid HTTP or HTTPS URL without credentials	인증 정보가 없는 올바른 HTTP 또는 HTTPS URL을 입력하세요
+	Previous	이전
+	Next	다음
+	Enter a valid HH:MM:SS:FF timecode	올바른 HH:MM:SS:FF 타임코드를 입력하세요
+
+# OverFilm dialogs and menu items (OVERFILM.md).
+	OverFilm Captions (Korean)…	OverFilm 자막 만들기(한국어)…
+	OverFilm Captions (Korean)	OverFilm 자막 만들기(한국어)
+	OverFilm Captions from Transcript	대본으로 OverFilm 자막 만들기
+	Styled Captions (OverFilm)…	자막 스타일 입히기(OverFilm)…
+	Styled Captions (OverFilm)	자막 스타일 입히기(OverFilm)
+	Auto Cut Waiting and Pauses (OverFilm)…	대기 시간·퍼즈 자동 컷(OverFilm)…
+	Auto Cut Waiting and Pauses (OverFilm)	대기 시간·퍼즈 자동 컷(OverFilm)
+	Apply OverFilm Cut Markers	OverFilm 컷 마커대로 자르기
+	Learn Screen Template (OverFilm)…	화면 견본 등록(OverFilm)…
+	Learn Screen Template (OverFilm)	화면 견본 등록(OverFilm)
+	Export for Premiere Pro (OverFilm)…	Premiere Pro용으로 내보내기(OverFilm)…
+	A frozen picture in a round is a pause	라운드 중에 화면이 멈추면 퍼즈로 보기
+	Already learnt: {names}	이미 등록한 견본: {names}
+	Break screen (countdown)	대기 화면(카운트다운)
+	Caption track:	자막 트랙:
+	Characters per line:	한 줄 글자 수:
+	Shown before the voice:	목소리보다 먼저:
+	Kept after the voice:	말 끝난 뒤 남기기:
+	Reading speed (letters a second):	읽기 속도 (초당 글자):
+	Cut right away	바로 자르기
+	Drag: what always looks the same	드래그: 이 화면에서 늘 똑같은 부분
+	Drag: what changes (ignore)	드래그: 바뀌는 부분(무시)
+	Each caption becomes a graphic clip on a new video track; fill, outline, position and keyframes stay editable in Effect Controls.	자막마다 새 비디오 트랙에 그래픽 클립이 생깁니다. 색, 테두리, 위치, 키프레임은 효과 컨트롤에서 고칠 수 있습니다.
+	Extra names and terms:	추가 이름·용어:
+	Frames checked per second:	1초에 확인할 프레임 수:
+	Game HUD (in play)	게임 HUD(경기 중)
+	Gameplay (heroes and game terms)	게임 영상(영웅·게임 용어)
+	In-game voice:	게임 음성:
+	Keep as speech	말소리처럼 남기기
+	Keep before the start:	시작 전에 남길 시간:
+	Keep, marked (게임)	(게임)으로 표시해 남기기
+	Learnt "{name}" ({n} templates in the file)	"{name}" 등록함 (파일에 견본 {n}개)
+	Leave out fillers and stutters (어, 음…)	추임새·더듬는 말 빼기(어, 음…)
+	Leave out of the captions	자막에서 빼기
+	Lines per caption:	자막 줄 수:
+	Markers to check first	먼저 마커로 표시
+	Motion in:	나타날 때 모션:
+	Motion out:	사라질 때 모션:
+	No picture at the playhead: move it onto the broadcast first.	재생 헤드 위치에 화면이 없습니다. 먼저 방송 영상 위로 옮기세요.
+	Pause notice	퍼즈 안내 화면
+	Pop	톡 튀어나오기
+	Remove Last	마지막 지우기
+	Result:	결과:
+	Round setup (PREPARE TO ATTACK…)	라운드 준비(PREPARE TO ATTACK…)
+	Runs in the background. The models (about 6 GB) are downloaded the first time, into the folder OverFilmSubs uses.	백그라운드에서 진행됩니다. 처음 한 번 모델(약 6GB)을 OverFilmSubs와 같은 폴더에 받습니다.
+	Screen:	화면:
+	Slide Up	아래에서 위로
+	Started: see the progress at the bottom	시작했습니다. 진행 상황은 아래에 표시됩니다
+	Style's own	스타일 기본값
+	Style:	스타일:
+	Template file:	견본 파일:
+	Tournament commentary (teams and players too)	대회 해설(팀·선수 이름 포함)
+	Use the GPU	GPU 사용
+	comma separated	쉼표로 구분
+	e.g. PREPARE TO ATTACK	예: PREPARE TO ATTACK
+	save the project first, or type a .json path	먼저 프로젝트를 저장하거나 .json 경로를 적으세요
+	{n} area(s) to match, {m} to ignore	맞출 영역 {n}개, 무시할 영역 {m}개
+	{n} screen template(s) in the file. Learn them first: Sequence ▸ OverFilm ▸ Learn Screen Template.	파일에 화면 견본 {n}개. 없으면 아래 "견본 파일 불러오기"로 불러오거나, 시퀀스 > OverFilm > 화면 견본 등록에서 만드세요.
+	{n} styled caption(s)	자막 {n}개에 스타일을 입혔습니다
+	Suggest Silences and Highlights (OverFilm)	무음·하이라이트 제안(OverFilm)
+	Make Highlight Reel (OverFilm)	하이라이트 모음 만들기(OverFilm)
+	Team 1 name plates (kills)	1팀 선수 이름판(처치 인식)
+	Team 2 name plates (kills)	2팀 선수 이름판(처치 인식)
+	Players:	선수 수:
+	Learnt team {team}'s name plates	{team}팀 선수 이름판을 등록했어요
+	Learnt team {team}'s ultimate icon	{team}팀 궁극기 아이콘을 등록했어요
+	Kill feed (ultimate kills)	킬피드(궁극기 처치 인식)
+	Learnt the kill feed ({n} ultimate icon(s) on this frame)	킬피드를 등록했어요(이 화면의 궁극기 아이콘 {n}개)
+	Draw a green box around the kill feed, then a second one round one ultimate icon in it.	초록 상자로 킬피드 전체를 둘러 그린 다음, 두 번째 상자로 궁극기 아이콘 하나를 둘러 그려 주세요.
+	Draw a second green box round one ultimate icon in the kill feed.	두 번째 초록 상자로 킬피드의 궁극기 아이콘 하나를 둘러 그려 주세요.
+	No ultimate icon in the second box: draw it tight round one white ultimate icon of the kill feed.	두 번째 상자 안에 궁극기 아이콘이 없어요. 킬피드의 흰 원 궁극기 아이콘 하나에 딱 맞게 그려 주세요.
+	The ultimate icon is outside the kill feed's box: draw the feed's box around it.	궁극기 아이콘이 킬피드 상자 밖에 있어요. 킬피드 상자가 아이콘을 포함하게 그려 주세요.
+	Learn Kill Feed (OverFilm)	킬피드 등록(OverFilm)
+	Team 1 ready ultimate icon	1팀 궁극기 준비 아이콘(궁극기 인식)
+	Team 2 ready ultimate icon	2팀 궁극기 준비 아이콘(궁극기 인식)
+	On player's plate:	몇 번 선수 이름판:
+	No ready ultimate icon in the box: draw it around one white ultimate circle, not the charge number.	상자 안에 궁극기 준비 아이콘이 없어요. 숫자(%)가 아니라 흰 원 아이콘 하나를 둘러 그려 주세요.
+	Learn that team's name plates first (Team 1/2 name plates).	그 팀의 선수 이름판부터 등록해 주세요(1팀/2팀 선수 이름판).
+	Draw one green box around a ready ultimate icon.	궁극기 준비 아이콘 하나를 초록 상자로 둘러 그려 주세요.
+	Learn Ultimate Icon (OverFilm)	궁극기 아이콘 등록(OverFilm)
+	Find Kills, Ultimates and Team Fights (OverFilm)	처치·궁극기·교전 찾기(OverFilm)
+	Learn Player Bar (OverFilm)	선수 이름판 등록(OverFilm)
+	Learn Editing Style (OverFilm, Beta)	편집 스타일 배우기(OverFilm, 베타)
+	Show Editing Style (OverFilm)	편집 스타일 보기(OverFilm)
+# OverFilm: Claude Code review (OVERFILM.md, panels/overfilm_review.rs).
+	Claude Code Review Settings (OverFilm)…	Claude Code 검토 설정(OverFilm)…
+	Check Claude Code (OverFilm)	Claude Code 연결 확인(OverFilm)
+	Ask Claude Code About Unclear Cuts (OverFilm)	애매한 컷을 Claude Code에 맡기기(OverFilm)
+	Ask Claude Code About Unclear Captions (OverFilm)	판단이 필요한 자막을 Claude Code에 맡기기(OverFilm)
+	Claude Code Review (OverFilm)	Claude Code 검토(OverFilm)
+	When it is on, OverFilm asks the Claude Code on this computer about cuts and captions it is unsure of. It uses your Claude subscription (the account you signed in to Claude Code with), not an API key.	켜 두면 OverFilm이 판단이 애매한 컷과 자막을 이 컴퓨터의 Claude Code에 물어봅니다. API 키가 아니라 Claude Code에 로그인한 Claude 구독 계정을 씁니다.
+	Let Claude Code review	Claude Code에 검토 맡기기
+	Ask on its own after Auto Cut, Suggestions and OverFilm Captions	자동 컷·제안·OverFilm 자막이 끝나면 알아서 묻기
+	claude program:	claude 프로그램:
+	empty: find it (claude.exe, claude.cmd)	비워 두면 알아서 찾음(claude.exe, claude.cmd)
+	Model:	모델:
+	empty: Claude Code's default (e.g. sonnet, opus)	비워 두면 Claude Code 기본값(예: sonnet, opus)
+	Time limit per question:	질문 하나 시간 제한:
+	 s	 초
+	Items per question:	질문 하나에 넣을 개수:
+	Most items per review:	한 번 검토할 최대 개수:
+	Check Claude Code	Claude Code 연결 확인
+	Review never cuts by itself: it changes the OverFilm cut markers (cut, keep, keep part) and the captions, in one undo step.	검토는 직접 자르지 않습니다. OverFilm 컷 마커(자르기, 유지, 일부 유지)와 자막만 바꾸며, 실행 취소 한 번으로 되돌릴 수 있습니다.
+	Claude Code review is on	Claude Code 검토를 켰습니다
+	Claude Code review is off	Claude Code 검토를 껐습니다
+	your OverFilm template file, or type a .json path	내 OverFilm 견본 파일 (다른 .json 경로도 가능)
+	Import Templates…	견본 파일 불러오기…
+	No break-screen, setup or pause template yet: import a template file, or learn one from a frame of that screen.	대기 화면·라운드 준비·퍼즈 견본이 아직 없어요. 견본 파일을 불러오거나, 그 화면이 나오는 프레임에서 견본을 등록하세요.
+	Imported {n} template(s) and {b} player bar(s)	견본 {n}개, 선수 이름판 {b}개를 불러왔어요
+	Import Screen Templates (OverFilm)…	화면 견본 불러오기(OverFilm)…
+	Drag on the picture to draw at least one green box, then OK.	그림 위를 드래그해서 초록 상자를 하나 이상 그린 뒤 확인을 누르세요.
+	Draw one green box around the team's name plates.	팀 선수 이름판 전체를 감싸는 초록 상자를 하나 그리세요.
+	No name plates learnt yet: learn each team's name plates first (Learn Screen Template, Team 1/2 name plates).	선수 이름판이 아직 없어요. 먼저 화면 견본 등록에서 1팀/2팀 선수 이름판을 등록하세요.
+	Every plate looks dark: learn them on a frame where the whole team is alive.	이름판이 모두 어두워요. 팀원이 모두 살아 있는 장면에서 등록하세요.
+	That box is one flat colour: pick a part with text or graphics.	고른 곳이 한 가지 색뿐이에요. 글자나 그림이 있는 곳을 고르세요.
+	The box is empty or outside the picture: draw it again.	상자가 비었거나 화면 밖이에요. 다시 그리세요.
+	That clip has no media (offline?).	그 클립에 연결된 파일이 없어요(오프라인?).
+	That clip has no picture.	그 클립에는 영상이 없어요.
+	Couldn't read that frame of the video.	영상의 그 프레임을 읽지 못했어요.
+	It is already running: see the progress at the bottom.	이미 실행 중이에요. 아래 진행 표시를 보세요.
+	No video to analyse: put the broadcast on V1, or select its clips.	분석할 영상이 없어요. 대회 영상을 V1에 두거나 클립을 선택하세요.
+	No clips with sound in the sequence.	시퀀스에 소리가 있는 클립이 없어요.
+	The recording is too long: cut it into parts first.	영상이 너무 길어요. 먼저 나눠 주세요.
+	This build has no OverFilm speech recognition.	이 버전에는 OverFilm 음성 인식이 들어 있지 않아요.
+	That caption track has no captions.	그 자막 트랙에 자막이 없어요.
+	The sequence has no transcript yet: make the captions first.	시퀀스에 아직 받아쓰기가 없어요. 먼저 자막을 만드세요.
+	No speech to caption (only in-game voice?).	자막으로 만들 말소리가 없어요(게임 음성만 있나요?).
+	That is the template file itself.	지금 쓰는 견본 파일 자체예요.
+	The file is not there.	파일이 없어요.
+# OverFilm Captions: the audio track and the number of speakers.
+	Audio track:	오디오 트랙:
+	All audio tracks	모든 오디오 트랙
+	A{n} · {name} ({clips} clips)	A{n} · {name} (클립 {clips}개)
+	Speakers:	화자 수:
+	Count them	자동으로 세기
+	Don't tell them apart	구별 안 함
+	1 person (faster)	1명 (구별 건너뛰어 빠름)
+	{n} people	{n}명
+# OverFilm panel: cut and caption in one go (panels/overfilm_panel.rs).
+	Cut and Caption in One Go (OverFilm)…	컷편집부터 자막까지 한 번에(OverFilm)…
+	OverFilm	OverFilm
+	Cut and caption in one go	컷편집부터 자막까지 한 번에
+	Runs the ticked steps one after another in the background. Undo takes back each step on its own.	체크한 단계를 백그라운드에서 차례로 실행합니다. 실행 취소는 단계마다 따로 됩니다.
+	Auto Cut waiting and pauses (tournament broadcasts)	대기 시간·퍼즈 자동 컷 (대회 영상)
+	Then let Claude Code check the unclear cuts	이어서 애매한 컷을 Claude Code가 검토
+	Then let Claude Code check the captions	이어서 자막을 Claude Code가 검토
+	Captions:	자막:
+	Recognise the speech	음성 인식으로 새로 만들기
+	From the transcript already made (fast)	이미 인식한 글로 다시 배치 (빠름)
+	No captions	자막 안 만듦
+	Claude Code review is off.	Claude Code 검토가 꺼져 있습니다.
+	Check Again	다시 확인
+	Claude Code is installed. Sign in if asked, turn review on and choose a model.	Claude Code가 설치되어 있습니다. 로그인이 필요하면 로그인하고, 검토를 켠 뒤 모델을 고르세요.
+	Claude Code is not installed on this computer. Install it, sign in, then check again.	이 컴퓨터에 Claude Code가 없습니다. 아래 순서대로 설치하고 로그인한 뒤 '다시 확인'을 누르세요.
+	Claude Code is not installed: follow the install guide	Claude Code가 설치되어 있지 않습니다: 설치 안내를 따라 주세요
+	Claude Code is not signed in: sign in in the review settings	Claude Code에 로그인되어 있지 않습니다: 검토 설정에서 로그인해 주세요
+	Claude Code review is off. Turn it on and choose a model.	Claude Code 검토가 꺼져 있습니다. 켜고 모델을 골라 주세요.
+	Claude Code review is off: turn it on in the review settings	Claude Code 검토가 꺼져 있습니다: 검토 설정에서 켜 주세요
+	Claude Code review needs a Claude Pro or Max subscription. OverFilm never uses an API key.	Claude Code 검토에는 Claude Pro 또는 Max 구독이 필요합니다. OverFilm은 API 키를 쓰지 않습니다.
+	Copied: paste it into PowerShell or Terminal	복사했습니다: PowerShell이나 터미널에 붙여 넣으세요
+	Install Claude Code (OverFilm)	Claude Code 설치(OverFilm)
+	Install Guide (web)	설치 안내(웹)
+	Sign In…	로그인…
+	Sign in to Claude Code with your Claude account (Sign In below), then choose a model.	Claude 계정으로 Claude Code에 로그인한 뒤(아래 로그인 버튼) 모델을 골라 주세요.
+	Still not found.	아직 찾지 못했습니다.
+	Type a model name…	모델 이름 직접 입력…
+	full model name, e.g. claude-sonnet-5-5	모델 전체 이름, 예: claude-sonnet-5-5
+	Claude Code Review Settings…	Claude Code 검토 설정…
+	Run	실행
+	Open a sequence first.	먼저 시퀀스를 여세요.
+	Auto Cut (waiting and pauses)	자동 컷 (대기·퍼즈)
+	Claude Code: unclear cuts	Claude Code: 애매한 컷 검토
+	Cut the marked parts	표시한 구간 잘라내기
+	Claude Code: captions	Claude Code: 자막 검토
+	Waiting	대기
+	Running	진행 중
+	Skipped	건너뜀
+	Failed	실패
+	OverFilm: started, see each step in the OverFilm panel	OverFilm: 시작했습니다. 단계별 진행은 OverFilm 패널에서 볼 수 있습니다
+	Learn Screen Template…	화면 견본 등록…
+	Auto Cut…	자동 컷…
+	Apply Cut Markers	컷 마커대로 자르기
+	Suggest Silences and Highlights	무음·하이라이트 제안
+	Find Kills, Ultimates and Team Fights	처치·궁극기·교전 찾기
+	Make Highlight Reel	하이라이트 모음 만들기
+	Styled Captions…	자막 스타일…
+	Ask Claude Code About Cuts	컷을 Claude Code에 묻기
+	Ask Claude Code About Captions	자막을 Claude Code에 묻기
+	Export for Premiere Pro…	Premiere Pro로 내보내기…
+	Get ready	준비
+	Read the match	경기 읽기
+	Export Media…	미디어 내보내기…
+	Kills, ultimates and players	처치·궁극기·선수 읽기
+	Render	렌더링
+	Read kills, ultimates and players first (names for the captions)	먼저 처치·궁극기·선수 읽기 (자막 이름 보정용)
+	Then render the finished video	마지막에 완성 영상 렌더링
+	File type:	파일 형식:
+	Save to:	저장 위치:
+	a folder or file; empty = beside the project	폴더나 파일 경로, 비우면 프로젝트 옆
+	Burn the captions into the picture	자막을 영상에 입히기
+	Matches:	경기:
+	One file per match (date-team1vsteam2)	경기별로 따로 (날짜-팀1vs팀2)
+	All in one file	한 파일로
+	MP4 (H.264)	MP4 (H.264)
+	MP4 (H.265, smaller)	MP4 (H.265, 더 작음)
+	MP4 (AV1)	MP4 (AV1)
+	MOV (ProRes, for editing)	MOV (ProRes, 편집용)
+	MOV (DNxHR, for editing)	MOV (DNxHR, 편집용)
+	GIF	GIF
+	WAV (sound only)	WAV (소리만)
+	M4A (sound only)	M4A (소리만)
+	Premiere Pro (XML + SRT)	Premiere Pro (XML + SRT)
+	Kills ({n})	처치 목록({n})
+	Who died, from the name plates. Learn the kill feed to see who killed whom.	이름판으로 찾은 처치당한 선수예요. 킬피드를 등록하면 누가 누구를 처치했는지 보여요.
+	Name players and heroes	선수·영웅 이름 붙이기
+	Click a kill to see it, then type the name. OverFilm knows the name or picture again in later videos.	처치를 눌러 화면에서 확인한 뒤 이름을 적어 주세요. 다음 영상부터는 같은 이름·그림을 알아봐요.
+	player name	선수 이름
+	hero name	영웅 이름
+	Save	저장
+	List Kills (OverFilm)	처치 목록(OverFilm)
+	Name Player or Hero (OverFilm)	선수·영웅 이름 붙이기(OverFilm)
+	Kill feed (who killed whom, ultimates)	킬피드(누가 누구를 처치했는지, 궁극기)
+	No kill feed row in the box: draw it around the kill feed, on a frame where it shows kills.	상자 안에 킬피드 줄이 없어요. 처치가 보이는 화면에서 킬피드 전체를 둘러 그려 주세요.
+	Find kills first, with the kill feed learnt.	먼저 킬피드를 등록하고 처치 찾기를 실행해 주세요.
+	Draw a green box around the kill feed (a second one round an ultimate icon in it is optional).	초록 상자로 킬피드 전체를 둘러 그려 주세요(두 번째 상자로 궁극기 아이콘 하나를 둘러도 되지만 없어도 돼요).
+	Import Premiere Style…	Premiere 스타일 불러오기…
+	A .prtextstyle (Premiere: right-click a caption style ▸ Export Text Style), a .mogrt, a .prproj or a Premiere XML.	Premiere 자막 스타일(.prtextstyle: 스타일을 오른쪽 클릭 ▸ 텍스트 스타일 내보내기), .mogrt, .prproj, Premiere에서 내보낸 XML을 열 수 있어요.
+	new style name	새 스타일 이름
+	Save Selected Caption's Look	선택한 자막 모양을 스타일로 저장
+	Saved the caption style "{name}"	자막 스타일 "{name}"을(를) 저장했어요
+	Imported caption style(s): {names}	자막 스타일을 가져왔어요: {names}
+	font(s) not installed: {fonts}	이 컴퓨터에 없는 글꼴: {fonts}
+	Text Light Sweep	글자 빛 지나가기
+	Sweep Intensity	빛 세기
+	Edge Intensity	가장자리 세기
+	Light Reception	빛 받는 방식
+	Sharp	날카롭게
+	Cutout	잘라내기
+	Skip silence:	무음 구간 건너뛰기:
+	Automatic (on for a separate voice track)	자동 (분리된 음성 트랙이면 켜짐)
+	On sound mixed with the game (a video's only audio track) this can skip quiet speech under loud game sound. Best on a voice-only track.	게임 소리와 섞인 소리(영상의 유일한 오디오 트랙)에서는 큰 게임 소리 밑의 작은 말소리까지 건너뛸 수 있습니다. 말소리만 따로 녹음된 트랙에서 쓰는 것을 권합니다.
+	Quiet stretches of 2 s or more are skipped on a separate voice track (several audio tracks, or a sound file); a video's only sound is recognised whole.	분리된 음성 트랙(오디오 트랙이 여러 개인 영상이나 소리 파일)에서는 2초 넘는 무음을 건너뜁니다. 영상에 하나뿐인 소리는 전부 인식합니다.
+# OverFilm: the program's name in place of FilmCraft (OVERFILM.md).
+	AV1 needs a hardware encoder; none was found on this machine, and FilmCraft has no software AV1 encoder yet.	AV1에는 하드웨어 인코더가 필요한데 이 컴퓨터에서 찾지 못했고, OverFilm에는 아직 소프트웨어 AV1 인코더가 없습니다.
+	FilmCraft Updates	OverFilm 업데이트
+	FilmCraft {version} is currently the newest version available.	OverFilm {version}이 현재 최신 버전입니다.
+	Looks for a newer FilmCraft release and offers to update.	더 새로운 OverFilm 버전을 찾아 업데이트를 제안합니다.
+	Based on FilmCraft	FilmCraft 기반
+	Match on screen	화면에서 읽은 경기
+	Name the heroes on the name plates	이름판 영웅 이름 붙이기
+	Each hero is numbered where it first appears (see the hero markers). Name it once: OverFilm knows the portrait again in later videos, and captions prefer the heroes in play.	영웅은 처음 나온 순서로 번호가 붙어요(영웅 마커 참고). 한 번 이름을 붙이면 다음 영상부터 같은 그림을 알아보고, 자막은 지금 쓰는 영웅 이름을 우선해요.
+	List Heroes on the Name Plates (OverFilm)	이름판 영웅 목록(OverFilm)
+	Name Hero (OverFilm)	영웅 이름 붙이기(OverFilm)

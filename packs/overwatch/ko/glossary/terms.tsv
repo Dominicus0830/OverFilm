@@ -1,0 +1,110 @@
+id	ko	en	aliases	old	misheard	flags	note
+# 역할
+tank	돌격	Tank	탱커; 탱				역할
+damage	공격	Damage	딜러; 딜			noeval	역할 (일반 단어와 겹침)
+support	지원	Support	힐러; 서포터; 지원가			noeval	역할 (일반 단어와 겹침)
+main_tank	메인 탱커	Main tank	메탱
+off_tank	서브 탱커	Off-tank	섭탱
+main_support	메인 힐러	Main support	메인힐; 메힐
+flex_support	서브 힐러	Flex support	섭힐; 서브힐
+hitscan	히트스캔	Hitscan	히트스캔 딜러				즉발 판정 무기
+projectile	투사체	Projectile	투사체 딜러
+hitbox	히트박스	Hitbox
+subrole	세부 역할	Subrole					2026 1시즌. 아래 subrole_* 참고
+subrole_bruiser	투사	Bruiser				noeval	돌격 세부 역할
+subrole_initiator	개시자	Initiator					돌격 세부 역할
+subrole_stalwart	강건한 자	Stalwart					돌격 세부 역할 (영문명 확인 필요)
+subrole_sharpshooter	명사수	Sharpshooter					공격 세부 역할
+subrole_flanker	측면 공격가	Flanker					공격 세부 역할
+subrole_specialist	전문가	Specialist				noeval	공격 세부 역할
+subrole_recon	수색가	Recon					공격 세부 역할
+subrole_tactician	전술가	Tactician					지원 세부 역할
+subrole_medic	의무병	Medic					지원 세부 역할
+subrole_survivor	생존 전문가	Survivor	생존왕				지원 세부 역할
+# 능력과 수치
+ultimate	궁극기	Ultimate	궁; 궁각		공격기; 궁 극기
+ult_charge	궁극기 충전	Ultimate charge	궁게이지; 궁 게이지
+ability	기술	Ability	스킬			noeval
+cooldown	재사용 대기시간	Cooldown	쿨타임; 쿨
+passive	지속 능력	Passive	패시브
+role_passive	역할 지속 능력	Role passive	역할 패시브
+perk	특전	Perk					2025 도입
+minor_perk	보조 특전	Minor perk
+major_perk	주요 특전	Major perk
+hero_ban	영웅 금지	Hero ban	밴; 영웅 밴
+ban_rate	밴율	Ban rate			밴률		한글 맞춤법 제11항 붙임1: ㄴ 받침 뒤는 율 (밴율, 픽률, 승률). 사용자 지정 2026-11-03
+pick_rate	픽률	Pick rate	픽율
+win_rate	승률	Win rate
+health	생명력	Health	체력; 피
+armor	방어력	Armor	아머
+shields	보호막	Shields	실드; 쉴드
+overhealth	추가 생명력	Overhealth	오버힐
+barrier	방벽	Barrier
+anti_heal	치유 차단	Anti-heal	안티힐; 힐밴
+headshot	헤드샷	Headshot	헤샷
+critical	치명타	Critical hit	크리
+knockback	밀쳐내기	Knockback	넉백
+stun	기절	Stun	스턴
+cc	군중 제어	Crowd control	씨씨; CC기
+hack	해킹	Hack
+health_pack	생명력 팩	Health pack	힐팩
+# 전술
+dive	다이브	Dive	다이브 메타
+rush	러시	Rush				noeval	같은 철자의 감독(RUSH)과 겹침
+poke	포킹	Poke	포크
+brawl	브롤	Brawl
+teamfight	한타	Teamfight
+team_wipe	전멸	Team wipe	팀와이프
+focus	포커싱	Focus fire	점사
+high_ground	고지대	High ground	하이그라운드
+flank	뒤잡기	Flank	뒷라인
+peel	필	Peel				noeval
+combo	연계	Combo	콤보; 궁 연계
+counter	카운터	Counter	카운터픽
+meta	메타	Meta
+tier_list	티어리스트	Tier list	티어 리스트
+buff	버프	Buff	상향
+nerf	너프	Nerf	하향
+hotfix	핫픽스	Hotfix					솜브라의 새 기술 이름(영문)과 같음
+patch	패치	Patch	밸런스 패치
+season	시즌	Season
+# 처치·점수
+elimination	처치	Elimination	킬
+final_blow	결정타	Final blow	막타
+assist	도움	Assist	어시			noeval
+solo_kill	단독 처치	Solo kill	솔킬; 솔로킬
+killfeed	킬로그	Kill feed	킬피드
+killcam	킬캠	Kill cam
+respawn	부활	Respawn	리스폰; 리젠			noeval
+spawn	생성 지점	Spawn	스폰
+objective	목표	Objective				noeval
+point	거점	Point
+payload	화물	Payload
+checkpoint	체크포인트	Checkpoint
+overtime	연장전	Overtime	오버타임
+capture_progress	점령률	Capture progress
+# 랭크
+rank	등급	Rank	랭크; 티어			noeval
+bronze	브론즈	Bronze
+silver	실버	Silver
+gold	골드	Gold
+platinum	플래티넘	Platinum	플래
+diamond	다이아몬드	Diamond	다이아
+master	마스터	Master
+grandmaster	그랜드마스터	Grandmaster	그마
+champion	챔피언	Champion
+top500	상위 500위	Top 500	탑500
+# e스포츠
+owcs	OWCS	Overwatch Champions Series	오버워치 챔피언스 시리즈
+owcs_korea	OWCS 코리아	OWCS Korea
+champions_clash	챔피언스 클래시	Champions Clash
+midseason_championship	미드시즌 챔피언십	Midseason Championship
+world_finals	월드 파이널	World Finals
+ewc	e스포츠 월드컵	Esports World Cup	EWC
+open_qualifier	오픈 퀄리파이어	Open Qualifier	오픈 예선
+stage	스테이지	Stage
+playoffs	플레이오프	Playoffs
+grand_final	결승	Grand Final	그랜드 파이널
+map_pick	맵 선택	Map pick	맵픽
+caster	캐스터	Caster
+analyst	해설	Analyst	해설위원

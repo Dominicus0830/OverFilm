@@ -12,6 +12,8 @@
 //! (isolated tests, adjustment layers) they leave the image unchanged.
 
 mod blur;
+pub(crate) use blur::bokeh;
+pub use blur::{KERNEL_REACH, bokeh_kernel};
 mod color;
 pub(crate) use color::cdl;
 mod distort;
@@ -467,7 +469,6 @@ pub fn apply(img: &mut Image, e: &EffectInstance, cx: &FxCtx) -> bool {
         "cineon_converter" => color::cineon(img, e, cx),
         "noise" | "noise_legacy" => color::noise(img, e, cx),
         // Blur & Sharpen
-        "bokeh_blur" => blur::bokeh(img, e, cx),
         "channel_blur" => blur::channel_blur(img, e, cx),
         "compound_blur" => blur::compound(img, e, cx),
         "focus_blur" => blur::focus(img, e, cx),
@@ -500,6 +501,7 @@ pub fn apply(img: &mut Image, e: &EffectInstance, cx: &FxCtx) -> bool {
         "rgb_split" => lights::rgb_split(img, e, cx),
         "volumetric_rays" => lights::volumetric_rays(img, e, cx),
         "wonder_glow" => lights::wonder_glow(img, e, cx),
+        "text_light_sweep" => lights::light_sweep(img, e, cx),
         "lens_flare" => lights::lens_flare(img, e, cx),
         "alpha_glow" => lights::alpha_glow(img, e, cx),
         // Stylize / Perspective / Generate / Legacy & obsolete generators

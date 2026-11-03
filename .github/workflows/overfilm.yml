@@ -1,0 +1,78 @@
+name: OverFilm
+
+# OverFilm's own checks for this private repository (OVERFILM.md, "CI"). The upstream filmcraft
+# workflows call storytold's shared workflows and secrets and build the whole workspace; they are
+# left untouched so upstream merges stay clean, and are meant to be disabled in the Actions tab.
+#
+# - `overfilm` (every push to main and every PR): fmt, then clippy, tests and a wasm check of the
+#   overfilm-* crates only, plus the layering and asset gates. A few minutes with a warm cache.
+# - `full` (manual, "Run workflow" with full = true): the whole filmcraft gate, `cargo xtask ci`.
+#   Run it after merging an upstream update.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Also run the full filmcraft gate (cargo xtask ci, about an hour)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: overfilm-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  overfilm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --check
+      - name: clippy
+        run: cargo clippy -p overfilm-glossary -p overfilm-asr -p overfilm-captions -p overfilm-eval -p overfilm-ai --all-targets -- -D warnings
+      - name: test
+        run: cargo test -p overfilm-glossary -p overfilm-asr -p overfilm-captions -p overfilm-eval -p overfilm-ai
+      - name: layers
+        run: cargo xtask layers
+      - name: assets
+        run: cargo xtask assets
+      - name: wasm
+        run: cargo check --target wasm32-unknown-unknown -p overfilm-glossary -p overfilm-asr -p overfilm-captions -p overfilm-eval -p overfilm-ai
+      - name: sample evaluation
+        run: >-
+          cargo run -q -p overfilm-eval -- --terms crates/overfilm-eval/samples/terms.txt
+          crates/overfilm-eval/samples/ref crates/overfilm-eval/samples/hyp
+
+  full:
+    if: github.event_name == 'workflow_dispatch' && inputs.full
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: system packages
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev libxcursor-dev
+          libxrandr-dev libxi-dev libfontconfig1-dev libfreetype-dev mesa-vulkan-drivers
+          libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo xtask ci
+        run: cargo xtask ci

@@ -1,0 +1,14 @@
+[package]
+name = "overfilm-glossary"
+description = "OverFilm glossary and language packs: shared term ids, per-language spellings, known misrecognitions and pronunciations, transcript correction"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = { workspace = true }

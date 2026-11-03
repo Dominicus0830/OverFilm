@@ -90,6 +90,16 @@ const LAYERS: &[(&str, u8)] = &[
     ("filmcraft", 6),
     ("cli", 6),
     ("web", 6),
+    // OverFilm crates (full names; OVERFILM.md)
+    ("overfilm-glossary", 1),
+    ("overfilm-asr", 2),
+    ("overfilm-captions", 2),
+    ("overfilm-vision", 1),
+    ("overfilm-eval", 3),
+    ("overfilm-pipeline", 3),
+    ("overfilm-ai", 1),
+    ("overfilm-review", 1),
+    ("overfilm-subs", 6),
 ];
 
 /// L0 crates that are not codecs/containers (no `bitstream`-only restriction).
@@ -109,6 +119,8 @@ const SAME_LAYER: &[(&str, &str)] = &[
     ("gpu", "render"),
     ("cli", "filmcraft"),
     ("tts", "tts-text"),
+    ("overfilm-asr", "speech"),
+    ("overfilm-captions", "captions"),
 ];
 
 /// Crates that must not appear below L5 (UI toolkits, windowing, OS audio/menus).
@@ -161,7 +173,7 @@ fn layers() -> Result<(), String> {
             if l < 5 && UI_ONLY.contains(&d.as_str()) {
                 errors.push(format!("{name} (L{l}) depends on UI/OS crate `{d}`"));
             }
-            if !d.starts_with("filmcraft-") {
+            if !d.starts_with("filmcraft-") && !d.starts_with("overfilm-") {
                 continue;
             }
             let Some(dl) = layer_of(d) else { continue };
@@ -493,7 +505,7 @@ fn ci() -> Result<(), String> {
     run(Command::new(cargo).args(["fmt", "--check"]))?;
     run(Command::new(cargo).args(["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]))?;
     let tested = tests();
-    i18n_report();
+    i18n_report(true);
     tested?;
     layers()?;
     assets()?;
@@ -517,10 +529,13 @@ fn tests() -> Result<(), String> {
 
 /// The missing-translations report (`i18n::tests::missing_translations_report` in
 /// `filmcraft-ui-egui`), printed to the log. A missing translation never fails a build, so
-/// neither does this.
-fn i18n_report() {
-    let args = ["test", "-p", "filmcraft-ui-egui", "--lib", "--", "--exact", "i18n::tests::missing_translations_report", "--nocapture"];
-    if let Err(e) = run(Command::new(env!("CARGO")).args(args)) {
+/// neither does this. After `tests`, `workspace` selects the packages and targets the test run
+/// did, so it reuses that build: `-p filmcraft-ui-egui --lib` alone resolves features differently
+/// and recompiled for about 3 minutes.
+fn i18n_report(workspace: bool) {
+    let selection: &[&str] = if workspace { &["--workspace", "--lib", "--bins", "--tests"] } else { &["-p", "filmcraft-ui-egui", "--lib"] };
+    let filter = ["--", "--exact", "i18n::tests::missing_translations_report", "--nocapture"];
+    if let Err(e) = run(Command::new(env!("CARGO")).arg("test").args(selection).args(filter)) {
         eprintln!("i18n report not printed: {e}");
     }
 }
@@ -554,7 +569,7 @@ fn main() -> ExitCode {
         "fixtures" => fixtures(&std::env::args().skip(2).collect::<Vec<_>>()),
         "ci" => ci(),
         "i18n-report" => {
-            i18n_report();
+            i18n_report(false);
             Ok(())
         }
         "bench" => bench(),

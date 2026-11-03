@@ -1,8 +1,8 @@
 asset:        filmcraft-small.svg
-title:        FilmCraft app icon, lighter vector
-author:       Brandon Thomas (FilmCraft owner), for the FilmCraft project
-source:       original work (drawn by the owner in ArtCraft, then vectorised)
+title:        OverFilm app icon (clapperboard with play button), lighter vector
+author:       Dominicus0830 (도미니코, OverFilm owner), for OverFilm
+source:       original work (designed by the owner in a visual design tool, 2026-11-02)
 license:      MIT OR Apache-2.0
 license-file: assets/app-icon/LICENSE.txt
-added:        2026-10-02 by Claude (agent) for Brandon Thomas
-notes:        The same drawing traced at 1024 px (smaller file). Copied unchanged from craftrules assets/app-icons/filmcraft/icon.svg.
+added:        2026-11-02 by Claude (agent) for Dominicus0830
+notes:        Same file as filmcraft.svg (the drawing is already small).

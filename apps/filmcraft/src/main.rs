@@ -35,6 +35,8 @@ mod file_filters;
 mod graphics;
 mod logging;
 #[cfg(target_os = "macos")]
+mod native_color;
+#[cfg(target_os = "macos")]
 mod native_menu;
 mod window_raise;
 
@@ -46,6 +48,10 @@ use filmcraft_ui_egui::FilmcraftApp;
 use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+/// The program's name in the window title, taskbar, Alt-Tab and message boxes (OVERFILM.md).
+/// Folders, files and the app id keep the FilmCraft names so existing settings and caches stay.
+const APP_NAME: &str = "OverFilm";
 
 /// Reverse-DNS app id: Linux `.desktop` file, hicolor icon name and Wayland app id.
 const APP_ID: &str = "ai.storyteller.filmcraft";
@@ -73,7 +79,7 @@ fn tell(text: &str, error: bool) {
     #[cfg(all(target_os = "windows", not(debug_assertions)))]
     {
         let level = if error { rfd::MessageLevel::Error } else { rfd::MessageLevel::Info };
-        let _ = rfd::MessageDialog::new().set_level(level).set_title("FilmCraft").set_description(text).show();
+        let _ = rfd::MessageDialog::new().set_level(level).set_title(APP_NAME).set_description(text).show();
     }
 }
 
@@ -104,7 +110,7 @@ fn main() -> eframe::Result {
     };
     let data_root = launch.data_dir.clone().or_else(default_data_dir);
     let log_dir = data_root.as_ref().map(|d| d.join(logging::LOG_DIR));
-    log::info!("FilmCraft {} ({} {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
+    log::info!("{APP_NAME} {} ({} {})", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
     // The log file lives next to the crash logs; opened after the arguments, so `--help`,
     // `--version` and usage errors leave no file behind. Records logged until now go in first.
     if let Some(logger) = logger {
@@ -141,7 +147,7 @@ fn main() -> eframe::Result {
         // Before eframe creates the wgpu instance (e.g. no OpenGL on Windows, see graphics.rs).
         graphics::apply(&mut options, graphics.mode(), backend_override);
         let app_created = Arc::new(AtomicBool::new(false));
-        let result = eframe::run_native("FilmCraft", options, app_creator(launch.clone(), graphics.clone(), Arc::clone(&app_created)));
+        let result = eframe::run_native(APP_NAME, options, app_creator(launch.clone(), graphics.clone(), Arc::clone(&app_created)));
         let app_created = app_created.load(Ordering::Relaxed);
         match &result {
             // wgpu reported the failure (no adapter, device creation failed) before the app
@@ -170,10 +176,10 @@ fn main() -> eframe::Result {
             log::error!("{inner}");
             std::process::exit(1);
         }
-        let msg = format!("FilmCraft could not start its window: {e}\n\nUpdating the graphics driver usually fixes this.");
+        let msg = format!("{APP_NAME} could not start its window: {e}\n\nUpdating the graphics driver usually fixes this.");
         log::error!("{msg}");
         filmcraft_ui_egui::crash::record(&msg);
-        let _ = rfd::MessageDialog::new().set_title("FilmCraft").set_description(&msg).set_level(rfd::MessageLevel::Error).show();
+        let _ = rfd::MessageDialog::new().set_title(APP_NAME).set_description(&msg).set_level(rfd::MessageLevel::Error).show();
     }
     started
 }
@@ -182,7 +188,7 @@ fn main() -> eframe::Result {
 fn native_options(agent: bool) -> eframe::NativeOptions {
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("FilmCraft")
+            .with_title(APP_NAME)
             .with_inner_size([1600.0, 980.0])
             .with_min_inner_size([900.0, 560.0])
             .with_drag_and_drop(true)
@@ -352,12 +358,16 @@ fn app_creator(launch: Launch, graphics: graphics::GraphicsStart, created: Arc<A
         app.hooks.pick_open_project = Some(Box::new(|| {
             rfd::FileDialog::new()
                 .add_filter(filmcraft_ui_egui::i18n::t("FilmCraft Project"), &file_filters::extensions(&["fcproj"]))
+                // #1644: where the system MIME database doesn't know `.fcproj`, the project
+                // filter hides every saved project; "All files" keeps them reachable.
+                .add_filter(filmcraft_ui_egui::i18n::t("All files"), &file_filters::all_files())
                 .pick_file()
                 .map(|p| p.to_string_lossy().to_string())
         }));
         #[cfg(target_os = "macos")]
         {
-            let (rx, update) = native_menu::install(&app, cc.egui_ctx.clone());
+            let (rx, update, text_menu) = native_menu::install(&app, cc.egui_ctx.clone());
+            app.hooks.pick_color = Some(native_color::picker(text_menu));
             app.command_inbox = Some(rx);
             app.hooks.menu_changed = Some(update);
             app.ui.show_menu_bar = false;
@@ -488,6 +498,8 @@ fn run_dialog_off_thread(dialog: filmcraft_ui_egui::native_dialogs::FileDialog) 
     let t = |s: &str| filmcraft_ui_egui::i18n::t(s).to_string();
     let media = t("Media");
     let project = t("FilmCraft Project");
+    let all_files = t("All files");
+    let all_files_exts = file_filters::all_files();
     let project_exts = project_patterns();
     let dialog = prepare_dialog(dialog);
     let (tx, rx) = std::sync::mpsc::channel();
@@ -500,11 +512,19 @@ fn run_dialog_off_thread(dialog: filmcraft_ui_egui::native_dialogs::FileDialog) 
                 }
                 FileDialog::OpenFile { filter, exts } => rfd::FileDialog::new().add_filter(&filter, &exts).pick_file().map(path).into_iter().collect(),
                 FileDialog::Relink { exts, .. } => rfd::FileDialog::new().add_filter(&media, &exts).pick_file().map(path).into_iter().collect(),
-                FileDialog::OpenProject => rfd::FileDialog::new().add_filter(&project, &project_exts).pick_file().map(path).into_iter().collect(),
+                FileDialog::OpenProject => rfd::FileDialog::new()
+                    .add_filter(&project, &project_exts)
+                    // #1644: same "All files" fallback as the synchronous picker, so a
+                    // project hidden by an unregistered `.fcproj` MIME type stays openable.
+                    .add_filter(&all_files, &all_files_exts)
+                    .pick_file()
+                    .map(path)
+                    .into_iter()
+                    .collect(),
                 FileDialog::SaveProject { name } => {
                     rfd::FileDialog::new().add_filter(&project, &project_exts).set_file_name(name).save_file().map(path).into_iter().collect()
                 }
-                FileDialog::SaveAs { filter, exts, name } => {
+                FileDialog::SaveAs { filter, exts, name, .. } => {
                     rfd::FileDialog::new().add_filter(&filter, &exts).set_file_name(name).save_file().map(path).into_iter().collect()
                 }
                 FileDialog::Folder { at } => {
@@ -541,7 +561,7 @@ fn prepare_dialog(dialog: filmcraft_ui_egui::native_dialogs::FileDialog) -> film
     match dialog {
         FileDialog::OpenFiles { exts } => FileDialog::OpenFiles { exts: patterns(exts) },
         FileDialog::OpenFile { filter, exts } => FileDialog::OpenFile { filter: t(&filter), exts: patterns(exts) },
-        FileDialog::SaveAs { filter, exts, name } => FileDialog::SaveAs { filter: t(&filter), exts: patterns(exts), name },
+        FileDialog::SaveAs { filter, exts, name, adds_ext } => FileDialog::SaveAs { filter: t(&filter), exts: patterns(exts), name, adds_ext },
         FileDialog::Relink { exts, hint } => FileDialog::Relink { exts: patterns(exts), hint },
         other => other,
     }
@@ -579,7 +599,7 @@ mod tests {
         for dialog in [
             FileDialog::OpenFiles { exts: mp4() },
             FileDialog::OpenFile { filter: "Media".into(), exts: mp4() },
-            FileDialog::SaveAs { filter: "Media".into(), exts: mp4(), name: "clip.mp4".into() },
+            FileDialog::SaveAs { filter: "Media".into(), exts: mp4(), name: "clip.mp4".into(), adds_ext: true },
             FileDialog::Relink { exts: mp4(), hint },
         ] {
             let exts = match super::prepare_dialog(dialog) {
@@ -592,5 +612,7 @@ mod tests {
         let project = super::project_patterns();
         assert_eq!(project.first().map(String::as_str), Some("fcproj"));
         assert!(project.iter().any(|e| e == "[fF][cC][pP][rR][oO][jJ]"), "{project:?}");
+        // #1644: the Open Project dialog's "All files" fallback is a single `*`.
+        assert_eq!(super::file_filters::all_files(), ["*"]);
     }
 }

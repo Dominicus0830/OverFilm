@@ -165,6 +165,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aho-corasick"
+version = "1.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -225,6 +234,12 @@ checksum = "ae221649c9976a6f6c56ae1facf410f3ddb33cc661c4b7b61020a912d4237fbc"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "arboard"
@@ -491,6 +506,15 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "bit-set"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08807e080ed7f9d5433fa9b275196cfc35414f66a0c79d864dc51a0d825231a3"
+dependencies = [
+ "bit-vec 0.8.0",
+]
+
+[[package]]
+name = "bit-set"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09ec2f926cc3060f09db9ebc5b52823d85268d24bb917e472c0c4bea35780a7d"
@@ -506,6 +530,12 @@ checksum = "56d87354e4229f54a44f7bf2435906a4656dba36026ab6eaca629a2c436a691c"
 dependencies = [
  "bit-vec 0.10.1",
 ]
+
+[[package]]
+name = "bit-vec"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
 
 [[package]]
 name = "bit-vec"
@@ -1061,17 +1091,17 @@ dependencies = [
 [[package]]
 name = "craft-docpath"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=92d392cff132eaf53e13afff77f38b5c11b73aa0#92d392cff132eaf53e13afff77f38b5c11b73aa0"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 
 [[package]]
 name = "craft-fonts-build"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=92d392cff132eaf53e13afff77f38b5c11b73aa0#92d392cff132eaf53e13afff77f38b5c11b73aa0"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 
 [[package]]
 name = "craft-i18n"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=92d392cff132eaf53e13afff77f38b5c11b73aa0#92d392cff132eaf53e13afff77f38b5c11b73aa0"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 dependencies = [
  "fixed_decimal",
  "icu_decimal",
@@ -1094,7 +1124,7 @@ dependencies = [
 [[package]]
 name = "craft-media"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=92d392cff132eaf53e13afff77f38b5c11b73aa0#92d392cff132eaf53e13afff77f38b5c11b73aa0"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 dependencies = [
  "thiserror 2.0.21",
 ]
@@ -1102,7 +1132,7 @@ dependencies = [
 [[package]]
 name = "craft-ui"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=92d392cff132eaf53e13afff77f38b5c11b73aa0#92d392cff132eaf53e13afff77f38b5c11b73aa0"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 dependencies = [
  "craft-fonts-build",
  "craft-i18n",
@@ -1123,7 +1153,7 @@ dependencies = [
 [[package]]
 name = "craft-update"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=04aa1703b32d299e54f78fcde4182f2b393a9116#04aa1703b32d299e54f78fcde4182f2b393a9116"
+source = "git+https://github.com/storytold/craft-libs?rev=c5a1cbfb5f9049f9270955caffb5bee5997aebf7#c5a1cbfb5f9049f9270955caffb5bee5997aebf7"
 dependencies = [
  "chrono",
  "dunce",
@@ -1767,6 +1797,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af9673d8203fcb076b19dfd17e38b3d4ae9f44959416ea532ce72415a6020365"
 
 [[package]]
+name = "fancy-regex"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e24cb5a94bcae1e5408b0effca5cd7172ea3c5755049c5f3af4cd283a165298"
+dependencies = [
+ "bit-set 0.8.0",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1831,7 +1872,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "arboard",
  "chrono",
@@ -1866,7 +1907,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-aac"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -1876,7 +1917,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-ac3"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-testkit",
  "thiserror 2.0.21",
@@ -1884,7 +1925,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-apv"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -1894,14 +1935,14 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-audio-dsp"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-testkit",
 ]
 
 [[package]]
 name = "filmcraft-automation"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "base64",
  "filmcraft-engine",
@@ -1918,7 +1959,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-av1"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -1929,21 +1970,21 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-avi"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-testkit",
 ]
 
 [[package]]
 name = "filmcraft-bitstream"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "craft-media",
 ]
 
 [[package]]
 name = "filmcraft-captions"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-project",
@@ -1956,11 +1997,11 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-cfb"
-version = "0.14.0"
+version = "0.17.0"
 
 [[package]]
 name = "filmcraft-cli"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-automation",
  "filmcraft-codecs",
@@ -1982,7 +2023,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-codecs"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-aac",
  "filmcraft-ac3",
@@ -2020,7 +2061,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-color"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "proptest",
  "serde",
@@ -2028,7 +2069,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-dng"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-dng",
  "rayon",
@@ -2037,7 +2078,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-dnx"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2047,7 +2088,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-edit"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-geom",
  "filmcraft-media",
@@ -2060,7 +2101,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-engine"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "craft-docpath",
@@ -2088,6 +2129,12 @@ dependencies = [
  "filmcraft-tts",
  "image",
  "log",
+ "overfilm-ai",
+ "overfilm-asr",
+ "overfilm-captions",
+ "overfilm-pipeline",
+ "overfilm-review",
+ "overfilm-vision",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -2096,7 +2143,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-export"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-aac",
  "filmcraft-apv",
@@ -2127,7 +2174,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-flac"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2136,7 +2183,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-format"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "filmcraft-media",
@@ -2151,7 +2198,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-frame"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-time",
@@ -2161,7 +2208,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-geom"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "proptest",
  "serde",
@@ -2169,7 +2216,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-golden"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-frame",
@@ -2186,7 +2233,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-gpu"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-export",
@@ -2205,7 +2252,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-h264"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2215,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-h264enc"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2225,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-hevc"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2235,7 +2282,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-interchange"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-cfb",
  "filmcraft-color",
@@ -2252,7 +2299,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-isobmff"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "craft-media",
  "filmcraft-testkit",
@@ -2262,7 +2309,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-matroska"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "craft-media",
  "filmcraft-testkit",
@@ -2271,7 +2318,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-media"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-dng",
@@ -2287,7 +2334,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-mpa"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2296,7 +2343,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-mpeg2v"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-testkit",
  "rayon",
@@ -2305,7 +2352,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-mpegts"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-testkit",
  "thiserror 2.0.21",
@@ -2313,7 +2360,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-mxf"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "filmcraft-testkit",
@@ -2321,21 +2368,21 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-ogg"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-testkit",
 ]
 
 [[package]]
 name = "filmcraft-opus"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-testkit",
 ]
 
 [[package]]
 name = "filmcraft-platform"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-codecs",
@@ -2361,7 +2408,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-project"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-color",
  "filmcraft-geom",
@@ -2371,11 +2418,12 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "url",
 ]
 
 [[package]]
 name = "filmcraft-prores"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2385,7 +2433,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-render"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-audio-dsp",
  "filmcraft-captions",
@@ -2405,7 +2453,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-scopes"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-color",
  "serde",
@@ -2414,7 +2462,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-speech"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -2433,7 +2481,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-testkit"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "png",
@@ -2442,7 +2490,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-text"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-color",
  "harfrust",
@@ -2455,7 +2503,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-time"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "proptest",
  "serde",
@@ -2463,7 +2511,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-tts"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -2478,7 +2526,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-tts-text"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -2486,7 +2534,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-ui-egui"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "cpu-time",
  "craft-ui",
@@ -2528,7 +2576,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-vp8"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-testkit",
  "thiserror 2.0.21",
@@ -2536,7 +2584,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-vp9"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-bitstream",
  "filmcraft-testkit",
@@ -2546,7 +2594,7 @@ dependencies = [
 
 [[package]]
 name = "filmcraft-web"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "eframe",
  "egui",
@@ -2590,6 +2638,16 @@ name = "fixedbitset"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+
+[[package]]
+name = "flatbuffers"
+version = "24.12.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f1baf0dbf96932ec9a3038d57900329c015b0bfb7b63d904f3bc27e2b02a096"
+dependencies = [
+ "bitflags 1.3.2",
+ "rustc_version",
+]
 
 [[package]]
 name = "flate2"
@@ -2667,6 +2725,15 @@ name = "foreign-types-shared"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
+
+[[package]]
+name = "form_urlencoded"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+dependencies = [
+ "percent-encoding",
+]
 
 [[package]]
 name = "futures"
@@ -3633,6 +3700,27 @@ name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
+
+[[package]]
+name = "idna"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b0875f23caa03898994f6ddc501886a45c7d3d62d04d2d90788d47be1b1e4de"
+dependencies = [
+ "idna_adapter",
+ "smallvec",
+ "utf8_iter",
+]
+
+[[package]]
+name = "idna_adapter"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
+dependencies = [
+ "icu_normalizer",
+ "icu_properties",
+]
 
 [[package]]
 name = "image"
@@ -4652,6 +4740,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocrs"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e4192a7dbc7570398ef97ab2606799703b6ea11da53f637d705d44546614435"
+dependencies = [
+ "anyhow",
+ "rayon",
+ "rten",
+ "rten-imageproc",
+ "rten-tensor",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4715,7 +4818,123 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "overfilm-ai"
+version = "0.17.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "overfilm-asr"
+version = "0.17.0"
+dependencies = [
+ "bytemuck",
+ "candle-core",
+ "candle-nn",
+ "fancy-regex",
+ "filmcraft-speech",
+ "half",
+ "pollster 1.0.1",
+ "pulp",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "unicode-normalization",
+ "wgpu",
+]
+
+[[package]]
+name = "overfilm-captions"
+version = "0.17.0"
+dependencies = [
+ "filmcraft-captions",
+ "filmcraft-geom",
+ "filmcraft-project",
+ "filmcraft-time",
+ "miniz_oxide 0.9.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "overfilm-eval"
+version = "0.17.0"
+dependencies = [
+ "filmcraft-captions",
+ "overfilm-glossary",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "overfilm-glossary"
+version = "0.17.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "overfilm-pipeline"
+version = "0.17.0"
+dependencies = [
+ "filmcraft-speech",
+ "ocrs",
+ "overfilm-asr",
+ "overfilm-captions",
+ "overfilm-glossary",
+ "overfilm-review",
+ "overfilm-vision",
+ "rten",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "overfilm-review"
+version = "0.17.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "overfilm-subs"
+version = "0.17.0"
+dependencies = [
+ "chrono",
+ "craft-ui",
+ "eframe",
+ "egui",
+ "filmcraft-codecs",
+ "filmcraft-media",
+ "filmcraft-text",
+ "overfilm-asr",
+ "overfilm-captions",
+ "overfilm-glossary",
+ "overfilm-pipeline",
+ "rfd",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "overfilm-vision"
+version = "0.17.0"
+dependencies = [
+ "filmcraft-time",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5500,6 +5719,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "regex-automata"
+version = "0.4.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-syntax",
+]
+
+[[package]]
 name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5626,6 +5856,123 @@ dependencies = [
  "spki",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "rten"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf7741649977427aa13009537ac9a8fe1a503b0aa58784069ce8f117e47eb6ab"
+dependencies = [
+ "flatbuffers",
+ "num_cpus",
+ "rayon",
+ "rten-base",
+ "rten-gemm",
+ "rten-model-file",
+ "rten-onnx",
+ "rten-parallel",
+ "rten-shape-inference",
+ "rten-simd",
+ "rten-tensor",
+ "rten-vecmath",
+ "rustc-hash 2.1.3",
+ "smallvec",
+ "typeid",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "rten-base"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413dc975c7a3d0e6da0b146cd0387e3d389cceab0fc48328bfa716c7f2ae1b1e"
+
+[[package]]
+name = "rten-gemm"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8efc07c654d4b3f8d81e2efd8b13aea7475568395289e5bb35393411aa6a451e"
+dependencies = [
+ "rayon",
+ "rten-base",
+ "rten-parallel",
+ "rten-simd",
+ "rten-tensor",
+]
+
+[[package]]
+name = "rten-imageproc"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18726eae9614e23a400560eb3a5e3fdb06526914c31aadaf767f14afde7680dd"
+dependencies = [
+ "rten-tensor",
+]
+
+[[package]]
+name = "rten-model-file"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04ea9e630b377f9249ff3c290466fef282319f86d13d560964209104cd3af542"
+dependencies = [
+ "flatbuffers",
+ "rten-base",
+]
+
+[[package]]
+name = "rten-onnx"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96944374568990b8d1bbc5bae5957585866f9dd8256130460405730948bfd42e"
+
+[[package]]
+name = "rten-parallel"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba9075b130f81df7be82496ea3a9bbf20fe9e75f106a22b0ece8700850f8f664"
+dependencies = [
+ "rayon",
+ "rten-base",
+]
+
+[[package]]
+name = "rten-shape-inference"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89289c26b6a5248fccf4d67627596848a03ed31888e6ce4ba6f666c689258122"
+dependencies = [
+ "rten-tensor",
+ "smallvec",
+]
+
+[[package]]
+name = "rten-simd"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f0c01294eb782adca256aa130b48a04006d03763073a68f45a9c33b982ea556"
+
+[[package]]
+name = "rten-tensor"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf72556ba231d7af50238d26dd264856a2149c6369694eb79b22644c8280c81b"
+dependencies = [
+ "rayon",
+ "rten-base",
+ "rten-parallel",
+ "smallvec",
+ "typeid",
+]
+
+[[package]]
+name = "rten-vecmath"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1007f05160f9ea2ce4e9c67324e5bafb27ae1e5302d0c6b1ea4db0d35fed78ee"
+dependencies = [
+ "rten-base",
+ "rten-simd",
 ]
 
 [[package]]
@@ -6624,6 +6971,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinyvec"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+
+[[package]]
 name = "tokio"
 version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6824,6 +7177,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ce898823d8cd0f028662d2f349694b1af0a5cc9be83f1d213a00d3147445e1e"
 
 [[package]]
+name = "typeid"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6869,6 +7228,15 @@ name = "unicode-linebreak"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b09c83c3c29d37506a3e260c08c03743a6bb66a9cd432c6934ab501a190571f"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "unicode-properties"
@@ -6931,6 +7299,18 @@ dependencies = [
  "http",
  "httparse",
  "log",
+]
+
+[[package]]
+name = "url"
+version = "2.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+dependencies = [
+ "form_urlencoded",
+ "idna",
+ "percent-encoding",
+ "serde",
 ]
 
 [[package]]
@@ -8002,7 +8382,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.14.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-testkit",
  "serde_json",

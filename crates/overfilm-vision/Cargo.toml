@@ -1,0 +1,17 @@
+[package]
+name = "overfilm-vision"
+description = "OverFilm screen recognition: Overwatch esports broadcast states (standby screens, round setup, pauses) from video frames, and the cut plan that removes the waiting time"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+filmcraft-time = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
