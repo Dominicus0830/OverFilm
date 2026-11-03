@@ -396,7 +396,7 @@ fn one_go_reviews_cuts_and_captions_once_each() {
     let (_, end) = word_ms(&s, "들어가고");
     add_cut(&mut s, end - 300, end + 3000);
     let before = s.active_sequence().unwrap().duration();
-    let r = s.execute("overfilm.flow.run", json!({"autoCut": false, "reviewCuts": true, "captions": "reuse", "reviewCaptions": true, "wait": true})).unwrap();
+    let r = s.execute("overfilm.flow.run", json!({"autoCut": false, "kills": false, "reviewCuts": true, "captions": "reuse", "reviewCaptions": true, "wait": true})).unwrap();
     assert_eq!(r["state"], "done", "{r}");
     let steps: Vec<&str> = r["steps"].as_array().unwrap().iter().map(|s| s["step"].as_str().unwrap()).collect();
     assert_eq!(steps, ["reviewCuts", "applyCuts", "captions", "reviewCaptions"], "{r}");
