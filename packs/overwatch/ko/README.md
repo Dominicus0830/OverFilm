@@ -19,7 +19,7 @@ One TSV table per category, all with the columns described in `crates/overfilm-g
 | `slang.tsv` | community and broadcast slang: role and comp names (`멘딜`, `정파탱`), tactics (`앵커링`, `딜각`), memes (`딸깍`, `C9`), platforms, comp and duo names (`메모위`, `고츠`, `볼토시`, `투스나`, `파르시`, `자자`), `차이` words (`딜러차이`), callouts (`딸피`, `합궁`, `역궁`) |
 | `netslang.tsv` | everyday internet and streaming slang that streamers say out loud: abbreviations (`알잘딱깔센`, `네카오`, `중꺾마`), reactions (`킹받네`, `억까`, `뇌절`), broadcast words (`뱅온`, `방종`, `합방`, `도네`), gallery words (`개추`, `실베`); spaced spellings in `misheard` (`알 잘 딱` → `알잘딱깔센`), slurs left out |
 | `profanity.tsv` | swear words: captions write only the initial consonants (`씨발` → `ㅅㅂ`, `존나` → `ㅈㄴ`); spoken forms are in `misheard`, flag `mask` |
-| `spelling.tsv` | spelling fixes that are not terms: `벤` for `밴` (ban: `강벤` → `강밴`, `벤률` → `밴률`), tier words written apart (`저 티어` → `저티어`), statistics words (`괴류율` → `괴리율`), and common misspellings (`몇일` → `며칠`, `어의없` → `어이없`); all `noeval`, `inword` for forms that are wrong inside a word too (`뵈요` → `봬요`). Grammar rules that are not single words (particles, `할 수 있다`, `할게요`) are code: `overfilm-glossary` `ko` module |
+| `spelling.tsv` | spelling fixes that are not terms: `벤` for `밴` (ban: `강벤` → `강밴`, `벤률` → `밴율`), tier words written apart (`저 티어` → `저티어`), statistics words (`괴류율` → `괴리율`), and common misspellings (`몇일` → `며칠`, `어의없` → `어이없`); all `noeval`, `inword` for forms that are wrong inside a word too (`뵈요` → `봬요`). Grammar rules that are not single words (particles, `할 수 있다`, `할게요`) are code: `overfilm-glossary` `ko` module |
 | `matchups.tsv` | team-vs-team short names: first syllables of both teams + `전` (`라제전` = 크레이지 라쿤 vs 제타, also `제라전`; 치즈버거 as 치 and 처 from 치벅/처벅) |
 
 - `ko` is how captions should write the term. For players it is the pronunciation commentators
@@ -37,6 +37,9 @@ One TSV table per category, all with the columns described in `crates/overfilm-g
 - A `misheard` form ending in `@영웅` is an ordinary word that sounds like a hero nickname (`양이` for
   `냥이`): it is replaced only right before or after a hero name (`솜브라와 양이 캐서디 연계`, also run
   together as `양이캐서디`), so `양이 많다` stays.
+- A `misheard` form ending in `@검토` is never replaced by the correction step: it is a real word too
+  (`경제` for `경쟁`). The Claude Code caption review gets it as a likely misrecognition and decides
+  from the context.
 - Before `선수`, `감독`, `코치`, player names are matched more loosely: two-syllable names too, one more
   edit, `ㅔ`/`ㅐ` alike and a doubled consonant once (`백기 선수` → `베키 선수`).
 

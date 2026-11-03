@@ -128,7 +128,8 @@ fn stop_cancels_the_running_step() {
 fn what_can_be_known_at_the_start_is_refused_at_the_start() {
     let (mut s, tpl) = broadcast("overfilm-flow-refused");
     let err = |s: &mut Session, p: serde_json::Value| s.execute("overfilm.flow.run", p).unwrap_err().to_string();
-    assert!(err(&mut s, json!({"autoCut": false, "captions": "off"})).contains("nothing to do"));
+    assert!(err(&mut s, json!({"autoCut": false, "kills": false, "captions": "off"})).contains("nothing to do"));
+    assert!(err(&mut s, json!({"templates": tpl, "captions": "off", "render": true, "renderFormat": "doc"})).contains("not an export format"));
     assert!(err(&mut s, json!({"templates": tpl, "captions": "sometimes"})).contains("new, reuse or off"));
     assert!(err(&mut s, json!({"templates": tpl, "captions": "reuse"})).contains("no transcript"));
     // review off (a settings file that does not exist)
@@ -143,4 +144,153 @@ fn what_can_be_known_at_the_start_is_refused_at_the_start() {
     // hostile numbers are clamped by the steps, never a panic
     let r = s.execute("overfilm.flow.run", json!({"templates": tpl, "fps": 1e300, "keepBefore": -5, "captions": "off", "wait": true}));
     assert!(r.is_ok(), "{r:?}");
+}
+
+#[test]
+fn the_kill_scan_runs_between_the_cuts_and_the_captions_when_the_templates_have_name_plates() {
+    let (mut s, tpl) = broadcast("overfilm-flow-kills");
+    // no name plates or kill feed in the template: the step is left out, not failed
+    let r =
+        s.execute("overfilm.flow.run", json!({"templates": tpl, "keepBefore": 1.0, "fps": 4, "captions": "off", "applyCuts": false, "wait": true})).unwrap();
+    assert!(states(&r).iter().all(|(k, _)| k != "kills"), "{r}");
+    // name plates learnt (a bright strip at the top): the scan runs after the cuts
+    for team in [1, 2] {
+        let x = if team == 1 { 0.0 } else { 0.6 };
+        s.execute("overfilm.playerBar.learn", json!({"templates": tpl, "team": team, "rect": [x, 0.0, 0.4, 0.1], "time": Tick(6 * TICKS_PER_SECOND).0}))
+            .unwrap();
+    }
+    let r = s.execute("overfilm.flow.run", json!({"templates": tpl, "keepBefore": 1.0, "fps": 4, "killFps": 1, "captions": "off", "wait": true})).unwrap();
+    assert_eq!(r["state"], "done", "{r}");
+    let keys: Vec<String> = states(&r).into_iter().map(|(k, _)| k).collect();
+    assert_eq!(keys, vec!["autoCut", "applyCuts", "kills"], "{r}");
+    assert_ne!(r["steps"][2]["state"], "failed", "{r}");
+    // and it can be left out
+    let r = s.execute("overfilm.flow.run", json!({"templates": tpl, "keepBefore": 1.0, "fps": 4, "kills": false, "captions": "off", "wait": true})).unwrap();
+    assert!(states(&r).iter().all(|(k, _)| k != "kills"), "{r}");
+}
+
+#[test]
+fn renders_the_finished_sequence_at_the_end_in_the_chosen_format() {
+    let (mut s, tpl) = broadcast("overfilm-flow-render");
+    let out = tmp_dir("overfilm-flow-render-out").join("finished.mov").to_string_lossy().into_owned();
+    let r = s
+        .execute(
+            "overfilm.flow.run",
+            json!({"templates": tpl, "keepBefore": 1.0, "fps": 4, "captions": "off", "render": true, "renderFormat": "prores", "renderPath": out, "wait": true}),
+        )
+        .unwrap();
+    assert_eq!(r["state"], "done", "{r}");
+    assert_eq!(states(&r).last(), Some(&("render".to_string(), "done".to_string())), "{r}");
+    assert!(r["steps"][2]["message"].as_str().unwrap().contains("finished.mov"), "{r}");
+    let len = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+    assert!(len > 1000, "the file is written ({len} bytes)");
+    // the Premiere hand-over writes the XML into the folder
+    let dir = tmp_dir("overfilm-flow-render-premiere");
+    let r = s
+        .execute(
+            "overfilm.flow.run",
+            json!({"autoCut": false, "kills": false, "captions": "off", "render": true, "renderFormat": "premiere", "renderPath": dir.to_string_lossy(), "wait": true}),
+        )
+        .unwrap();
+    assert_eq!(r["state"], "done", "{r}");
+    assert!(std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).any(|e| e.path().extension().is_some_and(|x| x == "xml")), "{r}");
+}
+
+#[test]
+fn render_parameters_follow_the_panel_choices() {
+    let (s, _) = broadcast("overfilm-flow-render-params");
+    let v = super::render_params(&s, &json!({"renderPath": "/x/out.mp4", "burnCaptions": false, "captionSidecar": "srt"}), "hevc");
+    assert_eq!(v["format"], "hevc");
+    assert_eq!(v["path"], "/x/out.mp4");
+    assert_eq!(v["burnCaptions"], false);
+    assert_eq!(v["captionSidecar"], "srt");
+    let v = super::render_params(&s, &json!({"renderPath": "  "}), "h264");
+    assert_eq!(v["burnCaptions"], true, "captions burnt in by default");
+    assert!(!v["path"].as_str().unwrap().trim().is_empty(), "beside the project when no path is given");
+    let v = super::render_params(&s, &json!({"renderPath": "/x"}), "premiere");
+    assert_eq!(v, json!({"format": "premiere", "dir": "/x"}));
+}
+
+/// Put "OverFilm 경기" markers at `(seconds, name)` on the active sequence.
+fn match_markers(s: &mut Session, marks: &[(i64, &str)]) {
+    use filmcraft_project::{Marker, MarkerId, MarkerKind};
+    for (at, name) in marks {
+        let (at, name) = (*at, name.to_string());
+        s.edit("test", move |pr, st| {
+            let id = pr.alloc_id();
+            let q = pr.sequence_mut(st.active_sequence.unwrap()).unwrap();
+            q.markers.push(Marker {
+                id: MarkerId(id),
+                start: Tick(at * TICKS_PER_SECOND),
+                duration: Tick::ZERO,
+                name,
+                comment: String::new(),
+                kind: MarkerKind::Comment,
+                color: Label::Lavender,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
+            });
+            Ok(())
+        })
+        .unwrap();
+    }
+}
+
+#[test]
+fn matches_cover_the_sequence_end_to_end_and_name_their_files() {
+    let (mut s, _) = broadcast("overfilm-flow-matches");
+    let end = s.active_sequence().unwrap().duration();
+    // no match marker: one file, under the sequence's name
+    assert!(super::match_spans(&s).is_empty());
+    let base = super::render_params(&s, &json!({"renderPath": "/out/"}), "h264");
+    assert_eq!(super::render_exports(&s, &base).len(), 1);
+    // one match: one file of the whole sequence, named by date and teams
+    match_markers(&mut s, &[(2, "OverFilm 경기: 로제 vs 오투 블래스트")]);
+    let spans = super::match_spans(&s);
+    assert_eq!(spans.len(), 1);
+    assert_eq!((spans[0].start, spans[0].end), (Tick::ZERO, end), "from the start, so nothing before the marker is lost");
+    let one = super::render_exports(&s, &base);
+    assert_eq!(one.len(), 1);
+    let path = one[0]["path"].as_str().unwrap();
+    assert!(path.starts_with("/out/") && path.ends_with("-로제vs오투 블래스트"), "{path}");
+    assert!(one[0].get("range").is_none(), "the whole sequence");
+    // three matches (another marker kind and an unrelated "경기" word are not matches)
+    match_markers(&mut s, &[(5, "OverFilm 경기 2: 크레이지 라쿤 vs ?"), (9, "OverFilm 경기 3: ? vs ?"), (7, "OverFilm 선수"), (8, "OverFilm 경기장")]);
+    let spans = super::match_spans(&s);
+    assert_eq!(spans.len(), 3, "{spans:?}");
+    assert_eq!(spans[1].start, Tick(5 * TICKS_PER_SECOND));
+    assert_eq!(spans[1].end, Tick(9 * TICKS_PER_SECOND));
+    assert_eq!(spans[2].end, end);
+    let all = super::render_exports(&s, &base);
+    let names: Vec<&str> = all.iter().map(|v| v["path"].as_str().unwrap().rsplit('/').next().unwrap()).collect();
+    assert!(names[0].ends_with("-로제vs오투 블래스트") && names[1].ends_with("-크레이지 라쿤") && names[2].ends_with("-경기3"), "{names:?}");
+    assert_eq!(all[1]["range"], "custom");
+    assert_eq!(all[1]["startSeconds"], 5.0);
+    assert_eq!(all[1]["endSeconds"], 9.0);
+    // "one" file, and the Premiere hand-over, stay whole
+    let whole = super::render_params(&s, &json!({"renderSplit": "one"}), "h264");
+    assert_eq!(super::render_exports(&s, &whole).len(), 1);
+    let premiere = super::render_params(&s, &json!({}), "premiere");
+    assert_eq!(super::render_exports(&s, &premiere).len(), 1);
+}
+
+#[test]
+fn renders_one_file_per_match_by_default() {
+    let (mut s, _) = broadcast("overfilm-flow-split");
+    match_markers(&mut s, &[(1, "OverFilm 경기 1: 로제 vs 오투 블래스트"), (8, "OverFilm 경기 2: 크레이지 라쿤 vs 팀 팔콘스")]);
+    let dir = tmp_dir("overfilm-flow-split-out");
+    let r = s
+        .execute(
+            "overfilm.flow.run",
+            json!({"autoCut": false, "kills": false, "captions": "off", "render": true, "renderFormat": "prores", "renderPath": format!("{}/", dir.display()), "wait": true}),
+        )
+        .unwrap();
+    assert_eq!(r["state"], "done", "{r}");
+    assert!(r["steps"][0]["message"].as_str().unwrap().starts_with("2개 파일"), "{r}");
+    let mut files: Vec<String> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    files.sort();
+    assert_eq!(files.len(), 2, "{files:?}");
+    assert!(files[0].ends_with("-로제vs오투 블래스트.mov") && files[1].ends_with("-크레이지 라쿤vs팀 팔콘스.mov"), "{files:?}");
+    assert!(s.execute("overfilm.flow.run", json!({"render": true, "renderSplit": "both"})).unwrap_err().to_string().contains("renderSplit"));
 }

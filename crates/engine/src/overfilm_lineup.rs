@@ -228,7 +228,18 @@ pub fn mark(s: &mut Session, st: &LineupState) -> Result<usize> {
         let q = pr.sequence_mut(seq).ok_or(EngineError::NoSequence)?;
         q.markers.retain(|m| !is_lineup_marker(&m.name));
         for ((start, name, comment, color), id) in marks.into_iter().zip(ids) {
-            q.markers.push(Marker { id: MarkerId(id), start, duration: Tick::ZERO, name, comment, kind: MarkerKind::Comment, color });
+            q.markers.push(Marker {
+                id: MarkerId(id),
+                start,
+                duration: Tick::ZERO,
+                name,
+                comment,
+                kind: MarkerKind::Comment,
+                color,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
+            });
         }
         q.markers.sort_by_key(|m| m.start);
         Ok(())

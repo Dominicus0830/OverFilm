@@ -700,6 +700,17 @@ Off until switched on in `Sequence ▸ OverFilm ▸ Claude Code Review Settings�
 maxItems=60}`, saved as `claude-review.json` in the OverFilm data folder). When on, the editor hands
 the calls it is unsure of to the Claude Code command line on the same computer:
 
+- **Getting ready**: asking for a review (`overfilm.review.cuts`, `overfilm.review.captions`, or the
+  one-go run with a review step) checks Claude Code first. Not installed: an install guide opens
+  with the commands for this system (native installer, npm, `claude auth login --claudeai`) and
+  Copy buttons (`overfilm.review.install`). Review off, not signed in, or signed in with an API key:
+  the settings open with what to do and a Sign In button (`overfilm.review.login` starts
+  `claude auth login --claudeai` in its own window). The model is picked from a list
+  (`overfilm.review.models`): Claude Code's default, the aliases the installed version's `--help`
+  names for `--model`, opus/sonnet/haiku, and the user's default from `~/.claude/settings.json`, or
+  typed. A good check is trusted for ten minutes. The review commands stay in the menu while review
+  is off, so they can lead the user there.
+
 - **How it runs** (`overfilm_review::cli`): one `claude -p --output-format json --json-schema …
   --tools "" --no-session-persistence --strict-mcp-config` run per batch of questions, the prompt on
   stdin, in an empty temporary folder. `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are removed
@@ -719,8 +730,9 @@ the calls it is unsure of to the Claude Code command line on the same computer:
   Keep ranges are clipped into the marker. The user's rule goes with every question: waiting time up
   to 10 s before the start, pauses whole, silences only when nothing happens, nothing else.
 - **Captions** (`Ask Claude Code About Unclear Captions`, `overfilm.review.captions {track?,
-  captions?, all, again, lineChars=16, maxLines=2}`): captions with unsure words (confidence under
-  0.7), a glossary correction (the pure recognition differs from the corrected text), over the
+  captions?, all, again, mode?, lineChars=16, maxLines=2}`): captions with unsure words (confidence under
+  0.7) or not-quite-sure ones (under 0.9: the recogniser is often sure of a wrong word that sounds
+  alike), a glossary correction (the pure recognition differs from the corrected text), over the
   line limits, a one- or two-letter line, or a very short caption after them. Each goes with the
   caption, the pure recognition of its words (kept from recognition: `Recognised::raw_texts`,
   lined up with the corrected words by edit distance; beside a saved project as
@@ -728,7 +740,18 @@ the calls it is unsure of to the Claude Code command line on the same computer:
   their own pure recognition. Answers: `keep`, `fix` (new text, at most two lines) or `split`
   (2–4 captions; times cut at the word boundary where each part's letters run out). A fix far from
   both the caption and the pure recognition (over 40 % of the letters changed) or over the line
-  limits is dropped; speaker labels such as `(화자1)` are kept.
+  limits is dropped; speaker labels such as `(화자1)` are kept. Each question also carries the kind
+  of video (`mode`, or commentary when match info markers exist), the match info markers so far
+  ("OverFilm 경기/선수/영웅 선택/영웅 교체") and the glossary terms its captions mention (spelling,
+  other names, known misrecognitions, role). The instructions ask to fix confident misrecognitions
+  that make no sense in context with a similar-sounding word or term, and to keep when nothing in
+  the sound or the context supports a change. Measured on the aichi set (2026-11-02, real
+  Claude Code, `cargo run -p overfilm-pipeline --example review_eval`): CER 5.97 %
+  before review; old instructions 5.83 %; with confident misrecognitions asked about 5.68 %; with the
+  hero roster and roles and the "same sound first" rule 5.41 % (172 of 307 captions asked, terms 98.2 →
+  99.1 %); asking every caption (before the roster) 5.62 %. A `misheard` form marked `@검토`
+  (`경제` for `경쟁`) is never replaced by the correction step; a caption with one is asked about
+  and the form goes with it as a likely misrecognition.
 - **On its own** (`auto`): after Auto Cut or Suggestions mark cuts, and after OverFilm Captions
   places captions, the matching review starts by itself.
 
@@ -749,10 +772,24 @@ panel and stays in the saved workspace. It runs the ticked steps one after anoth
 2. **Claude Code on the unclear cuts** (`overfilm.review.cuts`), when ticked.
 3. **The cuts applied** (`overfilm.autoCut.apply`), unless the result is "markers to check first";
    markers already on the sequence (an earlier Auto Cut, Suggestions) are reviewed and applied too.
-4. **Captions**: recognised (`overfilm.captions.generate`, audio track, video kind, speakers,
+4. **Kills, ultimates and players** (`overfilm.kills.scan`, `killFps`), on by default (`kills`):
+   it reads the teams, players and heroes off the HUD before the captions, so they get the names
+   (see "Teams, players and heroes"). Left out when the template file has no name plates or kill
+   feed; a scan that fails is noted and the run goes on without the names.
+5. **Captions**: recognised (`overfilm.captions.generate`, audio track, video kind, speakers,
    in-game voice), or laid out again from the transcript the sequence already has
    (`overfilm.captions.fromTranscript`: after the cuts, without a second recognition).
-5. **Claude Code on the captions** (`overfilm.review.captions`), when ticked.
+6. **Claude Code on the captions** (`overfilm.review.captions`), when ticked.
+7. **Render** (`render`), when ticked: the finished sequence goes out with `file.exportMedia` in
+   the chosen `renderFormat` (MP4 H.264/H.265/AV1, MOV ProRes/DNxHR, GIF, WAV, M4A), captions burnt
+   in unless `burnCaptions` is off, or with `overfilm.premiere.export` (`renderFormat: "premiere"`:
+   FCP XML + SRT for Premiere Pro). `renderPath` is a folder or a file; empty puts it beside the
+   project. A broadcast day with several matches (different teams, the "OverFilm 경기" markers the
+   kill scan writes) goes out as one file per match by default (`renderSplit: "match"`), named
+   `<date>-<team 1>vs<team 2>.<ext>` (`<date>-경기<n>` when no team was read), each from its
+   marker to the next so nothing between matches is dropped; a single match is one file under
+   that name, a sequence with no match marker keeps its own name. `renderSplit: "one"` writes the
+   whole sequence as one file.
 
 Each step waits for the one before (its background job and its result applied). What can be
 known at the start is refused at the start: no step chosen, a review ticked while Claude Code
@@ -763,7 +800,10 @@ setting starts after Auto Cut and OverFilm Captions are left to the run, so noth
 twice. The panel shows each step (waiting, running with its progress and time left, done,
 skipped, failed, how long it took); `Stop` (`overfilm.flow.stop`) stops the running job and the
 rest. `overfilm.flow.status` gives the same over the control channel and MCP. Undo takes back each
-step on its own. Below the run, buttons open the other OverFilm tools.
+step on its own. Below the run, buttons open the other OverFilm tools, grouped in the order of the
+work: get ready (screen templates), cut (Auto Cut, suggestions, Claude Code on the cuts, apply),
+read the match (kills, highlight reel), captions (captions, Claude Code on them, styles) and export
+(media, Premiere Pro).
 
 ## Editing style (beta)
 
@@ -840,6 +880,12 @@ git merge upstream/main          # conflicts should only touch the hook points b
 
 Open a PR from the branch, and run the full gate (below) on it before merging.
 
+Syncs so far:
+
+| Date | Upstream | Notes |
+|---|---|---|
+| 2026-11-02 | v0.16.0 (`8c171a0a`) | `Marker` gained `url`, `author`, `custom_color` (OverFilm markers leave them empty); the steady pace in `crates/export/src/pace.rs` sits beside upstream's new batch-aware window |
+
 ## CI
 
 `.github/workflows/overfilm.yml` is OverFilm's CI. On every push to `main` and every PR it runs
@@ -867,6 +913,7 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `mod overfilm_kills`, `mod overfilm_style`, `mod overfilm_review`, `Session::overfilm_jobs`, `overfilm_caption_jobs`, `overfilm_assist_jobs`, `overfilm_kill_jobs` and `overfilm_review`, their `poll` in `poll_persistence` |
 | `crates/engine/src/media_pool.rs` | `MediaPool::reopen`: an uncached second opening of a file the host streams, for Auto Cut's parallel decoders |
 | `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()`, `overfilm_reel::commands()`, `overfilm_kills::commands()`, `overfilm_style::commands()` and `overfilm_review::commands()` |
+| `crates/export/src/pace.rs`, `lib.rs` | the steady pace (`Pace::set_steady`) for speech recognition's long, even steps |
 | `crates/engine/src/transcript.rs` | `targets` is `pub(crate)` (which clips to recognise) |
 | `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |
 | `crates/engine/src/overfilm_assist.rs` (+ `_tests.rs`) | new file: silence and highlight suggestions |
