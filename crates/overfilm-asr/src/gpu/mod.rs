@@ -16,8 +16,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use wgpu::util::DeviceExt;
-
 use crate::AsrError;
 
 pub mod front;
@@ -52,6 +50,9 @@ pub const MAX_SEQS: usize = 8;
 /// Largest single buffer binding asked for (weights larger than this are split by rows).
 const MAX_BIND: u64 = 1 << 30;
 /// Longest wait for one submission (a long prefill on a slow or software GPU).
+/// Uploads at least this large are submitted at once (their staging copies are freed sooner).
+const UPLOAD_FLUSH: u64 = 64 << 20;
+
 const WAIT: Duration = Duration::from_secs(600);
 
 fn gpu_err(e: impl std::fmt::Display) -> AsrError {
@@ -172,6 +173,12 @@ impl Ctx {
 
     /// [`Ctx::new`], optionally accepting a software renderer (tests).
     pub fn with(software: bool) -> Result<Arc<Self>, AsrError> {
+        let cap = std::env::var("OVERFILM_GPU_MAX_BIND").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(MAX_BIND);
+        Self::open(software, cap)
+    }
+
+    /// [`Ctx::with`] with bindings of at most `cap` bytes.
+    pub(crate) fn open(software: bool, cap: u64) -> Result<Arc<Self>, AsrError> {
         let instance =
             wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle() });
         let adapter = pollster::block_on(
@@ -183,7 +190,6 @@ impl Ctx {
             return Err(gpu_err(format!("only a software renderer ({})", info.name)));
         }
         let al = adapter.limits();
-        let cap = std::env::var("OVERFILM_GPU_MAX_BIND").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(MAX_BIND);
         let max_bind = al.max_storage_buffer_binding_size.min(al.max_buffer_size).min(cap).max(1 << 20);
         let limits = wgpu::Limits {
             max_storage_buffer_binding_size: max_bind.max(wgpu::Limits::default().max_storage_buffer_binding_size).min(al.max_storage_buffer_binding_size),
@@ -238,8 +244,9 @@ impl Ctx {
                 k.tile16 = Some((q8, f16));
             }
         }
+        // wgpu zero-fills new buffers
         let zero =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("zero"), contents: &[0u8; 16], usage: wgpu::BufferUsages::STORAGE });
+            device.create_buffer(&wgpu::BufferDescriptor { label: Some("zero"), size: 16, usage: wgpu::BufferUsages::STORAGE, mapped_at_creation: false });
         let name = format!("{} ({:?}, {} {})", info.name, info.backend, info.driver, info.driver_info).replace(" ,", "").replace("  ", " ");
         let budget = std::env::var("OVERFILM_GPU_BUDGET_MB").ok().and_then(|v| v.parse::<u64>().ok()).map_or(u64::MAX, |mb| mb.saturating_mul(1 << 20));
         let ctx = Self {
@@ -344,15 +351,39 @@ impl Ctx {
         r
     }
 
-    fn storage(&self, bytes: u64) -> wgpu::Buffer {
-        let size = bytes.max(16).div_ceil(16) * 16;
+    /// A new buffer of `size` bytes (a multiple of 16). Never mapped at creation: a buffer the
+    /// card has no room for is then only invalid (the error scope reports it) instead of making
+    /// wgpu panic when it maps it for the contents.
+    fn buffer(&self, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
         self.charge(size);
-        self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        })
+        let label = format!("overfilm {} KB", size >> 10);
+        self.device.create_buffer(&wgpu::BufferDescriptor { label: Some(&label), size, usage, mapped_at_creation: false })
+    }
+
+    /// A buffer holding `bytes` (padded with zeros to a multiple of 16), filled through the queue.
+    fn filled(&self, bytes: &[u8], usage: wgpu::BufferUsages) -> wgpu::Buffer {
+        let size = (bytes.len() as u64).max(16).div_ceil(16) * 16;
+        let b = self.buffer(size, usage | wgpu::BufferUsages::COPY_DST);
+        let whole = bytes.len() / 4 * 4;
+        if let Some(head) = bytes.get(..whole).filter(|h| !h.is_empty()) {
+            self.queue.write_buffer(&b, 0, head);
+        }
+        if let Some(tail) = bytes.get(whole..).filter(|t| !t.is_empty()) {
+            let mut last = [0u8; 4];
+            if let Some(d) = last.get_mut(..tail.len()) {
+                d.copy_from_slice(tail);
+            }
+            self.queue.write_buffer(&b, whole as u64, &last);
+        }
+        if size >= UPLOAD_FLUSH {
+            // hand the staging copy to the GPU now rather than holding every weight twice
+            self.queue.submit([]);
+        }
+        b
+    }
+
+    fn storage(&self, bytes: u64) -> wgpu::Buffer {
+        self.buffer(bytes.max(16).div_ceil(16) * 16, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC)
     }
 
     fn floats(&self, n: usize) -> wgpu::Buffer {
@@ -360,14 +391,7 @@ impl Ctx {
     }
 
     fn upload(&self, bytes: &[u8]) -> wgpu::Buffer {
-        let mut v = bytes.to_vec();
-        v.resize(v.len().max(16).div_ceil(16) * 16, 0);
-        self.charge(v.len() as u64);
-        self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: &v,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
-        })
+        self.filled(bytes, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC)
     }
 
     fn upload_f32(&self, v: &[f32]) -> wgpu::Buffer {
@@ -375,13 +399,7 @@ impl Ctx {
     }
 
     fn uniform(&self, v: &[u32]) -> wgpu::Buffer {
-        let mut b = words(v);
-        b.resize(b.len().max(16).div_ceil(16) * 16, 0);
-        self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: &b,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        })
+        self.filled(&words(v), wgpu::BufferUsages::UNIFORM)
     }
 
     fn bind(&self, k: &Kernel, bufs: &[&wgpu::Buffer]) -> wgpu::BindGroup {

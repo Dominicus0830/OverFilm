@@ -285,14 +285,13 @@ fn load_gpu_fitting(dir: &Path, cfg: &RootConfig, quantize: bool, ctx: &Arc<Ctx>
         let kv_cap = if classifier { gpu::KV_CAP } else { kv_side };
         match ctx.scoped(|| load_gpu(dir, cfg, quantize, ctx, kv_cap, patch)) {
             Err(AsrError::GpuMemory(e)) => {
-                if std::env::var_os("OVERFILM_ASR_TRACE").is_some() {
-                    eprintln!("gpu: out of memory with a {kv_cap}-position cache ({e}), trying less");
-                }
+                log::warn!("GPU out of memory with a {kv_cap}-position cache ({e}), trying less");
                 last = Some(AsrError::GpuMemory(e));
             }
             r => {
-                if r.is_ok() && std::env::var_os("OVERFILM_ASR_TRACE").is_some() {
-                    eprintln!("gpu: model takes {} MB with a {kv_cap}-position cache", ctx.made() >> 20);
+                match &r {
+                    Ok(_) => log::info!("{} on the GPU ({}): {} MB with a {kv_cap}-position cache", dir.display(), ctx.name, ctx.made() >> 20),
+                    Err(e) => log::warn!("{} on the GPU ({}): {e}", dir.display(), ctx.name),
                 }
                 return r;
             }
@@ -914,9 +913,9 @@ pub enum GpuStage {
 }
 
 /// What to tell the user when work moves from the GPU to the CPU: plain words on why and what it
-/// means (same result, slower). The technical error goes to the log (standard error) only.
+/// means (same result, slower). The technical error goes to the log file only.
 pub fn gpu_note(stage: GpuStage, e: &AsrError) -> String {
-    eprintln!("overfilm-asr: GPU given up ({stage:?}): {e}");
+    log::warn!("GPU given up ({stage:?}): {e}");
     let text = e.to_string();
     let why = match e {
         AsrError::GpuMemory(_) => "그래픽카드 메모리가 모자라서",

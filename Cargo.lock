@@ -4838,6 +4838,7 @@ dependencies = [
  "fancy-regex",
  "filmcraft-speech",
  "half",
+ "log",
  "pollster 1.0.1",
  "pulp",
  "rayon",

@@ -505,3 +505,32 @@ fn every_row_head_only_when_asked() {
     }
     assert!(made[1] < made[0], "{made:?}");
 }
+
+/// A weight the card cannot hold is an error, not a panic: wgpu's `create_buffer_init` panicked
+/// mapping the invalid buffer ("Failed to get mapped range … Buffer with '' label is invalid",
+/// RX 9060 XT), which stopped caption jobs with an internal error.
+#[test]
+fn a_buffer_the_card_cannot_make_is_an_error() {
+    let Some(c) = (match Ctx::open(true, 1 << 20) {
+        Ok(c) => Some(c),
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            None
+        }
+    }) else {
+        return;
+    };
+    // bindings of 1 MB ask the device for the default 256 MB largest buffer
+    let too_big = vec![1u8; (256 << 20) + 64];
+    let r = c.scoped(|| {
+        let b = c.upload(&too_big);
+        let u = c.uniform(&[0, 0, 0, 0]);
+        let out = c.storage(64);
+        let _bg = c.bind(&c.k.ew, &[&u, &u, &b, &out]);
+        Ok(())
+    });
+    assert!(r.is_err());
+    // the device still works afterwards
+    let u = c.scoped(|| Ok(c.upload_f32(&[1.0, 2.0, 3.0]))).unwrap();
+    assert_eq!(read_floats(&c, &u, 3), vec![1.0, 2.0, 3.0]);
+}

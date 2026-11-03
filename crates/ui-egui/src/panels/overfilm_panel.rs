@@ -406,7 +406,8 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                     line.push_str(&format!(" ({})", clock(secs)));
                 }
                 let r = ui.label(RichText::new(&line).color(color)).rect;
-                let mut detail = st["message"].as_str().unwrap_or_default().to_string();
+                // engine messages are English; known ones (such as the internal-error notice) are translated
+                let mut detail = crate::i18n::t(st["message"].as_str().unwrap_or_default()).to_string();
                 if state == "running" {
                     let frac = st["progress"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0) as f32;
                     ui.add(egui::ProgressBar::new(frac).desired_height(6.0));
