@@ -68,3 +68,6 @@ nyangi	냥이				양이@영웅	noeval
 n_count	N개				n개	noeval
 # 사용자 지정 표기(2026-11-03): 세 강자는 숫자로 (탱커 3황)
 three_kings	3황				삼황	noeval
+# 사용자 지정(2026-11-03): 예스러운 접속어는 자막에서 요즘 말로
+however_old	그러나				허나	noeval
+but_old	근데				헌데	noeval
