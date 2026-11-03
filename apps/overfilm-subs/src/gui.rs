@@ -205,6 +205,14 @@ struct App {
     page: Page,
     step: Step,
     input: Option<PathBuf>,
+    /// The input's audio tracks ("트랙 1 · 스테레오 · 48 kHz · aac") and the one to recognise.
+    audio_tracks: Vec<String>,
+    audio_track: usize,
+    /// Whether the sound is inside the video or a track of its own (`None`: not read yet).
+    sound_source: Option<overfilm_pipeline::recognise::SoundSource>,
+    /// Skip long quiet stretches for this file: `None` follows the source (see
+    /// [`overfilm_pipeline::recognise::skip_silence_default`]).
+    skip_silence: Option<bool>,
     output: Option<PathBuf>,
     prefs: Prefs,
     shared: Arc<Mutex<Shared>>,
@@ -253,6 +261,10 @@ impl App {
             page: Page::New,
             step: Step::Empty,
             input: None,
+            audio_tracks: Vec::new(),
+            audio_track: 0,
+            sound_source: None,
+            skip_silence: None,
             output: None,
             prefs: load_prefs(),
             shared: Arc::default(),
@@ -296,12 +308,19 @@ impl App {
         o.input = self.input.clone()?;
         o.output = self.output.clone();
         o.only_voices = o.only_voices && o.speakers;
+        o.audio_track = self.audio_track.min(self.audio_tracks.len().saturating_sub(1));
+        o.skip_silence = self.skip_silence;
         let d = mcp::user_glossary_dir();
         o.glossary_dir = d.is_dir().then_some(d);
         Some(o)
     }
 
     fn choose_file(&mut self, p: PathBuf) {
+        // a file that cannot be read shows its error when the run starts
+        self.audio_tracks = overfilm_subs::media::audio_tracks(&p).unwrap_or_default();
+        self.audio_track = 0;
+        self.sound_source = overfilm_subs::media::sound_source(&p).ok();
+        self.skip_silence = None;
         self.input = Some(p.clone());
         self.output = None;
         self.enroll_file = Some(p);
@@ -360,10 +379,11 @@ impl App {
         match self.open_result(&done.srt, self.input.clone(), options) {
             Ok(()) => {
                 if let Some(r) = &mut self.review {
-                    r.summary = Some(match note {
+                    let summary = match note {
                         Some(n) => format!("{summary} {n}"),
                         None => summary,
-                    });
+                    };
+                    r.summary = Some(if done.stages.is_empty() { summary } else { format!("{summary}\n단계별 시간: {}", done.stages) });
                 }
             }
             Err(e) => self.status = Some(Err(e)),
@@ -593,7 +613,12 @@ fn main() -> eframe::Result {
             .with_title("OverFilm 자막 추출")
             .with_inner_size([1040.0, 720.0])
             .with_min_inner_size([760.0, 520.0])
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true)
+            // The OverFilm icon (the editor's, `assets/app-icon/`): window, taskbar and Alt-Tab.
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("../../../assets/app-icon/hicolor/256x256/apps/ai.storyteller.filmcraft.png"))
+                    .unwrap_or_default(),
+            ),
         ..Default::default()
     };
     eframe::run_native(

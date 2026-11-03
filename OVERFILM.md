@@ -15,11 +15,12 @@ calling the caption layout) and listed in the table at the end.
 |---|---|---|---|
 | `overfilm-glossary` | L1 | M2 | glossary tables (shared term ids, spellings, old names, misrecognitions) and their term-list export; transcript correction (`correct`), Korean spelling and spacing (`ko`), spoken numbers to digits (`digits`), in-game voice lines found by text (`voicelines`) |
 | `overfilm-asr` | L2 | M3, M5 | Qwen3-ASR + Qwen3-ForcedAligner on candle, or on any Vulkan/DX12/Metal GPU through wgpu (`gpu/`: WGSL kernels, CPU fallback) (done: Q8_0 decoder weights, prompt-prefix cache, low-energy chunking, verified model download); speaker labels (`speakers/`: Kaldi filterbank, WeSpeaker ResNet34 on candle, average-linkage clustering, per-word labels, overlapped speech with pyannote segmentation-3.0); next: `filmcraft_speech::Transcriber` |
-| `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out; caption styles and motion for the editor (`styles`) |
-| `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures), the auto-cut plan and deaths from the HUD's player bars; see "Auto cut" below |
-| `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the shared models folder |
+| `overfilm-captions` | L2 | M4 | Korean caption layout: two lines at most, display-width limits, penalty-based breaks (done), SRT in/out; caption styles and motion for the editor (`styles`), Premiere text styles and templates read into them (`premiere`) |
+| `overfilm-vision` | L1 | M7 | screen recognition for esports broadcasts (break screen, round setup, pause templates; frozen pictures), the auto-cut plan, deaths and ultimates from the HUD's player bars, who killed whom and ultimate kills from the kill feed, heroes on the name plates (`heroes`) and teams and players from text read off the HUD (`lineup`); see "Auto cut" below |
+| `overfilm-pipeline` | L3 | M4 | the caption pipeline OverFilmSubs and the editor share: built-in Overwatch pack (`pack`), recognition with correction, speakers and game voice (`recognise`, feature `qwen`), caption turns (`speakers`), filler clean-up (`clean`), enrolled voices (`voices`), the match prior and the built-in roster (`game`), HUD text reading (`ocr`, feature `ocr`), the shared models folder |
 | `overfilm-eval` | L3 | M0 | transcript evaluation: CER, WER, game-term accuracy (library + `overfilm-eval` binary) |
 | `overfilm-ai` | L1 | M6 | analysis behind the editing suggestions: loudness, silences, highlights (`overfilm.assist.suggest` in the engine), the learnt editing style (`style`) |
+| `overfilm-review` | L1 | M6 | Claude Code review: runs the local `claude -p` (the user's subscription, no API key) on unclear cuts and captions; questions, JSON schemas and checked answers; see "Claude Code review" below |
 | `overfilm-subs` (`apps/`) | L6 | — | standalone subtitle extractor: window (`OverFilmSubs`), command line and MCP review server (`overfilm-subs`); see its README |
 | `packs/overwatch/ko/` | data | M2 | Overwatch Korean pack: `glossary/` (heroes, abilities, maps, modes, terms, teams, players; see its README), `voicelines.tsv` (hero ultimates and announcer as heard in the Korean client), later fillers, caption rules |
 
@@ -54,6 +55,99 @@ cargo run -p overfilm-eval -- --terms terms.txt --json refs/ hyps/
   lowercase, punctuation as spaces. Corpus totals sum edits over files.
 
 `crates/overfilm-eval/samples/` has a hand-counted example; its README lists the expected numbers.
+
+## Recognition speed and piece length
+
+`overfilm_asr::transcribe` cuts the sound at quiet points into pieces of at most 60 s
+(`MAX_CHUNK_SECONDS`) and recognises them side by side: eight at a time on the GPU (`BATCH`),
+eight on the CPU (`CPU_BATCH`):
+
+- **Side by side**: generating text is one decoder pass per token, and that pass is bound by
+  reading the 2 GB of 8-bit weights. The pieces of a group share each pass: on the CPU the 8-bit
+  product reads every weight row once for all rows (`qmm.rs`; candle's own walks the weights once
+  per row), and the prompt prefills of the group run as one product (`TextModel::prefill_seqs`);
+  on the GPU the prompt prefix stays cached at the start of the key/value cache, each piece gets
+  a region after it (`rope.wgsl`/`attn.wgsl` take a per-row position and region), and the
+  `mv` kernel reads each weight once for up to eight rows (`Text::forward_seqs`). The
+  recogniser's GPU cache holds 16,384 positions (`KV_CAP_SIDE`, about 1.9 GB of VRAM; the
+  aligner keeps 8,192), so eight 60-second pieces fit; pieces that do not fit run in turns. Greedy decoding per piece
+  is unchanged: on the GPU the same 65 s gave the same text, character for character, as the CPU.
+- **A CPU decoding step** is bound by memory traffic, not arithmetic: the 2 GB of weights, then
+  each piece's key/value cache (about 1,400 positions × 28 layers). So:
+  - attention is a plain loop over the cache (`DecoderLayer::forward_rows`, parallel over piece ×
+    key/value head; the two query heads of a key/value head read each position once). As
+    separate candle operations (rotary, narrow, slice_set, two small matmuls, softmax) per piece
+    and layer, the set-up cost was half of each step;
+  - the cache is appended in place and kept in 16-bit floats (`Kv`; more precision than the
+    model's own bf16), half the bytes per step;
+  - the 8-bit product (`qmm.rs`) has its own block format (f32 scale + 32 values) and an AVX2
+    kernel through `pulp` (safe SIMD; |w| and sign(x, w), unsigned × signed byte products in
+    pairs, four accumulators); a scalar loop elsewhere;
+  - eight pieces per weight pass on the CPU instead of four: the weights are read once either way,
+    so each token costs less (the caches take about 170 MB per 60-second piece).
+- **The encoder front** (three 3×3 stride-2 convolutions over the mel chunks) gathers the input
+  patches and runs one matrix product per group of chunks (`conv3x3s2`); candle's tiled
+  convolution took 7 s of a 60-second piece's 11 s in the encoder.
+  On the GPU the same products run there (`gpu/front.rs`: `gather.wgsl` lays out the patches,
+  applying the previous convolution's GELU as it reads, then the encoder's 16-bit product
+  kernels), in passes of at most 256 MB of patches; only the positions and the per-chunk
+  trimming stay on the CPU. Before, GPU mode still spent about 4 s of CPU time per 60-second
+  piece here. `OVERFILM_GPU_FRONT=cpu` keeps the front on the CPU. `gpu-check` compares the
+  whole encoder, front included, against the CPU.
+- **Element-wise work on all cores**: candle runs element-wise operations on one thread. gelu
+  (encoder), silu · up (decoder MLP) and the attention scores' scale, mask and softmax are one
+  parallel pass each (`gelu`, `silu_mul`, `scaled_softmax`), and grouped-query attention
+  multiplies the query heads of a group against their shared keys as one matrix instead of
+  copying the keys per head (`attend_grouped`). Two 60-second pieces on 4 cores: encoder
+  19.9 → 17 s, prompt pass 36.3 → 32.4 s, same captions.
+- **Loading**: the 8-bit decoder weights are cached next to the model (`overfilm-q8.cache`,
+  `qcache.rs`; about 1.9 GB for the 1.7B model) after the first load, keyed by each shard's name,
+  size and time, and used by both the CPU and the GPU load (the GPU took the same blocks from
+  its own quantizer). The remaining bf16 tensors convert to f32 in parallel (`weights.rs`).
+  Loading the 1.7B model on the CPU went from about 22 s to 4 s. `OVERFILM_NO_Q8_CACHE=1`
+  ignores the cache. Each run's stage times (`Transcript::stages`) are printed after a run.
+- **Prompt passes on the GPU in 16-bit**: when the GPU has shader-f16, a second tiled product
+  kernel (`tile16.wgsl`) keeps the 64×64 tiles in workgroup memory as f16 and multiplies with
+  packed 16-bit math; every run of 16 products is added into f32 accumulators, and inputs are
+  scaled by 1/16 (and clamped) into f16 so large activations cannot overflow. At start-up it is
+  compared with the CPU (limit 2e-3, the 32-bit kernel 1e-3) and timed against the 32-bit tiles
+  on a 512-row product; it is used only when it matches and is at least 10 % faster.
+  `OVERFILM_GPU_PREFILL=f32` turns it off, `=f16` forces it (software renderers skip the timing).
+  `gpu-check` prints which kernel prompt passes use. A subgroup version was not added: the
+  tiles already share their inputs through workgroup memory, and subgroup sizes differ between
+  drivers (RDNA runs 32 or 64 lanes), which would need one more kernel per size with no way to
+  check it here.
+- **Silence**: with `Settings::skip_silence`, quiet stretches of 2 s or more (30 ms frames below
+  max(-55 dBFS, the 95th percentile level - 40 dB), kept with 0.3 s of margin;
+  `chunk::split_voiced`) are not recognised at all; caption times stay those of the whole file.
+  Commentary over in-game sound is rarely quiet that long, and a quiet game track can still hold
+  speech, so audio embedded in a video (one track) keeps it off by default and the editor gets a
+  warning when turning it on (`SKIP_SILENCE_WARNING`); separate audio tracks turn it on
+  (`overfilm_pipeline::recognise::skip_silence_default`).
+- **Piece length**: the models take up to 3 minutes (the reference toolkit uses 180 s pieces
+  when it needs word times). Longer pieces give the recogniser more of the sentence around each
+  word and fewer cuts inside one. M1 aichi, CPU, same build:
+
+  | piece | CER | WER | substitutions | terms (video list) |
+  |---|---|---|---|---|
+  | 30 s | 6.60 % | 14.59 % | 120 | 99.1 % |
+  | **60 s (chosen)** | **6.25 %** | **13.16 %** | **101** | 97.3 % |
+  | 120 s | 6.20 % | 13.49 % | 102 | 96.4 % |
+
+  120 s leaves room for only one piece at a time in the GPU cache, so 60 s. Runs differ by about
+  ±0.2 % CER from rounding alone, so the term column (one or two words) is within noise. With
+  two spelling rows found on the same video (`딜라인` → `뒷라인`, `배나는` → `밴하는`): 6.18 % CER,
+  13.05 % WER, 97 substitutions (before this work: 6.56 %, 14.37 %, 120).
+- **Time** for the 12:45 aichi video on 4 CPU cores (`--speakers 1`, `target-cpu=x86-64-v3`):
+  about 38 minutes before (text generation 0.30 s per token, 68 % of the time) → 24.4 minutes
+  with four pieces side by side (0.16 s per token of each piece) → 18.8 minutes with the cache,
+  attention, product and batch changes above (0.075 s per token: 3161 tokens of eight pieces in
+  237 s). Same video: 6.03 % CER, 12.83 % WER (two spelling rows from it: `꼴을 빨` → `꿀을
+  빨`, and `개월` as a number counter, `육 개월` → `6개월`). Where the time goes now (CPU): model
+  loading about 50 s, encoders about 11 s per minute of sound for the recogniser and 7.5 s for
+  the aligner, prompt prefill about 20 s per piece and the aligner's pass about 14 s per piece
+  (both dense f32 products, bound by arithmetic), text generation about 400 s. Not timed on a real GPU (the build container has none); there
+  token passes are bound by memory reads, which the side-by-side pieces share.
 
 ## Speakers and game voice
 
@@ -246,8 +340,24 @@ background job on the media of the sequence's audio clips (or `items`); the mode
 on first use into the folder OverFilmSubs uses (`%LOCALAPPDATA%\OverFilm\models`), and the user
 glossary (`…\OverFilm\glossary`) applies too. Options: `mode` (general / commentary: team and
 player names as context), `speakers`, `numSpeakers`, `extraTerms`, `gpu`, `gameVoice` (drop /
-label / keep), `lineChars`, `maxLines`, `cleanFillers`. The editor app builds with it by default
-(`apps/filmcraft` feature `overfilm-qwen`).
+label / keep), `lineChars`, `maxLines`, `leadMs` (120: shown this long before the voice), `holdMs`
+(400: kept this long after it), `readingCps` (12: kept up long enough to read at this many letters
+a second when the next caption leaves room), `cleanFillers`, `audioTrack`. Lines and captions
+break at natural Korean boundaries (sentence and clause endings, particles, pauses), never inside
+a phrase such as `할 수 있다` or `하고 있다`. The editor app builds with
+it by default (`apps/filmcraft` feature `overfilm-qwen`).
+
+- `audioTrack` (1 = A1; the dialog's "Audio track") recognises only the clips on that track, each
+  with the audio stream and source channels the clip plays: a recording with the microphone on a
+  stream of its own (OBS) lands on A2 when dropped in, so choosing A2 captions the voice alone. Only
+  those clips' media are captioned. OverFilmSubs has the same choice for files with several audio
+  tracks (`--audio-track N`, MCP `audio_track`).
+- `numSpeakers` up to 32 is kept as given (the automatic count stops at 8). `numSpeakers: 1` skips
+  telling voices apart altogether (WeSpeaker and the overlap model do not run): faster, and the
+  captions carry no labels anyway.
+- The time left is estimated from the average speed between the first and the latest step of the
+  recognition (`Progress::set_steady_pace`), not the last 15 seconds: recognition moves a piece of
+  sound (up to 30 s) at a time, and a 15 s window swung between "20 minutes" and "2 hours".
 
 - Each clip's transcript is stored like any other (Text panel ▸ Transcript): media-time words,
   speakers 화자1, 화자2…, in-game voice as the speaker "게임 음성". Text-based editing, search and
@@ -280,7 +390,43 @@ track. Then:
   (a colour per speaker: 화자1 sky blue, 화자2 orange, 화자3 green; slides up), 강조 (big red,
   middle of the frame, bounce), 한 글자씩 (typewriter). A leading `(화자1)` label written by
   OverFilmSubs picks the speaker's colour and is dropped from the text.
-  `overfilm.captions.savePreset` adds the user's own (`<project>.overfilm-caption-styles.json`).
+  `overfilm.captions.savePreset` adds the user's own (`<project>.overfilm-caption-styles.json`,
+  or the user's `overfilm-caption-styles.json` for an unsaved project).
+- **Premiere styles** (`overfilm_captions::premiere`, `overfilm.captions.importStyle {path}`; the
+  dialog's **Import Premiere Style…**): the user's own `.prtextstyle` (Premiere: right-click a
+  caption style ▸ Export Text Style), `.mogrt`, `.prproj` or Premiere XML becomes OverFilm styles
+  in the user's `overfilm-caption-styles.json` (beside the OverFilm models, shared by every
+  project). From a Premiere text style: font, size, fill, outline, background box (colour,
+  opacity, size, corner radius) and shadow on/off; fonts are matched to installed families and
+  the ones not installed are reported. From an After Effects `.mogrt`: the first text control's
+  font and size (scaled to 1080 lines) and the colours its control names place (text, stroke,
+  background; a gradient's start colour as the fill), and its **motion**: the `.aep` inside
+  (`overfilm_captions::aep`, a bounds-checked RIFX walker) gives the text layer's scale,
+  position, opacity and rotation keyframes; the keys before the longest still stretch become
+  the caption's custom motion in, the keys after it the motion out (`CaptionPreset::custom_motion`,
+  values relative to the rest pose, eased or linear per key), sped up so in and out take at most
+  60 % of a caption. A per-character text animator becomes the typewriter. The text is measured
+  through its parents and the precompositions that show it, and expressions are evaluated
+  (`overfilm_captions::aep_expr`: variables, if/else, Math, ease/linear/clamp, effect controls,
+  other layers' transforms, valueAtTime, loopOut; `wiggle()` becomes the Wiggle effect).
+  The rest of the look (`overfilm_captions::aep_look`, `CaptionPreset::template`,
+  `styles::caption_clip`): Glow → Wonder Glow, CC Light Sweep → **Text Light Sweep** (OverFilm's own
+  effect), Gaussian/Fast Blur, Directional Blur, Drop Shadow → the text's
+  shadow, Gradient Ramp → a gradient fill, Fill → the fill colour; their keyframes fitted into
+  each caption like the motion. Masks go on the caption clip's opacity; rectangle/ellipse shape
+  layers become shape layers (pinned to the text when sized to it); the other text layers' motion
+  moves the caption's second and later lines. Not carried over (listed in the import notes):
+  `sourceRectAtTime()`/`random()`/loops-in-code expressions, third-party plug-ins, free-form
+  path shapes, 3D/cameras/lights, track mattes and layer styles. Mask and effect positions are
+  measured from the text's centre at rest, so they are close but not exact. A template with no
+  readable keyframes falls back to a motion guessed from its names. Choosing a motion in the
+  dialog replaces the template's motion (its effects stay).
+  The FlatBuffers layout was worked out from text styles
+  people share publicly (14 `.prtextstyle` and 8 `.mogrt` files all read); unknown fields are
+  skipped. No Adobe file is shipped or read by us: the user picks their own files. Upstream's
+  `.fcgt` templates still refuse `.mogrt`; this is a separate OverFilm reader.
+- **Save Selected Caption's Look** (`overfilm.captions.styleFromClip {name, clip?}`): a caption
+  restyled in Effect Controls is saved back as a style (`styles::preset_from_layer`).
 - **Motion** in and out: fade, pop (scale 70 → 108 → 100), slide up, bounce, typewriter (Source
   Text held per character, at most 60 ms each). Motion lasts `motion_secs` (0.2 s), at most a
   third of the caption.
@@ -322,19 +468,22 @@ markers first to choose which moments go in; the source sequence is not changed.
 
 ## Kills and team fights
 
-Reading the kill feed itself proved unreliable on a compressed broadcast (small boxes over a moving
-game, colours washed out). The broadcast HUD's **player bars** are steadier: each player's name
-plate is in the team colour while they are alive and turns black while they wait to respawn
-(`overfilm_vision::kills`).
+The broadcast HUD's **player bars** give every death steadily: each player's name plate is in the
+team colour while they are alive and turns black while they wait to respawn
+(`overfilm_vision::kills`). The kill feed (small boxes over a moving game, colours washed out by the
+stream) is harder to read; it adds who killed whom (see "Who killed whom" below).
 
 - `overfilm.playerBar.learn {team: 1|2, rect: [x, y, w, h], players=5, time?, clip?, templates?}`
   (or the Learn Screen Template dialog with "Team 1/2 name plates"): the rectangle around one team's
   plates, on a frame where the whole team is alive; it is split into `players` equal plates and
   saved in the screen-template file (`bars`), beside the templates.
-- `Sequence ▸ OverFilm ▸ Find Kills and Team Fights` (`overfilm.kills.scan {fps=2, clips?,
+- `Sequence ▸ OverFilm ▸ Find Kills, Ultimates and Team Fights` (`overfilm.kills.scan {fps=2, clips?,
   templates?, fightGap=10, minKills=3, wait}`): a background job reads the plates while the game
   HUD (`live`) template matches. A plate reads dead when over 35 % of it is near black (the white
-  name stays bright) and must read so for half a second; samples where most plates are dark at
+  name stays bright) and must read so for half a second. A plate also goes black for a few seconds
+  while its player changes hero; then the white health segments stay under it, where a dead
+  player's plate has a red cross instead, so a black plate over white segments (and no red) is not
+  a death; samples where most plates are dark at
   once (replays, transitions) are skipped. Each death becomes a point marker
   "OverFilm 처치: N팀 M번" (team colour) and each run of 3+ deaths no more than 10 s apart a range
   marker "OverFilm 교전 N" (5 s before the first death to 3 s after the last). Running it again
@@ -347,7 +496,262 @@ Measured on the 84-minute OWCS broadcast (bars learnt at 30:58, `overfilm_kills_
 HUD template), about 147 deaths and 23 team fights over the three maps. Checked against the frames:
 the fights at 31:06 and 34:30 (a team wipe) died in the order and at the times the plates show,
 and two of the four sound-only highlights (31:06, 1:15:19) fall on fights. A plate that flickers back
-mid-respawn made a few double deaths, hence no second death of a player within 8 s.
+mid-respawn made a few double deaths, hence no second death of a player within 8 s. Hero changes
+were counted as deaths until the strip under the plates was read: over 30:00 to 1:00:00 of that
+broadcast they were 11 of 112 "deaths" (each a black plate for about 3 s over the health segments).
+
+The scan's time goes into decoding the video: every frame of a stream has to be decoded to reach
+the sampled ones (that broadcast's stream has no frames nothing refers to; on recordings that have
+them, the scan now skips them). After decoding, the gray picture comes straight from the video's
+Y' plane, and only the kill feed and the strips under the plates are made into colour. Two minutes
+of the 720p broadcast take about 14 s on a 4-thread CPU (the decoder already uses the threads;
+decoding stretches at once on more decoders saved a few seconds there for four times the memory,
+so it is not done).
+
+## Ultimates and ultimate kills
+
+Each name plate also has a small box beside the player's picture: the ultimate charge as a number
+("43%") and, once the ultimate is ready, a round white icon, the same on every plate of a team
+(`overfilm_vision::ults`).
+
+- `overfilm.ultIcon.learn {team: 1|2, rect: [x, y, w, h], player=1, time?, clip?, templates?}` (or
+  the Learn Screen Template dialog with "Team 1/2 ready ultimate icon" and the plate's number): a
+  box round one ready icon, on a frame where that player's ultimate is ready. Saved with the team's
+  bar (`bars[].ult`: the icon's gray grid placed on the first plate, how much of it is bright disc,
+  and its median gray). The built-in OWCS file has both teams' icons.
+- `overfilm.kills.scan` (above, with `ultWindow=6`) then follows the icons too, in the same pass
+  over the frames (the deaths it finds do not change). A plate reads ready when its box correlates
+  with the icon (0.75+) and shows at least 75 % of the icon's bright disc (a small blur first, so
+  the thin charge digits do not count). A plate that read ready for a second and then not, while
+  the player is alive and the plate is still on screen (its box keeps 60 % of the icon's median
+  gray: a dead plate turns black, and the bars leave the screen at the end of a round), is a use:
+  a point marker "OverFilm 궁극기: N팀 M번" (violet). A second use within 10 s, or one followed by
+  the player's own death within 1.5 s, is left out.
+- Without a kill feed to read, an ultimate kill is by timing: a death of the other team no
+  more than `ultWindow` seconds after a use, given to the latest such use: "OverFilm 궁극기 처치:
+  N팀 M번 ← N팀 M번 궁극기" (yellow; the comment says it is an estimate). Healing and movement
+  ultimates followed by a kill count too.
+- On broadcasts that show the game's kill feed, `overfilm.killFeed.learn {rect, icon, time?, clip?,
+  templates?}` (dialog: "Kill feed (ultimate kills)", first green box around the feed, second round
+  one ultimate kill's icon) learns where it is and how big the icons are (`killfeed`; nothing of the
+  icon is stored). The kill rows of an ultimate carry the ultimate's icon before the arrow: a white
+  disc whose rim ends at the same distance from its centre in nearly every direction (portraits'
+  hair and a scope's reticle do not). An icon that stays two samples and was not there (rows move up
+  and down, not sideways) is an ultimate kill, marked "OverFilm 궁극기 처치: N팀 M번 ← … (킬피드)"
+  with the death on the plates 1 s before to 2.5 s after it when there is one.
+
+Measured on the 84-minute OWCS broadcast (built-in icons, learnt at 34:40; `ults_raw` example,
+2 frames a second): 104 ultimate uses, and every one checked against the frames was right (34:28
+two at once, 35:03, 35:12, 35:16, 35:17, 35:42 two at once): the ready icon was on the plate and the
+charge number or the hero's running-ultimate icon replaced it. Before the on-screen check, 12 false
+uses came from the bars leaving the screen at the ends of rounds. Its 49 timing-based ultimate kills
+were counted before the kill feed was read. The kill-feed reading found exactly the three ultimate
+kills of six rows in a kill feed screenshot the owner sent (no portrait or reticle taken for one),
+and the three ultimate kills of the broadcast fights checked below.
+
+### Who killed whom (kill feed)
+
+On videos that show the game's kill feed (gameplay, streams, broadcasts that keep it), the kill
+scan reads every row once the feed is learnt (`overfilm_vision::feedrows`); `icon` is optional for
+this, `rect` around the feed is enough, and the feed's row height is learnt with it. The built-in
+OWCS file has that broadcast's feed (`[0.74, 0.185, 0.26, 0.30]`, rows 0.125 of it high; its top
+starts above where the feed sits under the kill count, as the broadcast drops the count in some
+shots and the feed moves up).
+
+- A row is two boxes in the team colours (blue: the viewer's team, red: the other) with the killer's
+  hero picture after the first and the victim's before the second; a row with one box is a death
+  with nobody to credit. Rows that touch (a reticle or an effect between them) are cut apart at the
+  emptiest line near each row height. The ultimate icon is read on the row itself, between the two.
+- Nothing built in is matched: the white name text (a gray grid of its own width) and the hero
+  picture are kept as small grids, and the same name or picture read again is the same player or
+  hero (normalised correlation of the grids moved by a cell or two, names of lengths more than
+  12 % apart never match). They are numbered as they first appear: "선수 1", "영웅 2".
+- A row on screen for two samples that was not there before is one kill, at its first sample.
+  Rows are followed from sample to sample by where their boxes start and end (in row heights; a
+  name blurred by motion or the stream reads a little wider or not at all, its box stays put),
+  their sides and names, keeping the rows' order (a new row comes in at the top and pushes the
+  others down; a new top row must not take the place of the old one read just below it). A row
+  that ends well left of the feed's right edge (the median of where victims' boxes end) is
+  something else. A row missed for a sample or two (a flash, a smear) is the same row when it is
+  found again near where it was; one lost for longer is the same kill when its boxes are where they
+  were and its names alike. A killer's box missed on a sample does not make another row.
+- Players and heroes are named from the sharpest readings of the row (up to 8 of each side, by
+  how sharp the name text is), and a player keeps up to 24 readings of the name, so the next
+  reading is compared with all of them (one name blurs differently every time). Each kill is a point marker
+  "OverFilm 킬피드: 선수 1 (영웅 1) → 선수 2 (영웅 3)" (" (궁극기)" with the icon; blue killer cerulean,
+  red rose, nobody tan), the comment "아군 → 적". Frames are decoded up to 1920 wide while the
+  feed is read. With no name plates' deaths on the sequence the highlights count these kills.
+- `overfilm.killFeed.list {}`: the kills (kill feed markers, else the plates' deaths) with time,
+  clock and text, and the last scan's players and heroes. The OverFilm panel shows it under
+  "처치 목록": a click moves the playhead there.
+- `overfilm.killFeed.name {kind: "player"|"hero", id, name, templates?}` (the panel's "선수·영웅
+  이름 붙이기"): names player or hero `id`; the markers are written again (one undo step) and the
+  name and its grid go into the template file (`feed_names`), so later scans name the same text or
+  picture themselves. Names are the user's: nothing ships with any.
+
+Measured on the owner's kill feed screenshot (six rows): all six read right at its size, at 2/3 and
+at 1/2 of it (NECROS four times and FRANKYBOXING and LEEVI twice each, one player each; three
+ultimate kills); at 1/2 one victim's picture was taken for another hero's. The same rows played as
+a 2 fps H.264 video (CRF 30), one row more every two seconds, gave the six kills at the right times
+(`feed_raw` example: `rows`, `pairs`, `run`).
+
+On the OWCS broadcast (720p, built-in feed, 2 fps), three team fights checked frame by frame
+(33:49 to 34:02, 34:30 to 34:47 and 36:25 to 36:33, 14 kills): 13 found with the right teams and
+within a second or two of the row's arrival (one, the last of the first fight, missed), all three
+ultimate kills with their icon, and one kill counted twice when its row was lost for a few seconds
+behind a camera cut. Who is who is weaker there: the names are about 8 pixels high and blurred, so
+two names of a length (WUTIAN, FAITH, GAMJUNG) can share one "선수 N" until named. Ten minutes of
+the broadcast read in about 30 seconds on a CPU, decoding with ffmpeg included.
+
+## Teams, players and heroes on screen
+
+The kill scan (`overfilm.kills.scan`, `players=true` by default) also reads who plays what off the
+name plates, on the frames it decodes anyway, and OverFilm Captions uses it as a **soft prior**
+for team, player and hero names.
+
+- **Heroes** (`overfilm_vision::heroes`): each plate's hero portrait (right of the ultimate box;
+  `portrait` on a player bar when a broadcast puts it elsewhere) as a 6×6 colour grid, compared
+  scaled to its brightness (dark portraits differ in few levels). A new portrait counts once it has
+  stayed 12 s: a death grays the portrait for the respawn time, and the ultimate animation covers
+  it for a moment. The first hero of each stretch of play (between breaks of 2 s or more off the
+  game HUD) is a pick, later changes are swaps. Heroes are numbered ("영웅 3") until named in the
+  OverFilm panel ("이름판 영웅 이름 붙이기") or with `overfilm.heroes.name {id, name}`; the name and
+  grid go into the template file (`hero_names`), so later scans name the portrait themselves.
+- **Teams and players** (`overfilm_vision::lineup`, text read by `overfilm_pipeline::ocr`: the
+  ocrs models, about 12 MB, downloaded once into the models folder): the team name over each bar
+  and the names under the plates, read 2.5× enlarged every 2 s at the start of a stretch until each
+  plate has 6 readings, then every 30 s. Readings are only compared with the glossary's roster
+  (`players.tsv` sections under each team's heading; coaches and streamers left out): a side's
+  team is the one its readings match best overall (`D2 Blat` still votes for O2 Blast), and its
+  players are matched per plate per stretch against that team only, each player on one plate, so
+  substitutes and plates reordered between rounds are followed. One unread plate whose team is
+  otherwise unchanged is the player left over.
+- Markers (replaced by every scan): "OverFilm 경기: 로제 vs 오투 블래스트"; "OverFilm 선수" where the
+  plates change (comment: "로제: 태종, 킬로, …" per team; "OverFilm 선수 교체: 로제 A → B" for a
+  substitute); "OverFilm 영웅 선택" at each stretch's picks (comment "태종: 트레이서" per line, only
+  plates whose hero changed); "OverFilm 영웅 교체: 우톈 트레이서 → 겐지" at each swap.
+- **Captions**: `overfilm.captions.generate` reads those markers back (hand-corrected markers
+  count) into the clip's `MatchPrior`, moved through the clips of the media to its own clock.
+  The teams and players go first in the recogniser's context ("이번 경기: 로제 대 오투 블래스트.
+  출전 선수: …", before the long lists that the length cap cuts), and in the glossary correction the
+  names in play (and the named heroes in play during each piece of sound) win a tie with other
+  names and allow one more jamo edit at three syllables or more. Nothing else changes: a hero
+  nobody plays is corrected as before, since commentators talk about other heroes too. A
+  two-syllable player still needs `선수` after it to be corrected.
+- `overfilm.heroes.list {}`: the last scan's teams, players and heroes (number, name, first pick).
+
+Measured on the OWCS broadcast (720p, built-in template file, 2 fps, the 84 minutes there are):
+both teams right (RØDE ZANSIDE GAMING, O2 Blast), all ten players on every plate of all six
+stretches, including Kilo and Taejong trading plates between maps (checked on frames), in 135
+readings (2½ minutes of a 10-minute run on 4 CPU cores, decoding included). 14 swaps, 37 picks;
+the ones checked on frames are real (30:26 Heesung, 1:10:39 Homerunball, five O2 players
+changing heroes in the spawn room before 45:03). Before the brightness scaling, dark portraits of
+different heroes shared one number. No substitute in this video, so substitutes are tested only
+on made-up readings (`lineup_tests`). Evaluation tools: `heroes_raw` (vision) and `lineup_raw`,
+`recognise_raw` (pipeline) examples.
+
+Captions on 10 minutes of commentary (28:20–38:20, CPU, speaker split off), with the prior from
+that scan against without: "오토플라스트" became "오투 블래스트", "오브러/오픈" became "오프너"
+(1 → 5), "일리어" became "에일리언", "로드호그 게이밍" went away. The correction alone
+(`correct_raw`, same recogniser output) changes nothing but those names. The longer context also
+moves some unrelated words ("홈런볼" → "홈런 볼" twice, one "우텐" heard as "오투"), and WuTian is
+still often 우티언/우티안, so the prior helps team and player names most where they are spelled
+nearly right already.
+
+## Claude Code review
+
+Off until switched on in `Sequence ▸ OverFilm ▸ Claude Code Review Settings…`
+(`overfilm.review.settings {enabled, auto, cliPath, model, timeoutSeconds=180, batch=6,
+maxItems=60}`, saved as `claude-review.json` in the OverFilm data folder). When on, the editor hands
+the calls it is unsure of to the Claude Code command line on the same computer:
+
+- **Getting ready**: asking for a review (`overfilm.review.cuts`, `overfilm.review.captions`, or the
+  one-go run with a review step) checks Claude Code first. Not installed: an install guide opens
+  with the commands for this system (native installer, npm, `claude auth login --claudeai`) and
+  Copy buttons (`overfilm.review.install`). Review off, not signed in, or signed in with an API key:
+  the settings open with what to do and a Sign In button (`overfilm.review.login` starts
+  `claude auth login --claudeai` in its own window). The model is picked from a list
+  (`overfilm.review.models`): Claude Code's default, the aliases the installed version's `--help`
+  names for `--model`, opus/sonnet/haiku, and the user's default from `~/.claude/settings.json`, or
+  typed. A good check is trusted for ten minutes. The review commands stay in the menu while review
+  is off, so they can lead the user there.
+
+- **How it runs** (`overfilm_review::cli`): one `claude -p --output-format json --json-schema …
+  --tools "" --no-session-persistence --strict-mcp-config` run per batch of questions, the prompt on
+  stdin, in an empty temporary folder. `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are removed
+  from its environment, so it always uses the Claude account the user signed in to Claude Code
+  with (their subscription). Windows: `claude.exe` (native install) or the script behind an npm
+  `claude.cmd`, no console window. A time limit per question (killed after it), the Jobs panel's
+  stop button kills it too. Not installed, not signed in, usage limit, timeout or an answer that
+  does not parse: a toast says which, nothing changes. `Check Claude Code` in the dialog runs
+  `claude --version` and `claude auth status`.
+- **Unclear cuts** (`Ask Claude Code About Unclear Cuts`, `overfilm.review.cuts {markers?, all,
+  again, rules?}`): "OverFilm 컷" markers with speech within 1.5 s of an edge or inside, game voice
+  inside, or a highlight or team fight ("OverFilm 교전") within 5 s. Each goes with the words heard
+  30 s around it (speaker, game voice, before/inside/after) and what the screen templates see at five points. The answer per
+  marker is `cut` (the reason added to the comment), `keep` (renamed "OverFilm 유지 (Claude)", blue,
+  so Apply OverFilm Cut Markers skips it) or `partial` with exact keep ranges in ms (the marker
+  becomes cut markers for the rest and keep markers for those; pieces under 0.5 s are dropped).
+  Keep ranges are clipped into the marker. The user's rule goes with every question: waiting time up
+  to 10 s before the start, pauses whole, silences only when nothing happens, nothing else.
+- **Captions** (`Ask Claude Code About Unclear Captions`, `overfilm.review.captions {track?,
+  captions?, all, again, mode?, lineChars=16, maxLines=2}`): captions with unsure words (confidence under
+  0.7) or not-quite-sure ones (under 0.9: the recogniser is often sure of a wrong word that sounds
+  alike), a glossary correction (the pure recognition differs from the corrected text), over the
+  line limits, a one- or two-letter line, or a very short caption after them. Each goes with the
+  caption, the pure recognition of its words (kept from recognition: `Recognised::raw_texts`,
+  lined up with the corrected words by edit distance; beside a saved project as
+  `<project>.overfilm-raw.json`), the corrected text, and the two captions before and after with
+  their own pure recognition. Answers: `keep`, `fix` (new text, at most two lines) or `split`
+  (2–4 captions; times cut at the word boundary where each part's letters run out). A fix far from
+  both the caption and the pure recognition (over 40 % of the letters changed) or over the line
+  limits is dropped; speaker labels such as `(화자1)` are kept. Each question also carries the kind
+  of video (`mode`, or commentary when match info markers exist), the match info markers so far
+  ("OverFilm 경기/선수/영웅 선택/영웅 교체") and the glossary terms its captions mention (spelling,
+  other names, known misrecognitions, role). The instructions ask to fix confident misrecognitions
+  that make no sense in context with a similar-sounding word or term, and to keep when nothing in
+  the sound or the context supports a change. Measured on the aichi set (2026-11-02, real
+  Claude Code, `cargo run -p overfilm-pipeline --example review_eval`): CER 5.97 %
+  before review; old instructions 5.83 %; with confident misrecognitions asked about 5.68 %; with the
+  hero roster and roles and the "same sound first" rule 5.41 % (172 of 307 captions asked, terms 98.2 →
+  99.1 %); asking every caption (before the roster) 5.62 %. A `misheard` form marked `@검토`
+  (`경제` for `경쟁`) is never replaced by the correction step; a caption with one is asked about
+  and the form goes with it as a likely misrecognition.
+- **On its own** (`auto`): after Auto Cut or Suggestions mark cuts, and after OverFilm Captions
+  places captions, the matching review starts by itself.
+
+Every review is one undo step; a marker or caption changed while it ran is left alone, and
+reviewed ones are not asked again unless `again`. Measured with Claude Code 2.1 (default model):
+about 6–8 s for one question. `cargo test -p overfilm-review -- --ignored` asks the real
+Claude Code one cut and one caption.
+
+## Cut and caption in one go
+
+`Window ▸ OverFilm` (or `Sequence ▸ OverFilm ▸ Cut and Caption in One Go…`) opens the OverFilm
+panel (`crates/ui-egui/src/panels/overfilm_panel.rs`). It docks, tabs and floats like any other
+panel and stays in the saved workspace. It runs the ticked steps one after another
+(`overfilm.flow.run`, `crates/engine/src/overfilm_flow.rs`):
+
+1. **Auto Cut** (`overfilm.autoCut`, always as markers first), with the template file and the time
+   kept before the start.
+2. **Claude Code on the unclear cuts** (`overfilm.review.cuts`), when ticked.
+3. **The cuts applied** (`overfilm.autoCut.apply`), unless the result is "markers to check first";
+   markers already on the sequence (an earlier Auto Cut, Suggestions) are reviewed and applied too.
+4. **Captions**: recognised (`overfilm.captions.generate`, audio track, video kind, speakers,
+   in-game voice), or laid out again from the transcript the sequence already has
+   (`overfilm.captions.fromTranscript`: after the cuts, without a second recognition).
+5. **Claude Code on the captions** (`overfilm.review.captions`), when ticked.
+
+Each step waits for the one before (its background job and its result applied). What can be
+known at the start is refused at the start: no step chosen, a review ticked while Claude Code
+review is off, "from the transcript" without one, no captions in this build, a template file
+that can't be read, the first step's own errors. A later step that fails stops the run; a review
+that fails is noted and the run goes on. While a run is going, the reviews that the "on its own"
+setting starts after Auto Cut and OverFilm Captions are left to the run, so nothing is asked
+twice. The panel shows each step (waiting, running with its progress and time left, done,
+skipped, failed, how long it took); `Stop` (`overfilm.flow.stop`) stops the running job and the
+rest. `overfilm.flow.status` gives the same over the control channel and MCP. Undo takes back each
+step on its own. Below the run, buttons open the other OverFilm tools.
 
 ## Editing style (beta)
 
@@ -383,10 +787,31 @@ called with parameters, over the control channel or MCP, the command runs direct
 - **Learn Screen Template (OverFilm)…**: the Program frame at the playhead; drag on it to mark what
   always looks the same on that screen (green) and, switched to ignore, what changes (red: the
   clock, a camera). OK learns it into the template file. "Team 1/2 name plates (kills)" learns a
-  player bar instead (the first green rectangle, and the number of players).
+  player bar instead (the first green rectangle, and the number of players); "Team 1/2 ready
+  ultimate icon" a team's ultimate icon (the first green rectangle, and the plate it is on); "Kill
+  feed (who killed whom, ultimates)" the kill feed (the first rectangle around it, the optional
+  second round one ultimate icon).
+- **Cut and Caption in One Go (OverFilm)…** opens the OverFilm panel (above).
+- **Claude Code Review Settings (OverFilm)…** (`panels/overfilm_review.rs`): on/off, on its own,
+  `claude` path, model, time limit, batch size, most items, and a connection check.
 
 The labels are in English in the code and Korean in `crates/ui-egui/src/i18n/ko.tsv` (Edit ▸
 Language ▸ 한국어).
+
+## Name and icon
+
+The program shows itself as **OverFilm**: the window title (taskbar, Alt-Tab), the exe's
+VERSIONINFO (`FileDescription`/`ProductName`, which Task Manager and Explorer show), message boxes,
+the About dialog and the Korean labels that named FilmCraft. The icon is the OverFilm clapperboard
+(`assets/app-icon/README.md`), used by the editor and by OverFilmSubs. Folder and file names
+(`FilmCraft Previews`, `FilmCraft Media Cache`, `filmcraft.log`, the settings folder, `.fcproj`)
+and the app id keep FilmCraft's, so existing settings, caches and projects carry over. The Windows
+installer (NSIS, project files `overfilm-editor/installer/overfilm.nsi`) installs `OverFilm.exe`
+with the same icon on the Start menu and desktop shortcuts.
+
+Cross-compiling for Windows from Linux, `apps/filmcraft/build.rs` and `apps/overfilm-subs/build.rs`
+embed the icon and VERSIONINFO with MinGW's `x86_64-w64-mingw32-windres` (`apps/filmcraft/winres.rs`;
+`apt-get install mingw-w64`). Without it the exe builds without them, with a warning.
 
 ## Upstream updates
 
@@ -426,19 +851,28 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `xtask/src/main.rs` | `overfilm-*` crates in `LAYERS`; layering also checks `overfilm-*` dependencies |
 | `.github/workflows/overfilm.yml` | new file (OverFilm CI) |
 | `OVERFILM.md` | new file (this document) |
-| `crates/engine/Cargo.toml` | depends on `overfilm-vision`, `overfilm-captions`, `overfilm-pipeline`, `overfilm-asr`, `overfilm-ai`; feature `overfilm-qwen` |
-| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `mod overfilm_kills`, `mod overfilm_style`, `Session::overfilm_jobs`, `overfilm_caption_jobs`, `overfilm_assist_jobs` and `overfilm_kill_jobs`, their `poll` in `poll_persistence` |
+| `crates/engine/Cargo.toml` | depends on `overfilm-vision`, `overfilm-captions`, `overfilm-pipeline`, `overfilm-asr`, `overfilm-ai`, `overfilm-review`; feature `overfilm-qwen` |
+| `crates/engine/src/lib.rs` | `mod overfilm_autocut`, `mod overfilm_captions`, `mod overfilm_transcribe`, `mod overfilm_assist`, `mod overfilm_reel`, `mod overfilm_kills`, `mod overfilm_style`, `mod overfilm_review`, `Session::overfilm_jobs`, `overfilm_caption_jobs`, `overfilm_assist_jobs`, `overfilm_kill_jobs` and `overfilm_review`, their `poll` in `poll_persistence` |
 | `crates/engine/src/media_pool.rs` | `MediaPool::reopen`: an uncached second opening of a file the host streams, for Auto Cut's parallel decoders |
-| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()`, `overfilm_reel::commands()`, `overfilm_kills::commands()` and `overfilm_style::commands()` |
+| `crates/engine/src/commands.rs` | registers `overfilm_autocut::commands()`, `overfilm_captions::commands()`, `overfilm_transcribe::commands()`, `overfilm_assist::commands()`, `overfilm_reel::commands()`, `overfilm_kills::commands()`, `overfilm_style::commands()` and `overfilm_review::commands()` |
 | `crates/engine/src/transcript.rs` | `targets` is `pub(crate)` (which clips to recognise) |
 | `crates/engine/src/overfilm_transcribe.rs` (+ `_tests.rs`) | new file: Korean captions in the editor |
 | `crates/engine/src/overfilm_assist.rs` (+ `_tests.rs`) | new file: silence and highlight suggestions |
 | `crates/engine/src/overfilm_reel.rs` (+ `_tests.rs`) | new file: the highlight reel |
-| `crates/engine/src/overfilm_kills.rs` (+ `_tests.rs`) | new file: player bars, deaths and team fights |
+| `crates/engine/src/overfilm_kills.rs` (+ `_tests.rs`) | new file: player bars, deaths and team fights, ultimates and ultimate kills |
 | `crates/engine/src/overfilm_style.rs` (+ `_tests.rs`) | new file: the learnt editing style |
+| `crates/engine/src/overfilm_review.rs` (+ `_tests.rs`) | new file: Claude Code review of cuts and captions; Auto Cut's `mark`, Suggestions' `make` and OverFilm Captions' `poll` call its `after_*` hooks, OverFilm Captions keeps the pure recognition for it |
+| `crates/engine/src/overfilm_flow.rs` (+ `_tests.rs`) | new file: cut and caption in one go; `Session::overfilm_flow`, its `poll` after the other OverFilm polls; the review's `after_*` hooks leave a running one alone |
+| `crates/ui-egui/src/panels/overfilm_panel.rs` | new file: the OverFilm panel; `PanelKind::OverFilm` in `dock.rs`, `panels.rs`, `app/window.rs` (opens beside Properties) |
+| `crates/ui-egui/src/panels/overfilm_review.rs` | new file: the Claude Code review settings dialog (`route`/`show` next to `overfilm`'s) |
 | `apps/filmcraft/Cargo.toml` | feature `overfilm-qwen`, on by default |
 | `crates/ui-egui/src/panels/overfilm.rs` | new file: the OverFilm dialogs |
 | `crates/ui-egui/src/panels.rs`, `menus.rs`, `panels/dialogs.rs` | `mod overfilm`, its `route` before the menu dialogs, its `show` |
 | `crates/ui-egui/src/i18n/ko.tsv` | Korean labels of the OverFilm menu items and dialogs (appended) |
+| `assets/app-icon/*`, `apps/filmcraft-web/web/favicon.png`, `ATTRIBUTION.md` | the OverFilm icon in place of the owl (same file names) |
+| `apps/filmcraft/build.rs`, `apps/filmcraft/winres.rs` | exe icon and VERSIONINFO named OverFilm; `windres` when cross-compiling |
+| `apps/filmcraft/src/main.rs` | `APP_NAME` ("OverFilm") for the window title and message boxes |
+| `crates/ui-egui/src/panels/dialogs.rs` | About heading "OverFilm", "Based on FilmCraft" |
+| `crates/ui-egui/src/i18n/ko.tsv` (values) | Korean labels say OverFilm where they said FilmCraft, except the FilmCraft website links |
 | `crates/engine/src/overfilm_autocut.rs` (+ `tests.rs`) | new file: Auto Cut commands (frames in, cuts out); `dissolve_at` is shared with the reel |
-| `crates/engine/src/overfilm_captions.rs` | new file: styled captions and the Premiere Pro export |
+| `crates/engine/src/overfilm_captions.rs` | new file: styled captions, Premiere styles in, and the Premiere Pro export |

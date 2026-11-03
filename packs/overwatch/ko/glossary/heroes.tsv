@@ -1,15 +1,15 @@
 id	ko	en	aliases	old	misheard	flags	note
-dva	디바	D.Va	송하나				돌격-개시자
+dva	디바	D.Va	송하나; D.va		디봐; D.va		돌격-개시자
 doomfist	둠피스트	Doomfist	둠; 둠피				돌격-개시자
 winston	윈스턴	Winston	원숭이; 고릴라				돌격-개시자
 wrecking_ball	레킹볼	Wrecking Ball	햄스터; 햄찌; 해먼드; 볼				돌격-개시자
 mauga	마우가	Mauga					돌격-투사
 orisa	오리사	Orisa					돌격-투사
-roadhog	로드호그	Roadhog	돼지; 호그		로도그		돌격-투사, 2026 5시즌 개편
-zarya	자리야	Zarya					돌격-투사
+roadhog	로드호그	Roadhog	돼지; 호그		로도그; 로더그; 로드 호그; 로도 그		돌격-투사, 2026 5시즌 개편
+zarya	자리야	Zarya			자랴		돌격-투사
 domina	도미나	Domina					돌격-강건한 자, 2026 1시즌 신규
 hazard	해저드	Hazard	고슴도치				돌격-강건한 자
-junker_queen	정커퀸	Junker Queen	정퀸		전국퀸; 정커 퀸		돌격-강건한 자
+junker_queen	정커퀸	Junker Queen	정퀸		전국퀸; 정커 퀸; 동커퀸; 저커킨; 정커킨; 정커 킨		돌격-강건한 자
 ramattra	라마트라	Ramattra	라마				돌격-강건한 자
 reinhardt	라인하르트	Reinhardt	라인				돌격-강건한 자
 sigma	시그마	Sigma					돌격-강건한 자
@@ -30,18 +30,18 @@ junkrat	정크랫	Junkrat					공격-전문가
 mei	메이	Mei					공격-전문가
 soldier_76	솔저: 76	Soldier: 76	솔저; 솔져; 김병장; 솔붕이				공격-전문가
 symmetra	시메트라	Symmetra	시메				공격-전문가
-torbjorn	토르비욘	Torbjörn	토르				공격-전문가
+torbjorn	토르비욘	Torbjörn	토르		토르비온; 토르 비온		공격-전문가
 echo	에코	Echo					공격-수색가
 freja	프레야	Freja					공격-수색가
 pharah	파라	Pharah					공격-수색가
 sombra	솜브라	Sombra	솜브		선브라		2026-10 5시즌부터 지원 (전에는 공격-수색가)
 ana	아나	Ana					지원-전술가
 baptiste	바티스트	Baptiste	바티				지원-전술가
-jetpack_cat	제트팩 캣	Jetpack Cat	제트팩캣; 고양이		제트팩셋; 제트팩켓		지원-전술가, 2026 1시즌 신규
+jetpack_cat	제트팩 캣	Jetpack Cat	제트팩캣; 고양이		제트팩셋; 제트팩켓; 제트팩킷; 제트팩 킷; 제트팩캇; 제트팩 켓; 잭팩켓; 잭팩 켓; 잭팩캣; 잭팩 캣; 젯팩켓; 젯팩 캣		지원-전술가, 2026 1시즌 신규
 lucio	루시우	Lúcio	개구리				지원-전술가
 zenyatta	젠야타	Zenyatta	젠; 야타				지원-전술가
 kiriko	키리코	Kiriko	키리				지원-의무병
-lifeweaver	라이프위버	Lifeweaver	라이프 위버; 위버; 꽃남; 꽃미남				지원-의무병
+lifeweaver	라이프위버	Lifeweaver	라이프 위버; 위버; 꽃남; 꽃미남; 라위				지원-의무병
 mercy	메르시	Mercy	메르				지원-의무병
 moira	모이라	Moira					지원-의무병
 brigitte	브리기테	Brigitte	브리				지원-생존 전문가
@@ -50,6 +50,6 @@ juno	주노	Juno	화성인; 외계인				지원-생존 전문가
 mizuki	미즈키	Mizuki					지원-생존 전문가, 2026 1시즌 신규
 wuyang	우양	Wuyang					지원-생존 전문가
 doctrine	독트린	Doctrine			도틀인; 독틀인		지원, 2026 5시즌 신규 (54번째 영웅)
-dmon	디몬	D.Mon					돌격, 2026 4시즌 신규 (2026-08-12)
+dmon	디몬	D.Mon			딜몬; 디먼; 딜먼; 디 몬; 디몽; 데몬@픽		돌격, 2026 4시즌 신규 (2026-08-12)
 sierra	시에라	Sierra					공격, 2026 2시즌 신규. 드론 이름은 도로시
 shion	시온	Shion					공격, 2026 3시즌 신규 (52번째 영웅)

@@ -36,8 +36,11 @@ pub mod narration;
 pub mod overfilm_assist;
 pub mod overfilm_autocut;
 pub mod overfilm_captions;
+pub mod overfilm_flow;
 pub mod overfilm_kills;
+pub mod overfilm_lineup;
 pub mod overfilm_reel;
+pub mod overfilm_review;
 pub mod overfilm_style;
 pub mod overfilm_transcribe;
 pub mod panels;
@@ -493,6 +496,14 @@ pub struct Session {
     pub overfilm_assist_jobs: Vec<overfilm_assist::PendingAssist>,
     /// Running OverFilm kill scans.
     pub overfilm_kill_jobs: Vec<overfilm_kills::PendingKills>,
+    /// The last kill feed reading (who killed whom), for naming its players and heroes.
+    pub overfilm_feed: Option<overfilm_kills::FeedState>,
+    /// The last reading of teams, players and heroes off the name plates.
+    pub overfilm_lineup: Option<overfilm_lineup::LineupState>,
+    /// Claude Code review (OverFilm): settings file, running reviews, pure recognition.
+    pub overfilm_review: overfilm_review::ReviewState,
+    /// OverFilm One Go: the run of cut, review and caption steps (the last one stays for its status).
+    pub overfilm_flow: Option<overfilm_flow::Flow>,
     /// Effect presets (built-in + the user's, persisted in the data directory).
     pub presets: presets::PresetLibrary,
     /// Export presets (built-in + the user's, persisted in the data directory) and favourites.
@@ -602,6 +613,10 @@ impl Session {
             overfilm_caption_jobs: Vec::new(),
             overfilm_assist_jobs: Vec::new(),
             overfilm_kill_jobs: Vec::new(),
+            overfilm_feed: None,
+            overfilm_lineup: None,
+            overfilm_review: Default::default(),
+            overfilm_flow: None,
             presets: Default::default(),
             export_presets: Default::default(),
             export_queue: Default::default(),
@@ -701,6 +716,8 @@ impl Session {
         overfilm_transcribe::poll(self);
         overfilm_assist::poll(self);
         overfilm_kills::poll(self);
+        overfilm_review::poll(self);
+        overfilm_flow::poll(self);
         export_tools::pump_queue(self, false);
         panels::log_jobs(self);
         let Some(p) = self.persistence.as_mut() else { return };

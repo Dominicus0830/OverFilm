@@ -19,6 +19,7 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
     crate::panels::voiceover::show(app, ctx);
     crate::panels::remix::show(app, ctx);
     crate::panels::overfilm::show(app, ctx);
+    crate::panels::overfilm_review::show(app, ctx);
     crate::links::show_failed(app, ctx);
     crate::panels::interchange_export::show(app, ctx);
     crate::panels::caption_export::show(app, ctx);
@@ -461,7 +462,8 @@ fn about_tab(app: &mut FilmcraftApp, ui: &mut egui::Ui) {
     let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), egui::Sense::hover());
     crate::brand::paint_wordmark(ui, egui::pos2(r.min.x, r.center().y), 20.0, app.ui.dark);
     ui.add_space(6.0);
-    ui.heading("FilmCraft");
+    ui.heading("OverFilm");
+    ui.label(egui::RichText::new(tl!("Based on FilmCraft")).weak());
     ui.label(tlf!("Version {version}", version = env!("CARGO_PKG_VERSION")));
     ui.label(tl!("A clean-room, pure-Rust non-linear video editor. Part of the ArtCraft family."));
     ui.add_space(10.0);

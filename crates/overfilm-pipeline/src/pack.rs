@@ -12,6 +12,7 @@ const TABLES: &[(&str, &str)] = &[
     ("maps", include_str!("../../../packs/overwatch/ko/glossary/maps.tsv")),
     ("matchups", include_str!("../../../packs/overwatch/ko/glossary/matchups.tsv")),
     ("modes", include_str!("../../../packs/overwatch/ko/glossary/modes.tsv")),
+    ("netslang", include_str!("../../../packs/overwatch/ko/glossary/netslang.tsv")),
     ("players", include_str!("../../../packs/overwatch/ko/glossary/players.tsv")),
     ("profanity", include_str!("../../../packs/overwatch/ko/glossary/profanity.tsv")),
     ("slang", include_str!("../../../packs/overwatch/ko/glossary/slang.tsv")),
@@ -110,7 +111,19 @@ fn names(g: &Glossary, category: &str) -> Vec<String> {
 
 /// Recognition context for `mode`, plus the user's extra terms (comma or line separated).
 pub fn context(g: &Glossary, mode: Mode, extra_terms: &str) -> String {
-    let mut s = CONTEXT.trim().to_string();
+    context_with(g, mode, extra_terms, "")
+}
+
+/// [`context`] after `first`: what the screen said about this match (see
+/// [`crate::game::MatchPrior::context`]), so the length cap never cuts it.
+pub fn context_with(g: &Glossary, mode: Mode, extra_terms: &str, first: &str) -> String {
+    let first = first.trim();
+    let mut s = if first.is_empty() { CONTEXT.trim().to_string() } else { format!("{first} {}", CONTEXT.trim()) };
+    // The user's own terms go before the long team and player lists so the length cap never cuts them.
+    let extra: Vec<&str> = extra_terms.split([',', '\n', ';']).map(str::trim).filter(|t| !t.is_empty()).collect();
+    if !extra.is_empty() {
+        s.push_str(&format!(" 추가 용어: {}.", extra.join(", ")));
+    }
     if mode == Mode::Commentary {
         let teams: Vec<String> = g
             .entries
@@ -119,10 +132,6 @@ pub fn context(g: &Glossary, mode: Mode, extra_terms: &str) -> String {
             .flat_map(|e| std::iter::once(e.ko.clone()).chain(e.aliases.iter().filter(|a| a.chars().any(|c| ('가'..='힣').contains(&c))).cloned()))
             .collect();
         s.push_str(&format!(" 팀: {}. 선수: {}.", teams.join(", "), names(g, "players").join(", ")));
-    }
-    let extra: Vec<&str> = extra_terms.split([',', '\n', ';']).map(str::trim).filter(|t| !t.is_empty()).collect();
-    if !extra.is_empty() {
-        s.push_str(&format!(" 추가 용어: {}.", extra.join(", ")));
     }
     s.chars().take(MAX_CONTEXT_CHARS).collect()
 }
@@ -152,6 +161,33 @@ mod tests {
     }
 
     #[test]
+    fn community_slang() {
+        let g = glossary(None, true).unwrap();
+        let c = corrector(&g);
+        assert_eq!(c.apply("알 잘 딱 깔 센 하게 킹 받네 딜러 차이").text, "알잘딱깔센 하게 킹받네 딜러차이");
+        // Slang spellings are known words, so the name fixer leaves them alone.
+        for w in ["메모위", "아키우일", "고츠", "볼토시", "네카오", "중꺾마", "레게노", "뱅온", "합방"] {
+            assert_eq!(c.apply(w).text, w);
+        }
+        // Not recognition context: on the M1 set it cost 0.15 points of CER (see the pack README).
+        assert!(!context(&g, Mode::General, "").contains("알잘딱깔센"));
+        // User report: a multi-speaker clip with the newest heroes.
+        assert_eq!(c.apply("보통 뭐 캐슬 쓰게 되면은 딜몬도 좀 쓰고").text, "보통 뭐 캣 쓰게 되면은 디몬도 좀 쓰고");
+        assert_eq!(c.apply("모래 캐슬 성").text, "모래 캐슬 성");
+        // T1 vs RØDE commentary: team, hero, map and player names.
+        assert_eq!(c.apply("티온이 동커퀸 아이언발드 백기 선수").text, "티원이 정커퀸 아이헨발데 베키 선수");
+        // Quick speech (the M1 aichi video at 1.35x): a known word running into the rest of a name.
+        assert_eq!(c.apply("솜브라 로더그가 사기였던 제트팩킷").text, "솜브라 로드호그가 사기였던 제트팩 캣");
+        // aichi tier list: "히트박스 패치로 꿀을 빨고 있었던"
+        assert_eq!(c.apply("패치로 꼴을 빨고 있었던").text, "패치로 꿀을 빨고 있었던");
+        // user report on the same video: 냥이 (제트팩 캣) heard as 양이, and English "two"
+        assert_eq!(c.apply("솜브라와 양이캐서디 연계가").text, "솜브라와 냥이캐서디 연계가");
+        assert_eq!(c.apply("밥 양이 많다").text, "밥 양이 많다");
+        assert_eq!(c.apply("그냥 메인 딜러 투라고 표기해 봤습니다").text, "그냥 메인 딜러 2라고 표기해 봤습니다");
+        assert_eq!(c.apply("저는 지금 투 서브 딜러가").text, "저는 지금 투 서브 딜러가");
+    }
+
+    #[test]
     fn voice_lines_load() {
         let v = voicelines();
         assert!(v.lines.len() > 80);
@@ -167,5 +203,8 @@ mod tests {
         assert!(comm.contains("팀: ") && comm.contains("추가 용어: 새 선수, 다른 팀"));
         assert!(comm.contains("치벅"), "team nicknames are context too");
         assert!(comm.chars().count() <= MAX_CONTEXT_CHARS);
+        let with = context_with(&g, Mode::Commentary, "", "이번 경기: 로제 대 오투 블래스트.");
+        assert!(with.starts_with("이번 경기: 로제 대 오투 블래스트. 오버워치 영웅"));
+        assert!(with.chars().count() <= MAX_CONTEXT_CHARS);
     }
 }

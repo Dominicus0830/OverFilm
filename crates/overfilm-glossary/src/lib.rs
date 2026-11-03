@@ -29,7 +29,7 @@ pub mod digits;
 pub mod ko;
 pub mod voicelines;
 
-pub use correct::{Correction, Corrector};
+pub use correct::{Correction, Corrector, Preferred};
 
 /// The columns every table has, in order.
 pub const COLUMNS: [&str; 8] = ["id", "ko", "en", "aliases", "old", "misheard", "flags", "note"];
@@ -228,6 +228,7 @@ mod tests {
             ("teams", include_str!("../../../packs/overwatch/ko/glossary/teams.tsv")),
             ("players", include_str!("../../../packs/overwatch/ko/glossary/players.tsv")),
             ("slang", include_str!("../../../packs/overwatch/ko/glossary/slang.tsv")),
+            ("netslang", include_str!("../../../packs/overwatch/ko/glossary/netslang.tsv")),
             ("matchups", include_str!("../../../packs/overwatch/ko/glossary/matchups.tsv")),
             ("profanity", include_str!("../../../packs/overwatch/ko/glossary/profanity.tsv")),
         ];
@@ -245,6 +246,11 @@ mod tests {
         assert!(p.ko == "ㅅㅂ" && p.has_flag("mask") && p.has_flag("noeval") && p.misheard.iter().any(|m| m == "씨발"));
         assert!(g.get("teams", "cheeseburger").is_some_and(|t| t.aliases.iter().any(|a| a == "처벅")));
         assert!(g.get("teams", "crazy_raccoon").is_some_and(|t| t.aliases.iter().any(|a| a == "CR")));
+        // Community comps and everyday streamer slang.
+        assert!(g.get("slang", "memowi").is_some_and(|m| m.ko == "메모위"));
+        assert!(g.get("slang", "goats").is_some_and(|m| m.aliases.iter().any(|a| a == "3탱3힐")));
+        assert!(g.get("netslang", "aljalttak").is_some_and(|m| m.ko == "알잘딱깔센" && m.aliases.iter().any(|a| a == "알잘딱")));
+        assert!(g.get("netslang", "nekao").is_some_and(|m| m.ko == "네카오"));
         // Every ability id starts with a hero id.
         for a in g.entries.iter().filter(|e| e.category == "abilities") {
             let hero = a.id.split('.').next().unwrap();

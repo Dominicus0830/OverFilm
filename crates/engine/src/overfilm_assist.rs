@@ -314,6 +314,7 @@ pub fn make(s: &mut Session, levels: &[f32], o: &AssistOptions) -> Result<Value>
         q.markers.sort_by_key(|m| m.start);
         Ok(())
     })?;
+    crate::overfilm_review::after_cut_marks(s);
     Ok(report)
 }
 

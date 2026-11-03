@@ -21,17 +21,27 @@ pub mod builtin {
     /// both teams' name plates.
     pub const OWCS_KOREA_2026: &str = include_str!("../data/owcs-korea-2026.overfilm-screens.json");
 }
+pub mod feedrows;
+pub mod heroes;
+pub mod killfeed;
 pub mod kills;
+pub mod lineup;
 pub mod luma;
 pub mod plan;
 pub mod template;
+pub mod ults;
 
 use serde::{Deserialize, Serialize};
 
+pub use feedrows::{FeedEvent, FeedNames, FeedReader, FeedScan, Side, Who};
+pub use heroes::{HeroEvent, HeroNames, HeroPrint, HeroScan, HeroTracker};
+pub use killfeed::{FeedTracker, KillFeed};
 pub use kills::{Death, DeathTracker, Fight, PlayerBar};
-pub use luma::{Luma, NRect};
+pub use lineup::{LineupReader, MatchInfo, PlayerHero, Roster, RosterPlayer, RosterTeam};
+pub use luma::{Luma, NRect, Rgb};
 pub use plan::{Analyzer, Cut, CutParams, CutReason, Detected, Look, Sample, Segment, plan_cuts, segments};
 pub use template::{Part, Template, TemplateSet};
+pub use ults::{FeedKill, UltIcon, UltKill, UltTracker, UltUse};
 
 /// A broadcast state a template recognises.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

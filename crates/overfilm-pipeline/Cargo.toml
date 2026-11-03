@@ -14,6 +14,9 @@ workspace = true
 default = []
 # Recognition itself (Qwen3-ASR, speaker network) and model downloads. Off in wasm builds.
 qwen = ["overfilm-asr/qwen", "overfilm-asr/download"]
+# Reading the broadcast HUD's team and player names (ocrs text recognition on rten, pure Rust)
+# and its model download. Off in wasm builds.
+ocr = ["dep:ocrs", "dep:rten", "dep:filmcraft-speech", "overfilm-asr/download"]
 
 [dependencies]
 overfilm-asr = { workspace = true }
@@ -21,6 +24,23 @@ overfilm-captions = { workspace = true }
 overfilm-glossary = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+overfilm-vision = { workspace = true }
+filmcraft-speech = { workspace = true, optional = true }
+ocrs = { version = "0.13", optional = true }
+rten = { version = "0.26", default-features = false, features = ["onnx_format"], optional = true }
 
 [dev-dependencies]
 tempfile = "3.27"
+overfilm-review = { workspace = true }
+
+[[example]]
+name = "lineup_raw"
+required-features = ["ocr"]
+
+[[example]]
+name = "recognise_raw"
+required-features = ["qwen"]
+
+[[example]]
+name = "recognise_dump"
+required-features = ["qwen"]

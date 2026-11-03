@@ -1,32 +1,42 @@
 //! OverFilm dialogs (see `OVERFILM.md`): the Sequence ▸ OverFilm menu items open these when
 //! invoked without parameters; with parameters the engine command runs directly.
 //!
-//! - **OverFilm Captions (Korean)…** (`overfilm.captions.generate`): video kind, speakers, game
-//!   voice, line length, extra terms.
+//! - **OverFilm Captions (Korean)…** (`overfilm.captions.generate`): the audio track to caption
+//!   (all, or one of A1, A2…), video kind, the number of speakers (off, counted, or a number),
+//!   game voice, line length, extra terms.
 //! - **Styled Captions (OverFilm)…** (`overfilm.captions.stylize`): caption track, style, motion.
+//!   **Import Premiere Style…** takes the styles of a Premiere file (`overfilm.captions.importStyle`:
+//!   `.prtextstyle`, `.mogrt`, `.prproj`, Premiere XML); **Save Selected Caption's Look** saves the
+//!   look of the caption selected on the timeline, as changed in Effect Controls, under the name
+//!   typed beside it (`overfilm.captions.styleFromClip`). Either one picks the new style.
 //! - **Auto Cut Waiting and Pauses (OverFilm)…** (`overfilm.autoCut`): template file, time kept
 //!   before the start, mark or cut.
 //! - **Learn Screen Template (OverFilm)…** (`overfilm.screenTemplate.learn`): the Program frame at
 //!   the playhead; drag on it to mark the parts that always look the same on that screen (green),
 //!   switch to "ignore" to mark what changes (red: the clock, a camera). Choosing a team's name
 //!   plates instead learns where they are (`overfilm.playerBar.learn`, the first green rectangle
-//!   around the team's plates, on a frame where the whole team is alive), for kill detection.
+//!   around the team's plates, on a frame where the whole team is alive), for kill detection;
+//!   a team's ready ultimate icon learns that (`overfilm.ultIcon.learn`, the first green rectangle
+//!   around the white ultimate circle on the chosen player's plate), for ultimates; the kill feed
+//!   learns that (`overfilm.killFeed.learn`: the first green rectangle around the feed, the optional second
+//!   round one ultimate kill's icon), for ultimate kills on broadcasts that show the feed.
 //!
 //! Automation ids: `overfilm.<dialog>.ok`, `.cancel` and `overfilm.<dialog>.<param>` for each
-//! control (`<dialog>` = captions, style, autoCut, learn); `overfilm.learn.frame` is the picture.
+//! control (`<dialog>` = captions, style, autoCut, learn); `overfilm.learn.frame` is the picture;
+//! `overfilm.style.importPremiere`, `overfilm.style.saveName` and `overfilm.style.saveFromClip`.
 
 use serde_json::{Value, json};
 
 use crate::FilmcraftApp;
 
-type Elems = Vec<(String, egui::Rect, String)>;
+pub(crate) type Elems = Vec<(String, egui::Rect, String)>;
 
 #[derive(Clone)]
 struct Draft {
     /// The engine command OK runs.
     command: &'static str,
     params: Value,
-    /// Captions dialog: none. Style: presets and caption tracks. Auto Cut / Learn: the template
+    /// Captions dialog: the sequence's audio tracks. Style: presets and caption tracks. Auto Cut / Learn: the template
     /// file's current list.
     info: Value,
     error: String,
@@ -52,6 +62,11 @@ fn prefix(command: &str) -> &'static str {
 
 /// Menu entry points: the OverFilm commands without parameters open their dialog.
 pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Value) -> Option<Result<Value, String>> {
+    // Cut and Caption in One Go from the menu: the OverFilm panel, where the steps are chosen
+    if id == "overfilm.flow.run" && params.as_object().is_none_or(|m| m.is_empty()) {
+        app.show_panel(crate::dock::PanelKind::OverFilm);
+        return Some(Ok(json!({"panel": "OverFilm"})));
+    }
     let command = COMMANDS.iter().copied().find(|c| *c == id)?;
     if !params.as_object().is_none_or(|m| m.is_empty()) {
         return None;
@@ -64,11 +79,27 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
     let templates = s.execute("overfilm.screenTemplate.list", json!({})).ok();
     let templates_path = templates.as_ref().and_then(|t| t["templates"].as_str()).unwrap_or_default().to_string();
     let (params, info) = match command {
-        "overfilm.captions.generate" => (
-            json!({"mode": "general", "speakers": true, "numSpeakers": 0, "gameVoice": "drop", "lineChars": 16, "maxLines": 2,
-                   "cleanFillers": false, "gpu": true, "extraTerms": ""}),
-            Value::Null,
-        ),
+        "overfilm.captions.generate" => {
+            // the sequence's audio tracks, "A1 · name (n clips)"
+            let tracks: Vec<Value> = s
+                .active_sequence()
+                .map(|q| {
+                    q.audio_tracks
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| {
+                            let n = t.items.iter().filter(|c| c.enabled).count();
+                            json!({"key": (i + 1).to_string(), "label": tlf!("A{n} · {name} ({clips} clips)", n = i + 1, name = t.name, clips = n), "clips": n})
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            (
+                json!({"audioTrack": "", "mode": "general", "who": "auto", "gameVoice": "drop", "lineChars": 16, "maxLines": 2,
+                       "leadMs": 120, "holdMs": 400, "readingCps": 12, "cleanFillers": true, "gpu": true, "extraTerms": "", "silence": "auto"}),
+                json!({"tracks": tracks}),
+            )
+        }
         "overfilm.captions.stylize" => {
             let presets = s.execute("overfilm.captions.presets", json!({})).ok().map(|v| v["presets"].clone()).unwrap_or_default();
             let tracks: Vec<Value> = s
@@ -110,7 +141,7 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
     Some(Ok(json!({"dialog": prefix(command)})))
 }
 
-fn combo(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, options: &[(&str, String)]) {
+pub(crate) fn combo(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, options: &[(&str, String)]) {
     ui.label(label);
     let cur = v.as_str().unwrap_or_default().to_string();
     let shown = options.iter().find(|(k, _)| *k == cur).map(|(_, l)| l.clone()).unwrap_or_else(|| cur.clone());
@@ -128,14 +159,14 @@ fn combo(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut 
     ui.end_row();
 }
 
-fn check(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value) {
+pub(crate) fn check(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value) {
     let mut b = v.as_bool().unwrap_or(false);
     let r = ui.checkbox(&mut b, label);
     *v = json!(b);
     elems.push((id, r.rect, label.to_string()));
 }
 
-fn number(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, range: std::ops::RangeInclusive<f64>, suffix: &str) {
+pub(crate) fn number(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, range: std::ops::RangeInclusive<f64>, suffix: &str) {
     ui.label(label);
     let mut n = v.as_f64().unwrap_or(*range.start());
     // counts are whole numbers; seconds and rates keep one decimal
@@ -150,7 +181,7 @@ fn number(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut
     ui.end_row();
 }
 
-fn text(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, hint: &str) {
+pub(crate) fn text(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, hint: &str) {
     ui.label(label);
     let mut t = v.as_str().unwrap_or_default().to_string();
     let r = ui.add(egui::TextEdit::singleline(&mut t).hint_text(hint).desired_width(260.0));
@@ -194,8 +225,17 @@ fn learn_body(ui: &mut egui::Ui, elems: &mut Elems, d: &mut Draft) {
                 ("live", tl!("Game HUD (in play)").to_string()),
                 ("bar1", tl!("Team 1 name plates (kills)").to_string()),
                 ("bar2", tl!("Team 2 name plates (kills)").to_string()),
+                ("ult1", tl!("Team 1 ready ultimate icon").to_string()),
+                ("ult2", tl!("Team 2 ready ultimate icon").to_string()),
+                ("killfeed", tl!("Kill feed (who killed whom, ultimates)").to_string()),
             ],
         );
+        if p["screen"].as_str().is_some_and(|v| v.starts_with("ult")) {
+            if p["player"].is_null() {
+                p["player"] = json!(1);
+            }
+            number(ui, elems, format!("{pre}.player"), tl!("On player's plate:"), &mut p["player"], 1.0..=12.0, "");
+        }
         if p["screen"].as_str().is_some_and(|v| v.starts_with("bar")) {
             if p["players"].is_null() {
                 p["players"] = json!(5);
@@ -301,7 +341,7 @@ fn screen_label(screen: &str) -> &'static str {
 
 /// An engine error in the user's words: the known OverFilm ones are said plainly (and translated);
 /// anything else keeps its text without the "invalid parameters for `…`:" lead.
-fn plain_error(e: &str) -> String {
+pub(crate) fn plain_error(e: &str) -> String {
     const KNOWN: &[(&str, &str)] = &[
         ("give `rects`", "Drag on the picture to draw at least one green box, then OK."),
         ("`rect` is [x, y, w, h]", "Draw one green box around the team's name plates."),
@@ -311,6 +351,15 @@ fn plain_error(e: &str) -> String {
         ),
         ("has no player bars", "No name plates learnt yet: learn each team's name plates first (Learn Screen Template, Team 1/2 name plates)."),
         ("every plate looks dark", "Every plate looks dark: learn them on a frame where the whole team is alive."),
+        ("no bright round icon", "No ready ultimate icon in the box: draw it around one white ultimate circle, not the charge number."),
+        ("has no player bar for team", "Learn that team's name plates first (Team 1/2 name plates)."),
+        ("around one ready ultimate icon", "Draw one green box around a ready ultimate icon."),
+        ("no kill feed row", "No kill feed row in the box: draw it around the kill feed, on a frame where it shows kills."),
+        ("read the kill feed first", "Find kills first, with the kill feed learnt."),
+        ("around the kill feed", "Draw a green box around the kill feed (a second one round an ultimate icon in it is optional)."),
+        ("round one ultimate kill's icon", "Draw a second green box round one ultimate icon in the kill feed."),
+        ("no round ultimate icon in the box", "No ultimate icon in the second box: draw it tight round one white ultimate icon of the kill feed."),
+        ("not inside the kill feed", "The ultimate icon is outside the kill feed's box: draw the feed's box around it."),
         ("flat colour", "That box is one flat colour: pick a part with text or graphics."),
         ("empty or outside the frame", "The box is empty or outside the picture: draw it again."),
         ("no video clip at that time", "No picture at the playhead: move it onto the broadcast first."),
@@ -347,6 +396,24 @@ fn import_button(ui: &mut egui::Ui, elems: &mut Elems, pre: &str, d: &mut Draft,
     }
 }
 
+/// The file kinds Import Premiere Style opens.
+fn overfilm_captions_premiere_extensions() -> &'static [&'static str] {
+    &["prtextstyle", "mogrt", "prproj", "xml"]
+}
+
+/// Read the style list again (after an import or a save) and pick a style that is new.
+fn refresh_styles(app: &mut FilmcraftApp, d: &mut Draft) {
+    let Ok(v) = app.session.execute("overfilm.captions.presets", json!({})) else { return };
+    let names =
+        |p: &Value| -> Vec<String> { p.as_array().map(|a| a.iter().filter_map(|x| x["name"].as_str().map(str::to_string)).collect()).unwrap_or_default() };
+    let before = names(&d.info["presets"]);
+    let after = names(&v["presets"]);
+    if let Some(new) = after.iter().find(|n| !before.contains(n)) {
+        d.params["preset"] = json!(new);
+    }
+    d.info["presets"] = v["presets"].clone();
+}
+
 /// Whether the template list has something Auto Cut can cut by.
 fn has_break_templates(info: &Value) -> bool {
     info["list"].as_array().is_some_and(|l| l.iter().any(|t| matches!(t["screen"].as_str(), Some("standby" | "setup" | "pause"))))
@@ -362,13 +429,17 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
         _ => tl!("Learn Screen Template (OverFilm)"),
     };
     let mut elems: Elems = Vec::new();
-    let (mut close, mut apply, mut import) = (false, false, false);
+    let (mut close, mut apply, mut import, mut import_premiere) = (false, false, false, false);
     // an import finished: read the template list again
     if d.params["refresh"].as_bool() == Some(true) && !app.native_dialog_open() {
         d.params["refresh"] = json!(false);
-        let t = d.params["templates"].as_str().filter(|t| !t.is_empty()).map(|t| json!({"templates": t})).unwrap_or(json!({}));
-        if let Ok(v) = app.session.execute("overfilm.screenTemplate.list", t) {
-            d.info = v;
+        if d.command == "overfilm.captions.stylize" {
+            refresh_styles(app, &mut d);
+        } else {
+            let t = d.params["templates"].as_str().filter(|t| !t.is_empty()).map(|t| json!({"templates": t})).unwrap_or(json!({}));
+            if let Ok(v) = app.session.execute("overfilm.screenTemplate.list", t) {
+                d.info = v;
+            }
         }
     }
     egui::Window::new(title)
@@ -382,6 +453,16 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
             match d.command {
                 "overfilm.captions.generate" => {
                     egui::Grid::new("overfilm-captions").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+                        let mut tracks: Vec<(String, String)> = vec![(String::new(), tl!("All audio tracks").to_string())];
+                        if let Some(a) = d.info["tracks"].as_array() {
+                            tracks.extend(
+                                a.iter()
+                                    .filter(|t| t["clips"].as_u64().unwrap_or(0) > 0)
+                                    .map(|t| (t["key"].as_str().unwrap_or_default().to_string(), t["label"].as_str().unwrap_or_default().to_string())),
+                            );
+                        }
+                        let opts: Vec<(&str, String)> = tracks.iter().map(|(k, l)| (k.as_str(), l.clone())).collect();
+                        combo(ui, &mut elems, format!("{pre}.audioTrack"), tl!("Audio track:"), &mut d.params["audioTrack"], &opts);
                         let p = &mut d.params;
                         combo(
                             ui,
@@ -406,13 +487,45 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                                 ("keep", tl!("Keep as speech").to_string()),
                             ],
                         );
-                        number(ui, &mut elems, format!("{pre}.numSpeakers"), tl!("Speakers (0 = count them):"), &mut p["numSpeakers"], 0.0..=12.0, "");
+                        let counts: Vec<String> = (1..=10).map(|n| n.to_string()).collect();
+                        let mut who: Vec<(&str, String)> = vec![("auto", tl!("Count them").to_string()), ("off", tl!("Don't tell them apart").to_string())];
+                        who.extend(counts.iter().map(|n| {
+                            let label = if n == "1" { tl!("1 person (faster)").to_string() } else { tlf!("{n} people", n = n) };
+                            (n.as_str(), label)
+                        }));
+                        combo(ui, &mut elems, format!("{pre}.who"), tl!("Speakers:"), &mut p["who"], &who);
                         number(ui, &mut elems, format!("{pre}.lineChars"), tl!("Characters per line:"), &mut p["lineChars"], 8.0..=30.0, "");
                         number(ui, &mut elems, format!("{pre}.maxLines"), tl!("Lines per caption:"), &mut p["maxLines"], 1.0..=2.0, "");
+                        number(ui, &mut elems, format!("{pre}.leadMs"), tl!("Shown before the voice:"), &mut p["leadMs"], 0.0..=1000.0, " ms");
+                        number(ui, &mut elems, format!("{pre}.holdMs"), tl!("Kept after the voice:"), &mut p["holdMs"], 0.0..=3000.0, " ms");
+                        number(ui, &mut elems, format!("{pre}.readingCps"), tl!("Reading speed (letters a second):"), &mut p["readingCps"], 0.0..=40.0, "");
                         text(ui, &mut elems, format!("{pre}.extraTerms"), tl!("Extra names and terms:"), &mut p["extraTerms"], tl!("comma separated"));
+                        combo(
+                            ui,
+                            &mut elems,
+                            format!("{pre}.silence"),
+                            tl!("Skip silence:"),
+                            &mut p["silence"],
+                            &[
+                                ("auto", tl!("Automatic (on for a separate voice track)").to_string()),
+                                ("on", tl!("On").to_string()),
+                                ("off", tl!("Off").to_string()),
+                            ],
+                        );
                     });
+                    match d.params["silence"].as_str() {
+                        Some("on") => {
+                            ui.colored_label(
+                                ui.visuals().warn_fg_color,
+                                tl!("On sound mixed with the game (a video's only audio track) this can skip quiet speech under loud game sound. Best on a voice-only track."),
+                            );
+                        }
+                        Some("off") => {}
+                        _ => {
+                            ui.weak(tl!("Quiet stretches of 2 s or more are skipped on a separate voice track (several audio tracks, or a sound file); a video's only sound is recognised whole."));
+                        }
+                    }
                     let p = &mut d.params;
-                    check(ui, &mut elems, format!("{pre}.speakers"), tl!("Tell speakers apart (화자1, 화자2…)"), &mut p["speakers"]);
                     check(ui, &mut elems, format!("{pre}.cleanFillers"), tl!("Leave out fillers and stutters (어, 음…)"), &mut p["cleanFillers"]);
                     check(ui, &mut elems, format!("{pre}.gpu"), tl!("Use the GPU"), &mut p["gpu"]);
                     ui.weak(tl!("Runs in the background. The models (about 6 GB) are downloaded the first time, into the folder OverFilmSubs uses."));
@@ -440,6 +553,36 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                     ui.weak(tl!(
                         "Each caption becomes a graphic clip on a new video track; fill, outline, position and keyframes stay editable in Effect Controls."
                     ));
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        let r = ui.button(tl!("Import Premiere Style…"));
+                        elems.push((format!("{pre}.importPremiere"), r.rect, "Import Premiere Style…".into()));
+                        if r.clicked() {
+                            import_premiere = true;
+                            d.params["refresh"] = json!(true);
+                        }
+                    });
+                    ui.weak(tl!("A .prtextstyle (Premiere: right-click a caption style ▸ Export Text Style), a .mogrt, a .prproj or a Premiere XML."));
+                    ui.horizontal(|ui| {
+                        let mut name = d.info["saveName"].as_str().unwrap_or_default().to_string();
+                        let t = ui.add(egui::TextEdit::singleline(&mut name).hint_text(tl!("new style name")).desired_width(150.0));
+                        elems.push((format!("{pre}.saveName"), t.rect, name.clone()));
+                        d.info["saveName"] = json!(name);
+                        let b = ui.add_enabled(!name.trim().is_empty(), egui::Button::new(tl!("Save Selected Caption's Look")));
+                        elems.push((format!("{pre}.saveFromClip"), b.rect, "Save Selected Caption's Look".into()));
+                        if b.clicked() {
+                            match app.session.execute("overfilm.captions.styleFromClip", json!({"name": name.trim()})) {
+                                Ok(v) => {
+                                    app.ui.status = tlf!("Saved the caption style \"{name}\"", name = v["name"].as_str().unwrap_or_default());
+                                    d.error.clear();
+                                    d.info["saveName"] = json!("");
+                                    refresh_styles(app, &mut d);
+                                    d.params["preset"] = v["name"].clone();
+                                }
+                                Err(e) => d.error = plain_error(&e.to_string()),
+                            }
+                        }
+                    });
                 }
                 "overfilm.autoCut" => {
                     egui::Grid::new("overfilm-autocut").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
@@ -517,12 +660,32 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
             };
         });
     }
+    if import_premiere {
+        app.pick_ui(crate::native_dialogs::FileDialog::open_file("Premiere", overfilm_captions_premiere_extensions()), move |app, paths| {
+            let Some(path) = paths.into_iter().next() else { return };
+            app.ui.status = match app.session.execute("overfilm.captions.importStyle", json!({"path": path})) {
+                Ok(v) => {
+                    let names: Vec<&str> = v["names"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+                    let missing: Vec<&str> = v["missingFonts"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+                    let mut msg = tlf!("Imported caption style(s): {names}", names = names.join(", "));
+                    if !missing.is_empty() {
+                        msg.push_str(" · ");
+                        msg.push_str(&tlf!("font(s) not installed: {fonts}", fonts = missing.join(", ")));
+                    }
+                    msg
+                }
+                Err(e) => plain_error(&e.to_string()),
+            };
+        });
+    }
     if apply {
         let (command, p) = learn_call(&d).unwrap_or((d.command, run_params(&d)));
         match app.session.execute(command, p) {
             Ok(v) => {
                 app.ui.status = match command {
                     "overfilm.playerBar.learn" => tlf!("Learnt team {team}'s name plates", team = v["team"]),
+                    "overfilm.ultIcon.learn" => tlf!("Learnt team {team}'s ultimate icon", team = v["team"]),
+                    "overfilm.killFeed.learn" => tlf!("Learnt the kill feed ({n} ultimate icon(s) on this frame)", n = v["icons"]),
                     "overfilm.screenTemplate.learn" => {
                         tlf!("Learnt \"{name}\" ({n} templates in the file)", name = v["name"].as_str().unwrap_or_default(), n = v["count"])
                     }
@@ -538,26 +701,53 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
 }
 
 /// Learning a team's name plates instead of a screen template: the first green rectangle is the
-/// bar around the team's plates.
+/// bar around the team's plates. Or its ready-ultimate icon: the first green rectangle is around
+/// the icon on the given player's plate.
 fn learn_call(d: &Draft) -> Option<(&'static str, Value)> {
-    let team = match d.params["screen"].as_str()? {
-        "bar1" => 1,
-        "bar2" => 2,
+    if d.params["screen"].as_str()? == "killfeed" {
+        // the first green box around the feed, the second round one ultimate icon
+        let rects = d.params["rects"].as_array().cloned().unwrap_or_default();
+        let mut p = json!({});
+        if let Some(r) = rects.first() {
+            p["rect"] = r.clone();
+        }
+        if let Some(r) = rects.get(1) {
+            p["icon"] = r.clone();
+        }
+        if let Some(t) = d.params["templates"].as_str().filter(|t| !t.is_empty()) {
+            p["templates"] = json!(t);
+        }
+        return Some(("overfilm.killFeed.learn", p));
+    }
+    let (cmd, team) = match d.params["screen"].as_str()? {
+        "bar1" => ("overfilm.playerBar.learn", 1),
+        "bar2" => ("overfilm.playerBar.learn", 2),
+        "ult1" => ("overfilm.ultIcon.learn", 1),
+        "ult2" => ("overfilm.ultIcon.learn", 2),
         _ => return None,
     };
-    let mut p = json!({"team": team, "players": d.params["players"].as_f64().unwrap_or(5.0).round().clamp(1.0, 12.0) as u64});
+    let mut p = if cmd == "overfilm.ultIcon.learn" {
+        json!({"team": team, "player": d.params["player"].as_f64().unwrap_or(1.0).round().clamp(1.0, 12.0) as u64})
+    } else {
+        json!({"team": team, "players": d.params["players"].as_f64().unwrap_or(5.0).round().clamp(1.0, 12.0) as u64})
+    };
     if let Some(r) = d.params["rects"].as_array().and_then(|a| a.first()) {
         p["rect"] = r.clone();
     }
     if let Some(t) = d.params["templates"].as_str().filter(|t| !t.is_empty()) {
         p["templates"] = json!(t);
     }
-    Some(("overfilm.playerBar.learn", p))
+    Some((cmd, p))
 }
 
 /// The command's parameters from the dialog's (empty choices left out).
 fn run_params(d: &Draft) -> Value {
-    let mut p = d.params.clone();
+    normalize(d.params.clone())
+}
+
+/// Dialog or panel choices as command parameters: empty choices left out, the speaker choice
+/// ("who") as `speakers` / `numSpeakers`, counts as whole numbers.
+pub(crate) fn normalize(mut p: Value) -> Value {
     if let Some(m) = p.as_object_mut() {
         m.remove("drawIgnore");
         m.remove("refresh");
@@ -566,7 +756,35 @@ fn run_params(d: &Draft) -> Value {
         if m.get("numSpeakers").and_then(Value::as_f64).is_some_and(|n| n < 1.0) {
             m.remove("numSpeakers");
         }
-        for k in ["numSpeakers", "lineChars", "maxLines"] {
+        // the captions dialog's speaker choice: off, counted, or a number of people
+        if let Some(who) = m.remove("who") {
+            match who.as_str() {
+                Some("off") => {
+                    m.insert("speakers".into(), json!(false));
+                }
+                Some(n) if n.parse::<u64>().is_ok_and(|n| n >= 1) => {
+                    m.insert("speakers".into(), json!(true));
+                    m.insert("numSpeakers".into(), json!(n.parse::<u64>().unwrap_or(1)));
+                }
+                _ => {
+                    m.insert("speakers".into(), json!(true));
+                }
+            }
+        }
+        // the captions dialog's silence choice: automatic (left out), on or off
+        match m.remove("silence").as_ref().and_then(Value::as_str) {
+            Some("on") => {
+                m.insert("skipSilence".into(), json!(true));
+            }
+            Some("off") => {
+                m.insert("skipSilence".into(), json!(false));
+            }
+            _ => {}
+        }
+        if let Some(t) = m.get("audioTrack").and_then(Value::as_str).and_then(|t| t.parse::<u64>().ok()) {
+            m.insert("audioTrack".into(), json!(t));
+        }
+        for k in ["numSpeakers", "lineChars", "maxLines", "leadMs", "holdMs", "readingCps"] {
             if let Some(n) = m.get(k).and_then(Value::as_f64) {
                 m.insert(k.into(), json!(n.round().max(0.0) as u64));
             }
@@ -590,6 +808,20 @@ mod tests {
             drag: None,
         };
         assert_eq!(run_params(&d), json!({"lineChars": 16, "maxLines": 2, "mode": "general"}));
+        // the captions dialog: the audio track and the speaker choice
+        let mut d = d;
+        d.params = json!({"audioTrack": "2", "who": "3", "mode": "general", "silence": "auto"});
+        assert_eq!(run_params(&d), json!({"audioTrack": 2, "speakers": true, "numSpeakers": 3, "mode": "general"}));
+        d.params = json!({"who": "auto", "silence": "on"});
+        assert_eq!(run_params(&d), json!({"speakers": true, "skipSilence": true}));
+        d.params = json!({"who": "auto", "silence": "off"});
+        assert_eq!(run_params(&d), json!({"speakers": true, "skipSilence": false}));
+        d.params = json!({"audioTrack": "", "who": "off"});
+        assert_eq!(run_params(&d), json!({"speakers": false}));
+        d.params = json!({"who": "auto"});
+        assert_eq!(run_params(&d), json!({"speakers": true}));
+        d.params = json!({"who": "1"});
+        assert_eq!(run_params(&d), json!({"speakers": true, "numSpeakers": 1}));
         let r = norm_rect(egui::pos2(0.5, 0.9), egui::pos2(0.1, 1.4));
         for (a, b) in r.iter().zip([0.1, 0.9, 0.4, 0.1]) {
             assert!((a - b).abs() < 1e-5, "{r:?}");
@@ -609,6 +841,15 @@ mod tests {
         let (cmd, p) = learn_call(&d).unwrap();
         assert_eq!(cmd, "overfilm.playerBar.learn");
         assert_eq!(p, json!({"team": 2, "players": 5, "rect": [0.7, 0.14, 0.27, 0.02], "templates": "s.json"}));
+        d.params["screen"] = json!("ult1");
+        d.params["player"] = json!(3);
+        let (cmd, p) = learn_call(&d).unwrap();
+        assert_eq!(cmd, "overfilm.ultIcon.learn");
+        assert_eq!(p, json!({"team": 1, "player": 3, "rect": [0.7, 0.14, 0.27, 0.02], "templates": "s.json"}));
+        d.params["screen"] = json!("killfeed");
+        let (cmd, p) = learn_call(&d).unwrap();
+        assert_eq!(cmd, "overfilm.killFeed.learn");
+        assert_eq!(p, json!({"rect": [0.7, 0.14, 0.27, 0.02], "icon": [0.1, 0.1, 0.1, 0.1], "templates": "s.json"}));
         d.params["screen"] = json!("setup");
         assert!(learn_call(&d).is_none());
     }

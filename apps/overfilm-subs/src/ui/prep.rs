@@ -77,6 +77,18 @@ fn settings(app: &mut App, ui: &mut egui::Ui) {
     }
     ui.add_space(14.0);
     ui.label(RichText::new("세부 설정").strong());
+    if app.audio_tracks.len() > 1 {
+        let (tracks, track) = (&app.audio_tracks, &mut app.audio_track);
+        setting(ui, "오디오 트랙", "자막으로 만들 소리 (마이크만 따로 녹음한 트랙 등)", false, |ui| {
+            let shown = tracks.get(*track).cloned().unwrap_or_default();
+            craft_ui::ComboBox::from_id_salt("audio_track").selected_text(shown).width(240.0).show_ui(ui, |ui| {
+                for (i, t) in tracks.iter().enumerate() {
+                    ui.selectable_value(track, i, t.as_str());
+                }
+            });
+        });
+    }
+    silence_setting(app, ui);
     let o = &mut app.prefs.options;
     setting(ui, "추가 이름·용어", "단어집에 없는 이름만 쉼표로", false, |ui| {
         ui.add(egui::TextEdit::singleline(&mut o.extra_terms).hint_text("예: 스트리머 이름, 팀 이름").desired_width(240.0));
@@ -86,7 +98,12 @@ fn settings(app: &mut App, ui: &mut egui::Ui) {
     });
     if open {
         ui.add_enabled_ui(o.speakers, |ui| {
-            setting(ui, "사람 수", "알면 정해 주세요. 가장 확실합니다", true, |ui| {
+            let hint = if o.num_speakers == Some(1) {
+                "1명: 목소리 구별을 건너뛰어 더 빨리 끝납니다"
+            } else {
+                "알면 정해 주세요. 가장 확실합니다"
+            };
+            setting(ui, "사람 수", hint, true, |ui| {
                 let label = o.num_speakers.map_or("자동".to_string(), |n| format!("{n}명"));
                 craft_ui::ComboBox::from_id_salt("num_speakers").selected_text(label).width(140.0).show_ui(ui, |ui| {
                     ui.selectable_value(&mut o.num_speakers, None, "자동");
@@ -145,6 +162,15 @@ fn settings(app: &mut App, ui: &mut egui::Ui) {
             if toggle(ui, &mut two).changed() {
                 o.max_lines = if two { 2 } else { 1 };
             }
+        });
+        setting(ui, "목소리보다 먼저", "자막이 말 시작보다 이만큼 먼저 뜹니다", true, |ui| {
+            ui.add(egui::DragValue::new(&mut o.lead_ms).range(0..=1000).speed(10).suffix("ms"));
+        });
+        setting(ui, "말 끝난 뒤 남기기", "다음 자막이 바로 오면 그 전에 사라집니다", true, |ui| {
+            ui.add(egui::DragValue::new(&mut o.hold_ms).range(0..=3000).speed(10).suffix("ms"));
+        });
+        setting(ui, "읽기 속도", "말이 빨라도 이 속도로 읽을 수 있게 조금 더 남깁니다 (0: 끔)", true, |ui| {
+            ui.add(egui::DragValue::new(&mut o.reading_cps).range(0..=40).prefix("초당 ").suffix("자"));
         });
         setting(ui, "욕설은 초성으로", "씨발 → ㅅㅂ", true, |ui| {
             toggle(ui, &mut o.mask_profanity);
@@ -227,6 +253,29 @@ fn footer(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
             });
         });
     });
+}
+
+/// Skip long quiet stretches: on by itself for a separate voice track, off for sound inside the
+/// video; turning it on there shows a warning.
+fn silence_setting(app: &mut App, ui: &mut egui::Ui) {
+    use overfilm_pipeline::recognise::{SKIP_SILENCE_WARNING, SoundSource, skip_silence_default};
+    let src = app.sound_source;
+    let separate = src == Some(SoundSource::Separate);
+    let auto = src.is_some_and(skip_silence_default);
+    let mut on = app.skip_silence.unwrap_or(auto);
+    let hint = match (separate, on) {
+        (true, true) => "오디오 트랙이 분리되어 있어 켜 두었습니다 (권장). 2초 넘는 무음은 인식하지 않아 빨라집니다",
+        (true, false) => "2초 넘는 무음을 인식하지 않아 빨라집니다. 분리된 트랙에서는 켜는 것을 권합니다",
+        (false, false) => "영상에 섞인 소리라 꺼 두었습니다. 말소리만 따로 녹음된 트랙에서 쓰는 것을 권합니다",
+        (false, true) => "영상에 섞인 소리에서 켰습니다",
+    };
+    let changed = setting(ui, "무음 구간 건너뛰기", hint, false, |ui| toggle(ui, &mut on).changed());
+    if changed {
+        app.skip_silence = (on != auto).then_some(on);
+    }
+    if on && !separate {
+        widgets::info_bar(ui, widgets::Severity::Warn, "작은 말소리를 놓칠 수 있습니다", SKIP_SILENCE_WARNING, |_| {});
+    }
 }
 
 #[cfg(test)]

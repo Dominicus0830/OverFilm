@@ -24,6 +24,20 @@ fn dtype(s: &str) -> Option<DType> {
     })
 }
 
+/// Little-endian bf16 values to f32 (exact: bf16 is the top half of an f32), in parallel.
+fn bf16_to_f32(bytes: &[u8]) -> Vec<f32> {
+    use rayon::prelude::*;
+    let mut out = vec![0f32; bytes.len() / 2];
+    out.par_chunks_mut(1 << 16).zip(bytes.par_chunks(1 << 17)).for_each(|(o, b)| {
+        for (o, b) in o.iter_mut().zip(b.chunks_exact(2)) {
+            if let [lo, hi] = *b {
+                *o = f32::from_bits(u32::from(u16::from_le_bytes([lo, hi])) << 16);
+            }
+        }
+    });
+    out
+}
+
 /// Load the tensors of `path` whose names pass `keep`, converted to `to`, into `out`.
 pub fn load(path: &Path, to: DType, dev: &Device, keep: &dyn Fn(&str) -> bool, out: &mut HashMap<String, Tensor>) -> Result<(), AsrError> {
     each(path, to, dev, keep, &mut |name, t| {
@@ -76,7 +90,13 @@ pub fn each(
         let mut buf = vec![0u8; bytes];
         f.seek(SeekFrom::Start(base + start)).map_err(|e| err(&e))?;
         f.read_exact(&mut buf).map_err(|e| err(&e))?;
-        let t = Tensor::from_raw_buffer(&buf, dt, &shape, dev).and_then(|t| t.to_dtype(to)).map_err(|e| err(&e))?;
+        let t = if dt == DType::BF16 && to == DType::F32 {
+            // candle converts on one thread; this is most of the reading time otherwise
+            Tensor::from_vec(bf16_to_f32(&buf), shape.as_slice(), dev)
+        } else {
+            Tensor::from_raw_buffer(&buf, dt, &shape, dev).and_then(|t| t.to_dtype(to))
+        }
+        .map_err(|e| err(&e))?;
         sink(name.clone(), t)?;
     }
     Ok(())
@@ -104,6 +124,19 @@ mod tests {
         load(&p, DType::F32, &Device::Cpu, &|n| n != "skip", &mut m).unwrap();
         assert_eq!(m.len(), 1);
         assert_eq!(m["w"].to_vec2::<f32>().unwrap(), vec![vec![1.0, 2.0], vec![3.0, 4.0]]);
+    }
+
+    #[test]
+    fn bf16_matches_candle() {
+        let d = tempfile::tempdir().unwrap();
+        let vals = [1.0f32, -2.5, 3.140625, 0.0, -0.0, 65280.0, 1e-30];
+        let data: Vec<u8> = vals.iter().flat_map(|x| ((x.to_bits() >> 16) as u16).to_le_bytes()).collect();
+        let p = write(d.path(), r#"{"w":{"dtype":"BF16","shape":[7],"data_offsets":[0,14]}}"#, &data);
+        let mut m = HashMap::new();
+        load(&p, DType::F32, &Device::Cpu, &|_| true, &mut m).unwrap();
+        let ours = m["w"].to_vec1::<f32>().unwrap();
+        let theirs = Tensor::from_raw_buffer(&data, DType::BF16, &[7], &Device::Cpu).unwrap().to_dtype(DType::F32).unwrap().to_vec1::<f32>().unwrap();
+        assert_eq!(ours.iter().map(|x| x.to_bits()).collect::<Vec<_>>(), theirs.iter().map(|x| x.to_bits()).collect::<Vec<_>>());
     }
 
     #[test]

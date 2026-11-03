@@ -36,6 +36,15 @@ pub struct Options {
     /// Lines per caption (1 or 2).
     #[serde(default = "two")]
     pub max_lines: u32,
+    /// Time a caption appears before its voice (ms).
+    #[serde(default = "lead")]
+    pub lead_ms: i64,
+    /// Time a caption stays after its voice (ms).
+    #[serde(default = "hold")]
+    pub hold_ms: i64,
+    /// Reading speed captions stay up for when there is room (letters per second; 0: off).
+    #[serde(default = "cps")]
+    pub reading_cps: u32,
     /// Use the GPU when there is one (Vulkan/DX12; falls back to the CPU).
     #[serde(default = "yes")]
     pub gpu: bool,
@@ -63,6 +72,14 @@ pub struct Options {
     /// Only this part of the input, `(from_ms, to_ms)`; caption times stay on the input's clock.
     #[serde(default)]
     pub range: Option<(i64, i64)>,
+    /// The input's audio track to recognise (0 = the first; OBS can record the microphone on a
+    /// track of its own).
+    #[serde(default)]
+    pub audio_track: usize,
+    /// Leave out long quiet stretches; `None`: on for a separate voice track, off for sound
+    /// inside the video (see [`overfilm_pipeline::recognise::skip_silence_default`]).
+    #[serde(default)]
+    pub skip_silence: Option<bool>,
 }
 
 fn yes() -> bool {
@@ -73,6 +90,15 @@ fn sixteen() -> u32 {
 }
 fn two() -> u32 {
     2
+}
+fn lead() -> i64 {
+    Layout::default().lead_ms
+}
+fn hold() -> i64 {
+    Layout::default().hold_ms
+}
+fn cps() -> u32 {
+    Layout::default().reading_cps
 }
 
 impl Options {
@@ -87,6 +113,9 @@ impl Options {
             glossary_dir: None,
             line_chars: 16,
             max_lines: 2,
+            lead_ms: lead(),
+            hold_ms: hold(),
+            reading_cps: cps(),
             gpu: true,
             speakers: true,
             num_speakers: None,
@@ -94,8 +123,10 @@ impl Options {
             per_speaker: false,
             use_voices: true,
             only_voices: false,
-            clean_fillers: false,
+            clean_fillers: true,
             range: None,
+            audio_track: 0,
+            skip_silence: None,
         }
     }
 
@@ -104,7 +135,14 @@ impl Options {
     }
 
     pub fn layout(&self) -> Layout {
-        Layout { max_line: self.line_chars.clamp(4, 60) * 2, max_lines: self.max_lines.clamp(1, 2), ..Layout::default() }
+        Layout {
+            max_line: self.line_chars.clamp(4, 60) * 2,
+            max_lines: self.max_lines.clamp(1, 2),
+            lead_ms: self.lead_ms.clamp(0, 1000),
+            hold_ms: self.hold_ms.clamp(0, 3000),
+            reading_cps: self.reading_cps.min(40),
+            ..Layout::default()
+        }
     }
 }
 
@@ -137,6 +175,12 @@ pub struct Done {
     /// Something the user should know about the result (e.g. no enrolled voice was heard).
     #[serde(default)]
     pub note: String,
+    /// How long each stage took, one line (see [`overfilm_asr::Transcript::stage_summary`]).
+    #[serde(default)]
+    pub stages: String,
+    /// Seconds of quiet left out of recognition.
+    #[serde(default)]
+    pub silence_skipped: f32,
 }
 
 /// Where the models live (shared with the editor; see [`overfilm_pipeline::models_dir`]).
@@ -159,11 +203,16 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
     let models = models_dir();
     ensure_models(&models, &mut |f, m| progress(0.05 * f, m))?;
     let range = o.range.map(|(a, b)| (a.max(0), b.max(a.max(0))));
-    let audio = crate::media::decode_span(&o.input, range, &mut |f| progress(0.05 + 0.05 * f, "소리 읽는 중"))?;
+    let t_read = std::time::Instant::now();
+    let audio = crate::media::decode_span(&o.input, o.audio_track, range, &mut |f| progress(0.05 + 0.05 * f, "소리 읽는 중"))?;
+    let read_s = t_read.elapsed().as_secs_f32();
     if audio.is_empty() {
         return Err("소리가 비어 있습니다".into());
     }
-    let known = if o.speakers && (o.use_voices || o.only_voices) { crate::voices::known(&crate::voices::list()) } else { Vec::new() };
+    // one person and no "only enrolled voices": nothing to tell apart or name, so skip it (faster)
+    let one = o.num_speakers == Some(1) && !o.only_voices;
+    let (skip_silence, skip_warning) = skip_silence_for(o);
+    let known = if o.speakers && !one && (o.use_voices || o.only_voices) { crate::voices::known(&crate::voices::list()) } else { Vec::new() };
     let req = overfilm_pipeline::recognise::Request {
         mode: o.mode,
         extra_terms: o.extra_terms.clone(),
@@ -174,19 +223,25 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         speakers: o.speakers,
         num_speakers: o.num_speakers,
         known,
+        skip_silence,
+        prior: None,
     };
     let rec = overfilm_pipeline::recognise::recognise(&audio, &req, &models, &mut |f, m| progress(0.1 + 0.88 * f, m))?;
-    let overfilm_pipeline::recognise::Recognised { mut transcript, corrections, device, voice_lines } = rec;
+    let overfilm_pipeline::recognise::Recognised { mut transcript, corrections, device, voice_lines, .. } = rec;
+    transcript.stages.insert(0, overfilm_asr::Stage { name: "소리 읽기".into(), seconds: read_s, count: 0 });
     if let Some((from, _)) = range {
         // the words were timed on the cut-out sound: put them on the input's clock
         shift(&mut transcript, from);
     }
-    let mut note = String::new();
+    let mut note = if skip_warning { overfilm_pipeline::recognise::SKIP_SILENCE_WARNING.to_string() } else { String::new() };
     let keep = if o.only_voices {
         if transcript.speakers.iter().any(|s| s.enrolled && !s.game) {
             speakers::Keep::Enrolled
         } else {
-            note = "등록한 목소리를 이 영상에서 찾지 못해 모든 사람의 자막을 만들었습니다.".into();
+            if !note.is_empty() {
+                note.push(' ');
+            }
+            note.push_str("등록한 목소리를 이 영상에서 찾지 못해 모든 사람의 자막을 만들었습니다.");
             speakers::Keep::All
         }
     } else {
@@ -220,7 +275,18 @@ pub fn run(o: &Options, progress: Progress) -> Result<Done, String> {
         voice_lines,
         speaker_srts,
         note,
+        stages: transcript.stage_summary(),
+        silence_skipped: transcript.silence_skipped,
     })
+}
+
+/// Whether this run leaves out long quiet stretches, and whether the user turned it on for sound
+/// inside the video (warned about: a soft voice under game sound could be skipped).
+pub fn skip_silence_for(o: &Options) -> (bool, bool) {
+    use overfilm_pipeline::recognise::{SoundSource, skip_silence_default};
+    let src = crate::media::sound_source(&o.input).unwrap_or(SoundSource::Embedded);
+    let on = o.skip_silence.unwrap_or_else(|| skip_silence_default(src));
+    (on, on && src == SoundSource::Embedded)
 }
 
 /// Move every time in `t` by `ms`.
@@ -251,14 +317,16 @@ pub fn recognise_span(o: &Options, from_ms: i64, to_ms: i64, progress: Progress)
     let models = models_dir();
     ensure_models(&models, &mut |f, m| progress(0.05 * f, m))?;
     let start = from_ms.saturating_sub(REDO_PAD_MS).max(0);
-    let audio = crate::media::decode_span(&o.input, Some((start, to_ms.saturating_add(REDO_PAD_MS))), &mut |f| progress(0.05 + 0.05 * f, "소리 읽는 중"))?;
+    let audio = crate::media::decode_span(&o.input, o.audio_track, Some((start, to_ms.saturating_add(REDO_PAD_MS))), &mut |f| {
+        progress(0.05 + 0.05 * f, "소리 읽는 중")
+    })?;
     if audio.is_empty() {
         return Err("그 구간에 소리가 없습니다".into());
     }
     let g = pack::glossary(o.glossary_dir.as_deref(), o.mask_profanity)?;
     let corrector = pack::corrector_with(&g, o.digits);
     let context = pack::context(&g, o.mode, &o.extra_terms);
-    let correct = |t: &str| corrector.apply(t).text;
+    let correct = |t: &str, _: i64, _: i64| corrector.apply(t).text;
     let settings = overfilm_asr::Settings {
         asr_dir: &overfilm_asr::catalogue::ASR.dir(&models),
         aligner_dir: &overfilm_asr::catalogue::ALIGNER.dir(&models),
@@ -267,6 +335,8 @@ pub fn recognise_span(o: &Options, from_ms: i64, to_ms: i64, progress: Progress)
         language: Some("Korean"),
         correct: &correct,
         gpu: o.gpu,
+        // a short range the user picked: recognise all of it
+        skip_silence: false,
     };
     let mut t = overfilm_asr::transcribe(&audio, &settings, &mut |f, m| progress(0.1 + 0.9 * f, m)).map_err(|e| e.to_string())?;
     shift(&mut t, start);

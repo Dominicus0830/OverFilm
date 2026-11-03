@@ -6,20 +6,31 @@
 //!   (Latin letters, digits, spaces, punctuation) 1. The default line is 32 units (16 Hangul
 //!   syllables, the usual Korean subtitle limit).
 //! - **Captions** end at a sentence end (`.`, `?`, `!`, `…`) or a pause; inside a sentence the
-//!   words are split into captions by dynamic programming over break costs: a break after a
-//!   comma is free, after a connective ending or particle (`…고`, `…는데`, `…를`) cheap, anywhere
-//!   else expensive, and every extra caption and every very short caption costs something, so
+//!   words are split into captions by dynamic programming over break costs. Breaks follow Korean
+//!   grammar: after a comma, a sentence-final ending (`…습니다`, `…요`) or a clause-closing
+//!   connective (`…는데`, `…지만`, `…해서`, `…고`) are natural, after a particle (`…를`, `…에서`)
+//!   fine, inside a noun phrase poor, and a phrase is never torn: not after a determiner or adverb
+//!   (`이`, `그런`, `너무`), not before a bound noun (`할 수`, `하는 걸`), not inside a verb
+//!   with its auxiliary (`하고 있다`, `해 보다`, `할 수 있다`, `하는 것 같다`). A silence between
+//!   two words makes a break there more natural; a break before `그리고`, `근데`… is natural too.
+//!   Every caption, the line break inside it and every very short caption cost something, so
 //!   captions come out full but end at natural places. A caption never runs longer than
 //!   `max_cue_ms` unless it is a single word.
-//! - **Lines**: a caption wider than one line is split into two at the break that balances the
-//!   lines best, with the same preference for natural break points.
-//! - **Timing**: from the first word's start to the last word's end plus a short hold, at least
-//!   `min_cue_ms`, never overlapping the next caption.
+//! - **Lines**: a caption wider than one line is split into two at the most natural break that
+//!   fits, preferring balanced lines and no one-word stub.
+//! - **Timing**: a caption appears `lead_ms` before its first word and stays `hold_ms` after its
+//!   last, longer when its text needs time to read at `reading_cps` (up to `max_linger_ms`), at
+//!   least `min_cue_ms`; it never overlaps the next caption, and short gaps between captions are
+//!   closed so the screen doesn't blink.
 //!
-//! Shot-change snapping and reading-speed limits are planned.
+//! Shot-change snapping is planned.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable))]
 
+pub mod aep;
+pub mod aep_expr;
+pub mod aep_look;
+pub mod premiere;
 pub mod styles;
 
 use filmcraft_captions::{Cue, Document};
@@ -34,8 +45,9 @@ pub struct TimedWord {
     pub end_ms: i64,
 }
 
-/// Layout limits.
+/// Layout limits and timing.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Layout {
     /// Line width in half-width units (Hangul 2, Latin 1).
     pub max_line: u32,
@@ -48,11 +60,31 @@ pub struct Layout {
     pub min_cue_ms: i64,
     /// Time a caption stays up after its last word (ms).
     pub hold_ms: i64,
+    /// Time a caption appears before its first word (ms).
+    pub lead_ms: i64,
+    /// Reading speed (letters per second): a caption stays up long enough to be read at this
+    /// speed when the next caption leaves room. 0 turns it off.
+    pub reading_cps: u32,
+    /// The longest a caption stays after its last word so it can be read (ms).
+    pub max_linger_ms: i64,
+    /// A gap to the next caption shorter than this is closed, so the screen doesn't blink (ms).
+    pub chain_ms: i64,
 }
 
 impl Default for Layout {
     fn default() -> Self {
-        Self { max_line: 32, max_lines: 2, max_cue_ms: 7000, pause_ms: 700, min_cue_ms: 700, hold_ms: 250 }
+        Self {
+            max_line: 32,
+            max_lines: 2,
+            max_cue_ms: 7000,
+            pause_ms: 700,
+            min_cue_ms: 1000,
+            hold_ms: 400,
+            lead_ms: 120,
+            reading_cps: 12,
+            max_linger_ms: 1500,
+            chain_ms: 500,
+        }
     }
 }
 
@@ -80,25 +112,366 @@ pub fn width(s: &str) -> u32 {
 }
 
 fn sentence_end(w: &str) -> bool {
-    w.trim_end_matches(['"', '\'', ')', '」', '』']).ends_with(['.', '?', '!', '…', '。', '？', '！'])
+    w.trim_end_matches(CLOSERS).ends_with(['.', '?', '!', '…', '。', '？', '！'])
 }
 
-/// Connective endings and particles after which a Korean line or caption breaks naturally.
-const SOFT_ENDINGS: &[&str] = &[
-    "는데", "은데", "지만", "니까", "어서", "아서", "면서", "다가", "고", "며", "면", "서", "게", "도", "은", "는", "이", "가", "을", "를", "에", "에서", "로",
-    "으로", "와", "과", "의", "랑", "한테", "까지", "부터", "보다", "처럼", "요",
+const CLOSERS: &[char] = &['"', '\'', ')', ']', '」', '』', '”', '’'];
+const OPENERS: &[char] = &['"', '\'', '(', '[', '「', '『', '“', '‘'];
+
+/// Sentence-final endings: the speaker finished a sentence even when recognition left no period.
+const FINAL_ENDINGS: &[&str] = &[
+    "습니다",
+    "습니까",
+    "니다",
+    "어요",
+    "아요",
+    "에요",
+    "예요",
+    "해요",
+    "워요",
+    "죠",
+    "까요",
+    "네요",
+    "군요",
+    "래요",
+    "세요",
+    "거든",
+    "잖아",
+    "는다",
+    "었다",
+    "았다",
+    "했다",
+    "였다",
+    "이다",
+    "한다",
+    "된다",
+    "겠다",
+];
+/// Connective endings that close a clause: the most natural places to break inside a sentence.
+const CLAUSE_ENDINGS: &[&str] = &[
+    "는데",
+    "은데",
+    "던데",
+    "지만",
+    "니까",
+    "어서",
+    "아서",
+    "해서",
+    "워서",
+    "와서",
+    "려서",
+    "면서",
+    "다가",
+    "도록",
+    "려고",
+    "거나",
+    "든지",
+    "어도",
+    "아도",
+    "해도",
+    "더라도",
+    "는지",
+    "은지",
+    "자마자",
+    "므로",
+    "는데요",
+    "거든요",
+    "잖아요",
+    "니까요",
+    "고요",
+    "구요",
+    "더니",
+];
+/// Shorter connectives (`…하고`, `…하며`, `…하면`): still a clause break, a little weaker.
+const LIGHT_ENDINGS: &[&str] = &["고", "며", "면", "서"];
+/// Particles: the break comes after a whole noun phrase.
+const PARTICLES: &[&str] = &[
+    "에서", "에게", "한테", "까지", "부터", "보다", "처럼", "마다", "밖에", "으로", "이랑", "랑", "은", "는", "이", "가", "을", "를", "도", "만", "에", "로",
+    "와", "과", "께",
+];
+/// Words that modify the next word (determiners, adverbs, conjunctions, fillers): a line never
+/// ends on them, they go with what follows.
+const GLUE_AFTER: &[&str] = &[
+    "이",
+    "그",
+    "저",
+    "이런",
+    "그런",
+    "저런",
+    "이러한",
+    "그러한",
+    "이번",
+    "지난",
+    "저번",
+    "요번",
+    "다음",
+    "매",
+    "어떤",
+    "무슨",
+    "몇",
+    "모든",
+    "각",
+    "온갖",
+    "한",
+    "두",
+    "세",
+    "첫",
+    "매우",
+    "아주",
+    "너무",
+    "정말",
+    "진짜",
+    "완전",
+    "되게",
+    "엄청",
+    "좀",
+    "조금",
+    "더",
+    "덜",
+    "가장",
+    "제일",
+    "안",
+    "못",
+    "잘",
+    "꼭",
+    "다시",
+    "또",
+    "그냥",
+    "바로",
+    "같은",
+    "다른",
+    "약간",
+    "거의",
+    "특히",
+    "그리고",
+    "그래서",
+    "그런데",
+    "근데",
+    "하지만",
+    "그러면",
+    "그럼",
+    "그러니까",
+    "그니까",
+    "왜냐하면",
+    "그러나",
+    "그래도",
+    "자",
+    "막",
+    "뭐",
+    "이제",
+    "일단",
+    "사실",
+    "또한",
+    "아니면",
+];
+/// Demonstrative pronouns that open a new clause (`…했었고 그게 사라졌습니다`): they go at the
+/// start of the next line or caption, never at the end of one.
+const PRONOUNS: &[&str] = &[
+    "그게",
+    "이게",
+    "저게",
+    "그건",
+    "이건",
+    "저건",
+    "그걸",
+    "이걸",
+    "저걸",
+    "그거",
+    "이거",
+    "저거",
+    "그거는",
+    "이거는",
+    "그거를",
+    "이거를",
+    "그것도",
+    "이것도",
+    "그것은",
+    "이것은",
+    "그것이",
+    "이것이",
+    "그것을",
+    "이것을",
+    "그거도",
+    "이거도",
+    "그게요",
+    "이게요",
+];
+/// Words that open a clause: breaking right before them is natural.
+const CONNECTORS: &[&str] = &[
+    "그리고",
+    "그래서",
+    "그런데",
+    "근데",
+    "하지만",
+    "그러면",
+    "그럼",
+    "그러니까",
+    "그니까",
+    "왜냐하면",
+    "그러나",
+    "그래도",
+    "결국",
+    "또한",
+    "아니면",
+    "그다음",
+    "그다음에",
+    "자",
+];
+/// Bound nouns (의존 명사) with their usual particles: they belong to the word before
+/// (`할 수`, `하는 걸`, `본 적`), so a break never comes right before them.
+const BOUND_NOUNS: &[&str] = &[
+    "것",
+    "것이",
+    "것을",
+    "것은",
+    "것도",
+    "것만",
+    "거",
+    "거야",
+    "거죠",
+    "거예요",
+    "거에요",
+    "거고",
+    "거는",
+    "거를",
+    "거든요",
+    "걸",
+    "걸요",
+    "건",
+    "건데",
+    "게",
+    "겁니다",
+    "겁니까",
+    "수",
+    "수가",
+    "수도",
+    "수는",
+    "수를",
+    "수밖에",
+    "때",
+    "때는",
+    "때도",
+    "때가",
+    "때문",
+    "때문에",
+    "때문이죠",
+    "때문입니다",
+    "줄",
+    "줄은",
+    "데",
+    "데는",
+    "데도",
+    "데서",
+    "뿐",
+    "뿐이",
+    "뿐입니다",
+    "만큼",
+    "정도",
+    "정도로",
+    "정도예요",
+    "정도의",
+    "정도는",
+    "정도가",
+    "듯",
+    "듯이",
+    "듯한",
+    "듯해요",
+    "듯합니다",
+    "중",
+    "중에",
+    "중에서",
+    "적",
+    "적도",
+    "적은",
+    "지",
+    "바",
+    "대로",
+    "채",
+    "척",
+    "편",
+    "편이",
+    "편입니다",
+    "김에",
 ];
 
-/// Cost of breaking after word `w` (0 free … 80 bad).
-fn break_cost(w: &str) -> u32 {
-    let core = w.trim_end_matches(['"', '\'', ')']);
-    if core.ends_with([',', '、', '，', ':', ';']) || sentence_end(core) {
-        0
-    } else if SOFT_ENDINGS.iter().any(|e| core.ends_with(e)) {
-        15
-    } else {
-        80
+/// Whether `w` and `next` form one verb phrase with an auxiliary (`하고 있다`, `하지 않다`,
+/// `하게 되다`, `해 보다`, `할 수 있다`, `하는 것 같다`), which a break would tear apart.
+fn verb_phrase(w: &str, next: &str) -> bool {
+    let starts = |stems: &[&str]| stems.iter().any(|s| next.starts_with(s));
+    let ends = |e: &[&str]| e.iter().any(|x| w.ends_with(x));
+    (ends(&["고"]) && starts(&["있", "싶", "계", "나서", "나니", "나면", "나도", "난 "]))
+        || (ends(&["지"]) && starts(&["않", "못", "말", "마"]))
+        || (ends(&["도록"]) && starts(&["하", "해", "했", "할", "합"]))
+        || (ends(&["만", "라고", "다고"]) && matches!(next, "해도" | "하면" | "하더라도"))
+        // `존재는 하지만`: here `하지만` is the verb, not the conjunction
+        || (ends(&["는", "은", "도", "만"]) && matches!(next, "하지만" | "하는데" | "하고" | "해요" | "합니다" | "하죠" | "했지만" | "했는데" | "했어요" | "했습니다"))
+        || (ends(&["게"]) && starts(&["되", "돼", "됐", "된", "될", "만들", "만드", "하", "해", "했", "할", "합"]))
+        || (ends(&["어", "아", "여", "해", "워", "와", "봐", "줘", "놔", "둬", "내"])
+            && starts(&["보", "봐", "봤", "볼", "주", "줘", "줬", "버리", "버려", "버렸", "버린", "놓", "놔", "놨", "둬", "뒀", "있"]))
+        || (matches!(w, "수" | "수가" | "수도" | "수는") && starts(&["있", "없"]))
+        || (matches!(w, "것" | "거" | "걸" | "건" | "줄") && starts(&["같", "알", "몰"]))
+}
+
+/// Cost of breaking a caption or a line between `w` and `next`: 0 natural … 70 inside a noun
+/// phrase; 100 and more tears a phrase apart and is used only when nothing else fits.
+fn break_cost(w: &str, next: Option<&str>) -> u32 {
+    let core = w.trim_end_matches(CLOSERS);
+    if sentence_end(core) {
+        return 0;
     }
+    if core.ends_with([',', '、', '，', ':', ';']) {
+        return 2;
+    }
+    let Some(n) = next.map(|n| n.trim_start_matches(OPENERS)) else { return 0 };
+    if BOUND_NOUNS.contains(&n) || verb_phrase(core, n) {
+        return 200;
+    }
+    if GLUE_AFTER.contains(&core) {
+        return 150;
+    }
+    if PRONOUNS.contains(&core) {
+        return 150;
+    }
+    let ends = |list: &[&str]| list.iter().any(|e| core.ends_with(e));
+    let cost = if ends(FINAL_ENDINGS) {
+        5
+    } else if ends(CLAUSE_ENDINGS) || core.ends_with('요') {
+        8
+    } else if core.ends_with('다') {
+        10
+    } else if ends(&["에서", "으로"]) || (ends(LIGHT_ENDINGS) && !ends(PARTICLES)) {
+        14
+    } else if core.ends_with('의') {
+        55
+    } else if core.ends_with('히') && core.chars().count() > 1 {
+        // an adverb before its verb (`완전히 바뀌었다`)
+        100
+    } else if core.ends_with('게') && core.chars().count() > 1 {
+        // `빠르게 넘어가다`, `쉽게 하다`
+        90
+    } else if ends(PARTICLES) {
+        25
+    } else if !core.is_empty() && core.chars().all(|c| c.is_ascii_digit()) {
+        // a number before its counter (`5 시즌`)
+        80
+    } else {
+        70
+    };
+    if CONNECTORS.contains(&n) || PRONOUNS.contains(&n) { cost.min(6) } else { cost }
+}
+
+/// How much a silence between two words makes a break there more natural.
+fn pause_bonus(gap_ms: i64) -> u32 {
+    u32::try_from(((gap_ms - 120) / 8).clamp(0, 30)).unwrap_or(0)
+}
+
+/// Cost of breaking after `words[i]` (inside `words`); a silence there counts in full between
+/// captions and half between the two lines of one caption.
+fn cost_after(words: &[TimedWord], i: usize, line: bool) -> u32 {
+    let (Some(w), next) = (words.get(i), words.get(i + 1)) else { return 0 };
+    let gap = next.map_or(0, |n| n.start_ms - w.end_ms);
+    let bonus = if line { pause_bonus(gap) / 2 } else { pause_bonus(gap) };
+    break_cost(&w.text, next.map(|n| n.text.as_str())).saturating_sub(bonus)
 }
 
 fn joined_width(words: &[TimedWord]) -> u32 {
@@ -106,20 +479,37 @@ fn joined_width(words: &[TimedWord]) -> u32 {
     words.iter().map(|w| width(&w.text)).fold(spaces, u32::saturating_add)
 }
 
-/// Whether `words` fit in `o.max_lines` lines of `o.max_line` without breaking a word. Two lines
-/// fit when the longest first line that fits leaves a second line that fits too.
-fn fits(words: &[TimedWord], o: &Layout) -> bool {
-    if joined_width(words) <= o.max_line {
-        return true;
-    }
-    if o.max_lines < 2 {
-        return false;
-    }
-    let first = (1..words.len()).rev().find(|&k| words.get(..k).is_some_and(|a| joined_width(a) <= o.max_line));
-    first.is_some_and(|k| words.get(k..).is_some_and(|b| joined_width(b) <= o.max_line))
+/// The best place to split `words` into two lines of at most `o.max_line`: `(cost, k)` puts
+/// `words[..k]` on the first line. Natural break points win; among them, balanced lines and no
+/// one-word stub.
+fn line_split(words: &[TimedWord], o: &Layout) -> Option<(u32, usize)> {
+    (1..words.len())
+        .filter_map(|k| {
+            let (wa, wb) = (joined_width(words.get(..k)?), joined_width(words.get(k..)?));
+            if wa > o.max_line || wb > o.max_line {
+                return None;
+            }
+            let stub = if wa.min(wb) < 8 { 25 } else { 0 };
+            Some((cost_after(words, k - 1, true) + wa.abs_diff(wb) / 2 + stub, k))
+        })
+        .min()
 }
 
-/// Split one sentence-or-pause segment into captions (DP over break points).
+/// Whether `words` fit in `o.max_lines` lines of `o.max_line` without breaking a word, and what
+/// the line break inside costs (0 for one line).
+fn fit_cost(words: &[TimedWord], o: &Layout) -> Option<u32> {
+    if joined_width(words) <= o.max_line {
+        return Some(0);
+    }
+    if o.max_lines < 2 {
+        return None;
+    }
+    line_split(words, o).map(|(c, _)| c)
+}
+
+/// Split one sentence-or-pause segment into captions (DP over break points): every caption costs
+/// something, a break costs what [`break_cost`] says, the line break inside a caption counts too,
+/// and very short captions cost extra, so captions come out full but end at natural places.
 fn split_segment(words: &[TimedWord], o: &Layout) -> Vec<std::ops::Range<usize>> {
     let n = words.len();
     // best[i] = (cost, previous break) for words[..i]
@@ -132,17 +522,17 @@ fn split_segment(words: &[TimedWord], o: &Layout) -> Vec<std::ops::Range<usize>>
             let (Some(slice), Some(&(prev, _))) = (words.get(start..end), best.get(start)) else { continue };
             let single = end - start == 1;
             let dur = slice.last().map_or(0, |l| l.end_ms) - slice.first().map_or(0, |f| f.start_ms);
-            let w = joined_width(slice);
+            let fit = fit_cost(slice, o);
             // Adding words in front never makes a caption fit again, so stop here.
-            if !single && (!fits(slice, o) || dur > o.max_cue_ms) {
+            if !single && (fit.is_none() || dur > o.max_cue_ms) {
                 break;
             }
             if prev == u64::MAX {
                 continue;
             }
-            let brk = if end == n { 0 } else { slice.last().map_or(80, |l| break_cost(&l.text)) };
-            let short = if w < 12 && end != n { 40 } else { 0 };
-            let cost = prev + 60 + u64::from(brk) + short;
+            let brk = if end == n { 0 } else { cost_after(words, end - 1, false) };
+            let short = if joined_width(slice) < 12 && !(start == 0 && end == n) { 40 } else { 0 };
+            let cost = prev + 50 + u64::from(brk) + u64::from(fit.unwrap_or(0)) + short;
             if let Some(b) = best.get_mut(end)
                 && cost < b.0
             {
@@ -189,17 +579,7 @@ fn lines_of(words: &[TimedWord], o: &Layout) -> Vec<String> {
     if joined_width(words) <= o.max_line || o.max_lines < 2 {
         return if words.len() == 1 && width(&all) > o.max_line { wrap_chars(&all, o.max_line) } else { vec![all] };
     }
-    let best = (1..words.len())
-        .filter_map(|k| {
-            let (a, b) = (words.get(..k)?, words.get(k..)?);
-            let (wa, wb) = (joined_width(a), joined_width(b));
-            if wa > o.max_line || wb > o.max_line {
-                return None;
-            }
-            Some((wa.abs_diff(wb) + break_cost(&a.last()?.text) / 2, k))
-        })
-        .min();
-    match best {
+    match line_split(words, o) {
         Some((_, k)) => vec![join(words.get(..k).unwrap_or(&[])), join(words.get(k..).unwrap_or(&[]))],
         None => wrap_chars(&all, o.max_line),
     }
@@ -249,17 +629,55 @@ fn segment(words: &[TimedWord], o: &Layout) -> Vec<Caption> {
     caps
 }
 
-/// Timing: hold, minimum duration, no overlap.
+/// Letters and digits in `s` (what a reader actually reads).
+fn letters(s: &str) -> i64 {
+    i64::try_from(s.chars().filter(|c| c.is_alphanumeric()).count()).unwrap_or(i64::MAX)
+}
+
+/// Display times from speech times (`caps` come in with the first word's start and the last
+/// word's end, sorted by start):
+///
+/// - a caption appears `lead_ms` before its first word, but not before the previous caption's
+///   speech is over nor so early that the previous caption is up less than `min_cue_ms`;
+/// - it stays `hold_ms` after its last word, longer when its text needs more time to read at
+///   `reading_cps` (at most `max_linger_ms` past the speech), and at least `min_cue_ms`;
+/// - it never overlaps the next caption, and a gap to the next one shorter than `chain_ms` is
+///   closed so the screen doesn't blink between two captions.
 fn fix_timing(caps: &mut [Caption], o: &Layout) {
+    let speech: Vec<(i64, i64)> = caps.iter().map(|c| (c.start_ms, c.end_ms)).collect();
+    let lead = o.lead_ms.clamp(0, 2000);
+    for i in 0..caps.len() {
+        let Some(&(s, _)) = speech.get(i) else { continue };
+        let mut start = s.saturating_sub(lead).max(0).min(s);
+        if let Some(&(_, prev_end)) = i.checked_sub(1).and_then(|j| speech.get(j)) {
+            start = start.max(prev_end.min(s));
+        }
+        // nor so early that the previous caption is cut below its minimum
+        if let Some(prev) = i.checked_sub(1).and_then(|j| caps.get(j)) {
+            start = start.max(prev.start_ms.saturating_add(o.min_cue_ms.clamp(0, 10_000)).min(s));
+        }
+        if let Some(c) = caps.get_mut(i) {
+            c.start_ms = start;
+        }
+    }
     for i in 0..caps.len() {
         let next_start = caps.get(i + 1).map(|c| c.start_ms);
-        if let Some(c) = caps.get_mut(i) {
-            let mut end = (c.end_ms + o.hold_ms).max(c.start_ms + o.min_cue_ms);
-            if let Some(ns) = next_start {
-                end = end.min(ns.max(c.start_ms + 1));
+        let (Some(&(_, e)), Some(c)) = (speech.get(i), caps.get_mut(i)) else { continue };
+        let start = c.start_ms;
+        let read_ms = match i64::from(o.reading_cps) {
+            0 => 0,
+            cps => letters(&c.text()).saturating_mul(1000) / cps,
+        };
+        let hold = o.hold_ms.clamp(0, 10_000);
+        let linger = e.saturating_add(o.max_linger_ms.clamp(0, 10_000).max(hold));
+        let mut end = e.saturating_add(hold).max(start.saturating_add(read_ms).min(linger)).max(start.saturating_add(o.min_cue_ms.clamp(0, 10_000)));
+        if let Some(ns) = next_start {
+            end = end.min(ns.max(start + 1));
+            if ns > end && ns - end < o.chain_ms {
+                end = ns;
             }
-            c.end_ms = end.max(c.start_ms + 1);
         }
+        c.end_ms = end.max(start + 1);
     }
 }
 
@@ -321,7 +739,8 @@ mod tests {
         let t: Vec<String> = c.iter().map(Caption::text).collect();
         assert_eq!(t, vec!["반갑습니다.", "오늘은 티어리스트", "갑니다"]);
         assert!(c.windows(2).all(|p| p[0].end_ms <= p[1].start_ms));
-        assert_eq!(c[0].end_ms, 900, "hold is cut at the next caption");
+        assert_eq!(c[1].start_ms, 900, "no lead-in: the first caption needs its minimum time");
+        assert_eq!(c[0].end_ms, 900, "hold is cut where the next caption appears");
     }
 
     #[test]
@@ -370,6 +789,102 @@ mod tests {
         assert!(c[0].lines.iter().all(|l| width(l) <= 32));
         let o = Layout { max_line: 0, max_lines: 0, max_cue_ms: -5, ..Layout::default() };
         let _ = layout(&seq("가 나 다 라", 10), &o);
+    }
+
+    fn texts(c: &[Caption]) -> Vec<String> {
+        c.iter().map(|c| c.lines.join(" / ")).collect()
+    }
+
+    #[test]
+    fn breaks_never_tear_a_phrase() {
+        let o = Layout { max_line: 20, ..Layout::default() };
+        for (text, torn) in [
+            ("영상 꼭 보고 경쟁하는 걸 추천할 정도예요", ["경쟁하는 / 걸", "추천할 / 정도예요"]),
+            ("지금은 다들 이 영웅을 할 수 있는 상황이에요", ["할 / 수", "수 / 있는"]),
+            ("요즘 다들 솔저를 하고 있는 거 같아요 진짜로", ["하고 / 있는", "거 / 같아요"]),
+            ("이번 시즌 너무 강한 영웅이 너무 많아서 힘들어요", ["너무 / 강한", "너무 / 많아서"]),
+            ("나머지 영웅들은 다음에 넘어가도록 할게요", ["넘어가도록 / 할게요", "x"]),
+            ("이전 시즌까지만 해도 캐서디 시온 조합이 괜찮았어요", ["시즌까지만 / 해도", "x"]),
+            ("점수 차이가 분명히 존재는 하지만 지금 눈여겨볼 수치는 아니에요", ["존재는 / 하지만", "x"]),
+            ("그래서 이번 시즌 설명 좀 쉽게 하기 위해서 과거 사례를 가져올게요", ["쉽게 / 하기", "x"]),
+        ] {
+            let c = layout(&seq(text, 250), &o);
+            let all = texts(&c).join(" | ");
+            for t in torn {
+                assert!(!all.contains(t), "{text}: {all}");
+                assert!(!all.contains(&t.replace(" / ", " | ")), "{text}: {all}");
+            }
+        }
+    }
+
+    #[test]
+    fn lines_break_at_clause_ends_not_by_count() {
+        // Fits on two lines of 17 Hangul either way; the clause end (`출시했고`) wins over the balanced break
+        // inside the list of heroes.
+        let c = layout(&seq("독트린이 출시했고 솜브라 로드호그가 리워크됐습니다.", 250), &Layout { max_line: 34, ..Layout::default() });
+        assert_eq!(texts(&c), vec!["독트린이 출시했고 / 솜브라 로드호그가 리워크됐습니다.".to_string()], "{c:?}");
+        // `6개의 / 전환` splits a noun phrase; the break after the particle is better
+        let c = layout(&seq("측정 가능한 여섯 개의 전환 중에 1위입니다.", 250), &Layout::default());
+        assert_eq!(texts(&c), vec!["측정 가능한 여섯 개의 전환 중에 / 1위입니다.".to_string()]);
+    }
+
+    #[test]
+    fn a_pronoun_opening_a_clause_starts_the_next_line_or_caption() {
+        let text = "밴되는 문화가 존재 했었고 그게 이번 시즌 확실하게 사라졌습니다.";
+        // wide enough for two lines: `그게` starts the second line
+        let c = layout(&seq(text, 250), &Layout { max_line: 38, ..Layout::default() });
+        assert_eq!(texts(&c), vec!["밴되는 문화가 존재 했었고 / 그게 이번 시즌 확실하게 사라졌습니다.".to_string()]);
+        // 16 Hangul a line: the second half doesn't fit on one line, so it becomes the next
+        // caption rather than leaving `그게` at the end of a line
+        for o in [Layout::default(), Layout { max_lines: 1, ..Layout::default() }, Layout { max_lines: 1, max_line: 36, ..Layout::default() }] {
+            let all = texts(&layout(&seq(text, 250), &o)).join(" | ");
+            assert!(!all.contains("그게 /") && !all.contains("그게 |"), "{all}");
+            assert!(all.contains("했었고 | 그게") || all.contains("했었고 / 그게"), "{all}");
+        }
+    }
+
+    #[test]
+    fn a_pause_draws_the_break() {
+        // Same words; a 600 ms breath after `분석` moves the line break there.
+        let mut w = seq("티어리스트와 메타 분석 빠르게 보도록 하겠습니다", 250);
+        for x in w.iter_mut().skip(3) {
+            x.start_ms += 600;
+            x.end_ms += 600;
+        }
+        let c = layout(&w, &Layout { max_line: 30, ..Layout::default() });
+        assert_eq!(texts(&c), vec!["티어리스트와 메타 분석 / 빠르게 보도록 하겠습니다".to_string()]);
+    }
+
+    #[test]
+    fn timing_leads_lingers_and_never_blinks() {
+        let o = Layout::default();
+        // a long line said fast, then silence: it stays up to be read (12 letters/s) but not
+        // more than `max_linger_ms` after the speech
+        let c = layout(&words(&[("이번", 1000, 1200), ("시즌은", 1200, 1500), ("독트린이", 1500, 1800), ("사기입니다.", 1800, 2200)]), &o);
+        assert_eq!(c[0].start_ms, 1000 - o.lead_ms);
+        let need = 13 * 1000 / 12;
+        assert_eq!(c[0].end_ms, (c[0].start_ms + need).max(2200 + o.hold_ms));
+        let c = layout(&words(&[("가나다라마바사아자차카타파하가나다라마바사아자차카타파하.", 0, 300)]), &o);
+        assert_eq!(c[0].end_ms, 300 + o.max_linger_ms);
+        // a short gap between two captions is closed, a long one is kept
+        let c = layout(&words(&[("하나.", 0, 900), ("둘.", 1500, 2400), ("셋.", 6000, 6800)]), &o);
+        assert_eq!(c[0].end_ms, c[1].start_ms, "{c:?}");
+        assert!(c[1].end_ms < c[2].start_ms);
+        assert!(c.windows(2).all(|p| p[0].end_ms <= p[1].start_ms && p[0].start_ms < p[0].end_ms));
+        // a one-word caption still gets the minimum when there is room
+        let c = layout(&words(&[("네.", 0, 200)]), &o);
+        assert_eq!(c[0].end_ms - c[0].start_ms, o.min_cue_ms);
+    }
+
+    #[test]
+    fn old_settings_without_timing_fields_still_load() {
+        let o: Layout = serde_json::from_str(r#"{"max_line":30,"max_lines":2,"max_cue_ms":7000,"pause_ms":700,"min_cue_ms":700,"hold_ms":250}"#).unwrap();
+        assert_eq!(o.max_line, 30);
+        assert_eq!(o.reading_cps, Layout::default().reading_cps);
+        let hostile =
+            Layout { lead_ms: i64::MIN, hold_ms: i64::MAX, max_linger_ms: i64::MIN, chain_ms: i64::MAX, min_cue_ms: i64::MIN, reading_cps: u32::MAX, ..o };
+        let c = layout(&seq("가 나 다 라", 10), &hostile);
+        assert!(c.windows(2).all(|p| p[0].end_ms <= p[1].start_ms));
     }
 
     #[test]

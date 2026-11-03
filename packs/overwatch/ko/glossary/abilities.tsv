@@ -5,7 +5,7 @@ dva.defense_matrix	방어 매트릭스	Defense Matrix	매트릭스				디바
 dva.micro_missiles	마이크로 미사일	Micro Missiles					디바
 dva.self_destruct	자폭	Self-Destruct					디바 궁극기
 dva.call_mech	메카 호출	Call Mech	리필				디바
-doomfist.hand_cannon	핸드 캐논	Hand Cannon					둠피스트
+doomfist.hand_cannon	철권포	Hand Cannon		핸드 캐논			둠피스트
 doomfist.seismic_slam	지진 강타	Seismic Slam					둠피스트
 doomfist.power_block	파워 블락	Power Block	파워 블록				둠피스트
 doomfist.rocket_punch	로켓 펀치	Rocket Punch					둠피스트
@@ -20,23 +20,23 @@ wrecking_ball.adaptive_shield	적응형 보호막	Adaptive Shield					레킹볼
 wrecking_ball.piledriver	파일드라이버	Piledriver					레킹볼
 wrecking_ball.minefield	지뢰밭	Minefield					레킹볼 궁극기
 orisa.energy_javelin	투창	Energy Javelin					오리사
-orisa.fortify	방어 강화	Fortify				verify	오리사
-orisa.javelin_spin	수호의 창	Javelin Spin	창 돌리기			verify	오리사
-orisa.terra_surge	대지의 창	Terra Surge				verify	오리사 궁극기
+orisa.fortify	방어 강화	Fortify					오리사
+orisa.javelin_spin	수호의 창	Javelin Spin	창 돌리기				오리사
+orisa.terra_surge	대지의 창	Terra Surge			대지에 창; 대지의창		오리사 궁극기
 roadhog.chain_hook	사슬 갈고리	Chain Hook	갈고리; 훅				로드호그
 roadhog.take_a_breather	숨 돌리기	Take a Breather					로드호그
 roadhog.whole_hog	돼재앙	Whole Hog					로드호그 궁극기
-roadhog.trash_compactor		Trash Compactor				verify	로드호그, 2026 5시즌 개편 신기술. 한국어 이름 확인 필요
+roadhog.trash_compactor	쓰레기 압축기	Trash Compactor					로드호그, 2026 5시즌 개편 신기술 (공식 이름: 블리자드 영웅 페이지)
 zarya.particle_barrier	입자 방벽	Particle Barrier	셀프 방벽				자리야
 zarya.projected_barrier	방벽 씌우기	Projected Barrier	주방; 버블				자리야
 zarya.graviton_surge	중력자탄	Graviton Surge	그라비; 자탄				자리야 궁극기
-mauga.overrun	돌진	Overrun				noeval verify	마우가
-mauga.cardiac_overdrive	심장 과부하	Cardiac Overdrive				verify	마우가
+mauga.overrun	돌파	Overrun		돌진		noeval	마우가
+mauga.cardiac_overdrive	터질 듯한 심장	Cardiac Overdrive		심장 과부하			마우가
 mauga.cage_fight	케이지 혈투	Cage Fight	케이지; 우끼끼				마우가 궁극기
 junker_queen.jagged_blade	톱니칼	Jagged Blade					정커퀸
 junker_queen.commanding_shout	지휘의 외침	Commanding Shout					정커퀸
 junker_queen.carnage	도륙	Carnage					정커퀸
-junker_queen.rampage	광란	Rampage					정커퀸 궁극기
+junker_queen.rampage	살육	Rampage		광란			정커퀸 궁극기
 ramattra.void_barrier	공허 방벽	Void Barrier					라마트라
 ramattra.nemesis_form	네메시스 형상	Nemesis Form	네메시스				라마트라
 ramattra.ravenous_vortex	탐식의 소용돌이	Ravenous Vortex					라마트라
@@ -45,7 +45,7 @@ reinhardt.rocket_hammer	로켓 해머	Rocket Hammer					라인하르트
 reinhardt.barrier_field	방벽 방패	Barrier Field					라인하르트
 reinhardt.charge	돌진	Charge				noeval	라인하르트
 reinhardt.fire_strike	화염 강타	Fire Strike					라인하르트
-reinhardt.earthshatter	대지 분쇄	Earthshatter	대지분쇄; 망치				라인하르트 궁극기
+reinhardt.earthshatter	대지분쇄	Earthshatter	대지분쇄; 망치	대지 분쇄			라인하르트 궁극기
 sigma.hyperspheres	초구체	Hyperspheres					시그마
 sigma.experimental_barrier	실험용 방벽	Experimental Barrier					시그마
 sigma.kinetic_grasp	키네틱 손아귀	Kinetic Grasp					시그마
@@ -57,15 +57,15 @@ domina.crystal_shot	수정 발사						도미나
 domina.sonic_repulsor	소닉 리펄서						도미나
 domina.panopticon	판옵티콘						도미나 궁극기
 domina.reassembly	재조립						도미나 지속 능력
-dmon.plasma_saber		Plasma Saber				verify	디몬. 한국어 이름 확인 필요
-dmon.power_barrier		Power Barrier				verify	디몬. 한국어 이름 확인 필요
-dmon.propulsors		Propulsors				verify	디몬. 한국어 이름 확인 필요
-dmon.fusion_repeater		Fusion Repeater				verify	디몬. 한국어 이름 확인 필요
-dmon.limit_break		Limit Break				verify	디몬 궁극기. 한국어 이름 확인 필요
+dmon.plasma_saber	플라스마 세이버	Plasma Saber					디몬 (공식 이름: 블리자드 영웅 페이지)
+dmon.power_barrier	파워 배리어	Power Barrier					디몬 (공식 이름: 블리자드 영웅 페이지)
+dmon.propulsors	추진기	Propulsors					디몬 (공식 이름: 블리자드 영웅 페이지)
+dmon.fusion_repeater	융합 연발총	Fusion Repeater					디몬 (공식 이름: 블리자드 영웅 페이지)
+dmon.limit_break	한계 돌파	Limit Break					디몬 궁극기 (공식 이름: 블리자드 영웅 페이지)
 ashe.viper	바이퍼	The Viper					애쉬
 ashe.coach_gun	충격 샷건	Coach Gun					애쉬
 ashe.dynamite	다이너마이트	Dynamite					애쉬
-ashe.bob	밥	B.O.B.				noeval	애쉬 궁극기
+ashe.bob	밥	B.O.B.	B.O.B.			noeval	애쉬 궁극기
 cassidy.peacekeeper	피스키퍼	Peacekeeper					캐서디
 cassidy.combat_roll	구르기	Combat Roll				noeval	캐서디
 cassidy.magnetic_grenade	자력 수류탄	Magnetic Grenade		섬광탄			캐서디
@@ -73,7 +73,7 @@ cassidy.deadeye	황야의 무법자	Deadeye	석양				캐서디 궁극기 ("석�
 hanzo.storm_bow	폭풍활	Storm Bow					한조
 hanzo.storm_arrows	폭풍 화살	Storm Arrows					한조
 hanzo.sonic_arrow	음파 화살	Sonic Arrow					한조
-hanzo.lunge	순보	Lunge				noeval	한조, 키리코와 같은 이름
+hanzo.lunge	이단뛰기	Lunge				noeval	한조, 키리코와 같은 이름 (예전 표기 순보는 키리코 기술과 같아 뺌)
 hanzo.dragonstrike	용의 일격	Dragonstrike	용				한조 궁극기
 sojourn.railgun	레일건	Railgun					소전
 sojourn.power_slide	파워 슬라이드	Power Slide					소전
@@ -90,7 +90,7 @@ anran.dancing_flames	춤추는 불꽃						안란
 anran.zhuque_ascends	주작 승천						안란 궁극기 (생존 시)
 anran.zhuque_rebirth	주작 부활						안란 궁극기 (사망 시)
 anran.ignite	점화						안란 지속 능력
-genji.shuriken	표창	Shuriken					겐지
+genji.shuriken	수리검	Shuriken		표창			겐지
 genji.swift_strike	질풍참	Swift Strike					겐지
 genji.deflect	튕겨내기	Deflect					겐지
 genji.dragonblade	용검	Dragonblade	뽕검				겐지 궁극기
@@ -102,20 +102,20 @@ tracer.pulse_pistols	펄스 쌍권총	Pulse Pistols					트레이서
 tracer.blink	점멸	Blink					트레이서
 tracer.recall	시간 역행	Recall	역행; 리콜				트레이서
 tracer.pulse_bomb	펄스 폭탄	Pulse Bomb	펄스				트레이서 궁극기
-venture.burrow	잠복	Burrow				verify	벤처
-venture.drill_dash	드릴 돌진	Drill Dash				verify	벤처
-venture.tectonic_shock	지각 충격	Tectonic Shock				verify	벤처 궁극기
-bastion.recon	설정: 수색	Configuration: Recon				verify	바스티온
-bastion.assault	설정: 강습	Configuration: Assault				verify	바스티온
-bastion.grenade	전술 수류탄	A-36 Tactical Grenade					바스티온
-bastion.artillery	설정: 포격	Configuration: Artillery	포격			verify	바스티온 궁극기
+venture.burrow	잠복	Burrow					벤처
+venture.drill_dash	드릴 돌진	Drill Dash					벤처
+venture.tectonic_shock	지각 충격	Tectonic Shock					벤처 궁극기
+bastion.recon	설정: 수색	Configuration: Recon					바스티온
+bastion.assault	설정: 강습	Configuration: Assault					바스티온
+bastion.grenade	A-36 전술 수류탄	A-36 Tactical Grenade		전술 수류탄			바스티온
+bastion.artillery	설정: 포격	Configuration: Artillery	포격				바스티온 궁극기
 emre.burst_rifle	합성 점사 소총						엠레 기본 무기
 emre.take_aim	정조준						엠레 보조 발사
 emre.siphon_blaster	사이펀 블라스터						엠레
 emre.cyber_frag	사이버 파편 수류탄						엠레
 emre.override_protocol	오버라이드 프로토콜		아쎄이 투하				엠레 궁극기
 emre.biosignal	생체 신호 변조						엠레 지속 능력
-junkrat.frag_launcher	고폭 유탄 발사기	Frag Launcher				verify	정크랫
+junkrat.frag_launcher	폭탄 발사기	Frag Launcher		고폭 유탄 발사기			정크랫
 junkrat.concussion_mine	충격 지뢰	Concussion Mine					정크랫
 junkrat.steel_trap	강철 덫	Steel Trap	덫				정크랫
 junkrat.rip_tire	죽이는 타이어	RIP-Tire	타이어				정크랫 궁극기
@@ -123,7 +123,7 @@ mei.endothermic_blaster	냉각총	Endothermic Blaster					메이
 mei.cryo_freeze	급속 빙결	Cryo-Freeze					메이
 mei.ice_wall	빙벽	Ice Wall					메이
 mei.blizzard	눈보라	Blizzard	설구				메이 궁극기
-soldier_76.pulse_rifle	중펄스 소총	Heavy Pulse Rifle					솔저: 76
+soldier_76.pulse_rifle	펄스 소총	Heavy Pulse Rifle		중펄스 소총			솔저: 76
 soldier_76.sprint	질주	Sprint					솔저: 76
 soldier_76.biotic_field	생체장	Biotic Field					솔저: 76
 soldier_76.helix_rockets	나선 로켓	Helix Rockets					솔저: 76
@@ -139,16 +139,16 @@ echo.sticky_bombs	점착 폭탄	Sticky Bombs					에코
 echo.flight	비행	Flight				noeval	에코
 echo.focusing_beam	광선 집중	Focusing Beam					에코
 echo.duplicate	복제	Duplicate					에코 궁극기
-pharah.rocket_launcher	로켓 발사기	Rocket Launcher					파라
+pharah.rocket_launcher	로켓 런처	Rocket Launcher		로켓 발사기			파라
 pharah.jump_jet	점프 추진기	Jump Jet					파라
 pharah.concussive_blast	충격탄	Concussive Blast					파라
 pharah.barrage	포화	Barrage					파라 궁극기
 freja.bola_shot	올가미 사격	Bola Shot	올가미; 누방가다				프레야 궁극기 (누방가다는 대사)
 sombra.machine_pistol	기관권총	Machine Pistol					솜브라
-sombra.translocator	위치 변환기	Translocator					솜브라
-sombra.emp	EMP	EMP	이엠피				솜브라 궁극기
-sombra.hotfix		Hotfix		해킹		verify	솜브라 2026 5시즌 지원 개편 (해킹 대체). 한국어 이름 확인 필요
-sombra.cyberspace	사이버 스페이스	Cyberspace	사스; 사슾	바이러스		verify	솜브라 2026 5시즌 지원 개편 (바이러스 대체). 위키 표기, 게임 내 표기 확인 필요
+sombra.translocator	위치변환기	Translocator		위치 변환기			솜브라
+sombra.emp	EMP	EMP	이엠피; EMP				솜브라 궁극기
+sombra.hotfix	긴급 패치	Hotfix		해킹			솜브라 2026 5시즌 지원 개편 (해킹 대체) (공식 이름: 블리자드 영웅 페이지)
+sombra.cyberspace	사이버 스페이스	Cyberspace	사스; 사슾	바이러스			솜브라 2026 5시즌 지원 개편 (바이러스 대체). 공식 이름 확인 (블리자드 영웅 페이지)
 ana.biotic_rifle	생체 소총	Biotic Rifle					아나
 ana.sleep_dart	수면총	Sleep Dart	재우기				아나
 ana.biotic_grenade	생체 수류탄	Biotic Grenade	힐밴 수류탄				아나
@@ -189,7 +189,7 @@ moira.biotic_grasp	생체 손아귀	Biotic Grasp					모이라
 moira.biotic_orb	생체 구슬	Biotic Orb					모이라
 moira.fade	소멸	Fade					모이라
 moira.coalescence	융화	Coalescence					모이라 궁극기
-brigitte.rocket_flail	도리깨	Rocket Flail					브리기테
+brigitte.rocket_flail	로켓 도리깨	Rocket Flail		도리깨			브리기테
 brigitte.repair_pack	수리 팩	Repair Pack	수리팩				브리기테
 brigitte.whip_shot	도리깨 투척	Whip Shot					브리기테
 brigitte.shield_bash	방패 밀쳐내기	Shield Bash					브리기테
@@ -199,19 +199,306 @@ illari.solar_rifle	태양 소총	Solar Rifle					일리아리
 illari.healing_pylon	치유의 태양석	Healing Pylon	태양석; 파일런				일리아리
 illari.outburst	분출	Outburst					일리아리
 illari.captive_sun	태양 작렬	Captive Sun					일리아리 궁극기
-juno.mediblaster	메디블래스터	Mediblaster					주노
+juno.mediblaster	메디블라스터	Mediblaster		메디블래스터			주노
 juno.pulsar_torpedoes	펄사 어뢰	Pulsar Torpedoes	어뢰				주노
 juno.hyper_ring	하이퍼 링	Hyper Ring	링				주노
 juno.orbital_ray	궤도 광선	Orbital Ray	궤도; 오빗				주노 궁극기
-juno.glide_boost	활공 부스트	Glide Boost					주노
+juno.glide_boost	글라이드 부스터	Glide Boost		활공 부스트			주노
 mizuki.spirit_shuriken	영혼 수리검						미즈키 기본 무기
 mizuki.healing_kasa	치유의 삿갓		삿갓				미즈키
 mizuki.paper_doll	종이 인형 분신술		분신술				미즈키
 mizuki.binding_chain	속박 사슬						미즈키
 mizuki.kekkai_sanctuary	결계 성역						미즈키 궁극기
 mizuki.recovery_aura	회복 오라						미즈키 지속 능력
-doctrine.eternal_scepter		Eternal Scepter				verify	독트린 기본 무기. 한국어 이름 확인 필요
-doctrine.infuse		Infuse				verify	독트린 보조 발사 (충전 2회). 한국어 이름 확인 필요
-doctrine.invigorating_drones		Invigorating Drones				verify	독트린. 한국어 이름 확인 필요
-doctrine.shrouded_momentum		Shrouded Momentum				verify	독트린 이동기. 한국어 이름 확인 필요
-doctrine.deliverance		Deliverance				verify	독트린 궁극기. 한국어 이름 확인 필요
+doctrine.eternal_scepter	영겁의 홀	Eternal Scepter					독트린 기본 무기 (공식 이름: 블리자드 영웅 페이지)
+doctrine.infuse	주입	Infuse					독트린 보조 발사 (충전 2회) (공식 이름: 블리자드 영웅 페이지)
+doctrine.invigorating_drones	활기 드론	Invigorating Drones					독트린 (공식 이름: 블리자드 영웅 페이지)
+doctrine.shrouded_momentum	추진형 장막	Shrouded Momentum					독트린 이동기 (공식 이름: 블리자드 영웅 페이지)
+doctrine.deliverance	구제	Deliverance					독트린 궁극기 (공식 이름: 블리자드 영웅 페이지)
+# 공식 한국어 이름 보충 (블리자드 영웅 페이지 overwatch.blizzard.com/ko-kr/heroes, 2026-11-02)
+anran.vermillion_ascent	불사조 승천	Vermillion Ascent					안란
+anran.vermillion_revival	불사조 부활	Vermillion Revival					안란
+baptiste.biotic_launcher	생체탄 발사기	Biotic Launcher					바티스트
+bastion.reconfigure	재설정	Reconfigure				noeval	바스티온
+brigitte.barrier_shield	방벽 방패	Barrier Shield					브리기테
+dmon.portable_fusion_repeater	휴대용 융합 연발총	Portable Fusion Repeater					디몬
+dmon.surging_strike	돌진 강타	Surging Strike					디몬
+dmon.eject	비상탈출	Eject				noeval	디몬
+dmon.call_mech	메카 호출	Call Mech				noeval	디몬
+dva.light_gun	광선총	Light Gun				noeval	디바
+dva.eject	비상탈출	Eject				noeval	디바
+echo.tri_shot	삼각탄	Tri Shot					에코
+echo.glide	활공	Glide				noeval	에코
+freja.quick_dash	재빠른 돌진	Quick Dash					프레야
+freja.take_aim	정조준	Take Aim				noeval	프레야
+freja.updraft	상승기류	Updraft				noeval	프레야
+genji.cyber_agility	사이보그의 날렵함	Cyber Agility					겐지
+hanzo.wall_climb	벽 오르기	Wall Climb				noeval	한조
+hazard.bonespur	본스퍼	Bonespur					해저드
+hazard.spike_guard	날카로운 저항	Spike Guard					해저드
+hazard.violent_leap	덤벼들기	Violent Leap				noeval	해저드
+hazard.jagged_wall	가시벽	Jagged Wall					해저드
+hazard.downpour	가시 소나기	Downpour					해저드
+hazard.vault	벽 넘기	Vault				noeval	해저드
+junker_queen.scattergun	산탄총	Scattergun				noeval	정커퀸
+junker_queen.adrenaline_rush	아드레날린 촉진	Adrenaline Rush					정커퀸
+junkrat.total_mayhem	완전 난장판	Total Mayhem					정크랫
+juno.martian_overboots	화성식 오버부츠	Martian Overboots					주노
+lifeweaver.thorn_volley	가시 연사	Thorn Volley					라이프위버
+lifeweaver.rejuvenating_dash	산들 걸음	Rejuvenating Dash					라이프위버
+mauga.berserker	광전사	Berserker				noeval	마우가
+mercy.caduceus_blaster	카두세우스 블라스터	Caduceus Blaster					메르시
+mercy.angelic_descent	천사 강림	Angelic Descent					메르시
+orisa.augmented_fusion_driver	개량형 융합 기관포	Augmented Fusion Driver					오리사
+pharah.jet_dash	급속 추진	Jet Dash					파라
+pharah.hover_jets	호버 추진기	Hover Jets					파라
+ramattra.void_accelerator_omnic_form	공허 가속기	Void Accelerator Omnic Form					라마트라 (옴닉 형태)
+ramattra.pummel_nemesis_form	응징	Pummel Nemesis Form				noeval	라마트라 (네메시스 형태)
+reaper.the_reaping	영혼 수확	The Reaping					리퍼
+roadhog.scrap_gun	고철 총	Scrap Gun					로드호그
+shion.kira_pistols	키라 쌍권총	Kira Pistols					시온
+shion.execution	처형	Execution				noeval	시온
+shion.joyride	조이라이드	Joyride					시온
+shion.evade	피하기	Evade				noeval	시온
+shion.satsuriku_spree	광란의 살육	Satsuriku Spree					시온
+sierra.helix_rifle	헬릭스 소총	Helix Rifle					시에라
+sierra.tracking_shot	추적 사격	Tracking Shot					시에라
+sierra.tremor_charge	진동 폭약	Tremor Charge					시에라
+sierra.anchor_drone	앵커 드론	Anchor Drone					시에라
+sierra.trailblazer	개척자	Trailblazer				noeval	시에라
+torbjorn.rivet_gun	대못 발사기	Rivet Gun					토르비욘
+torbjorn.forge_hammer	대장간 망치	Forge Hammer					토르비욘
+vendetta.palatine_fang	팔라틴 팽	Palatine Fang					벤데타
+vendetta.warding_stance	수호 태세	Warding Stance				noeval	벤데타
+vendetta.whirlwind_dash	소용돌이 질주	Whirlwind Dash					벤데타
+vendetta.soaring_slice	치솟는 베기	Soaring Slice					벤데타
+vendetta.projected_edge	칼날 투영	Projected Edge					벤데타
+vendetta.sundering_blade	갈라내는 칼날	Sundering Blade					벤데타
+venture.smart_excavator	스마트 굴착기	Smart Excavator					벤처
+wrecking_ball.quad_cannons	4연장 기관총	Quad Cannons					레킹볼
+wuyang.xuanwu_staff	현무 지팡이	Xuanwu Staff					우양
+wuyang.restorative_stream	회복의 물결	Restorative Stream					우양
+wuyang.rushing_torrent	격류	Rushing Torrent				noeval	우양
+wuyang.tidal_blast	해일 폭발	Tidal Blast					우양
+wuyang.guardian_wave	수호의 파도	Guardian Wave					우양
+zarya.particle_cannon	입자포	Particle Cannon				noeval	자리야
+zarya.energy	에너지	Energy				noeval	자리야
+zenyatta.orb_of_destruction	파괴의 구슬	Orb Of Destruction					젠야타
+zenyatta.snap_kick	밀어차기	Snap Kick					젠야타
+# 특전 (보조 2개, 주요 2개): 공식 한국어 이름 (블리자드 영웅 페이지, 2026-11-02). 방송에서 드물게 불려 채점·이름 근접 교정에서 뺀다 (noeval).
+ana.perk1	국소 마취					noeval	아나 보조 특전
+ana.perk2	가속 혈청					noeval	아나 보조 특전
+ana.perk3	생체 수류탄 튕기기					noeval	아나 주요 특전
+ana.perk4	인간사냥꾼					noeval	아나 주요 특전
+anran.perk1	불씨					noeval	안란 보조 특전
+anran.perk2	열 보호막					noeval	안란 보조 특전
+anran.perk3	급한 성미					noeval	안란 주요 특전
+anran.perk4	굶주린 불꽃					noeval	안란 주요 특전
+ashe.perk1	원격 기폭					noeval	애쉬 보조 특전
+ashe.perk2	이중 총열					noeval	애쉬 보조 특전
+ashe.perk3	독사의 침					noeval	애쉬 주요 특전
+ashe.perk4	공중 폭발					noeval	애쉬 주요 특전
+baptiste.perk1	확대장					noeval	바티스트 보조 특전
+baptiste.perk2	맹공의 파동					noeval	바티스트 보조 특전
+baptiste.perk3	자동화 치유					noeval	바티스트 주요 특전
+baptiste.perk4	로켓 전투화					noeval	바티스트 주요 특전
+bastion.perk1	스마트 폭탄					noeval	바스티온 보조 특전
+bastion.perk2	설정: 재장전					noeval	바스티온 보조 특전
+bastion.perk3	린드홀름 폭발물					noeval	바스티온 주요 특전
+bastion.perk4	자가 수리					noeval	바스티온 주요 특전
+brigitte.perk1	전투 의무관					noeval	브리기테 보조 특전
+brigitte.perk2	사기 증진					noeval	브리기테 보조 특전
+brigitte.perk3	격려 타격					noeval	브리기테 주요 특전
+brigitte.perk4	채찍질					noeval	브리기테 주요 특전
+cassidy.perk1	번쩍번쩍					noeval	캐서디 보조 특전
+cassidy.perk2	이랴!					noeval	캐서디 보조 특전
+cassidy.perk3	굴러 모으기					noeval	캐서디 주요 특전
+cassidy.perk4	은탄환					noeval	캐서디 주요 특전
+dmon.perk1	내면의 야수					noeval	디몬 보조 특전
+dmon.perk2	MEKA 기동성					noeval	디몬 보조 특전
+dmon.perk3	추가 강타					noeval	디몬 주요 특전
+dmon.perk4	집중 융합					noeval	디몬 주요 특전
+doctrine.perk1	은총					noeval	독트린 보조 특전
+doctrine.perk2	핏빛 흡수					noeval	독트린 보조 특전
+doctrine.perk3	수혈					noeval	독트린 주요 특전
+doctrine.perk4	생명의 대가					noeval	독트린 주요 특전
+domina.perk1	효율적인 설계					noeval	도미나 보조 특전
+domina.perk2	출력 확장					noeval	도미나 보조 특전
+domina.perk3	분열 폭발					noeval	도미나 주요 특전
+domina.perk4	사업장 이전					noeval	도미나 주요 특전
+doomfist.perk1	원투					noeval	둠피스트 보조 특전
+doomfist.perk2	적자생존					noeval	둠피스트 보조 특전
+doomfist.perk3	여진					noeval	둠피스트 주요 특전
+doomfist.perk4	파워 매트릭스					noeval	둠피스트 주요 특전
+dva.perk1	토끼 파워					noeval	디바 보조 특전
+dva.perk2	확장 부스터					noeval	디바 보조 특전
+dva.perk3	보호막 시스템					noeval	디바 주요 특전
+dva.perk4	집중 융합					noeval	디바 주요 특전
+echo.perk1	공중 탄약					noeval	에코 보조 특전
+echo.perk2	부분 스캔					noeval	에코 보조 특전
+echo.perk3	전탄 발사					noeval	에코 주요 특전
+echo.perk4	집중 돌진					noeval	에코 주요 특전
+emre.perk1	제압 보장					noeval	엠레 보조 특전
+emre.perk2	향상된 민첩성					noeval	엠레 보조 특전
+emre.perk3	히트 싱크					noeval	엠레 주요 특전
+emre.perk4	사이버 부착					noeval	엠레 주요 특전
+freja.perk1	가혹한 포화					noeval	프레야 보조 특전
+freja.perk2	가속 증폭					noeval	프레야 보조 특전
+freja.perk3	공중 회복					noeval	프레야 주요 특전
+freja.perk4	솟구치는 바람					noeval	프레야 주요 특전
+genji.perk1	신속 베기					noeval	겐지 보조 특전
+genji.perk2	용의 갈증					noeval	겐지 보조 특전
+genji.perk3	회전하는 칼날					noeval	겐지 주요 특전
+genji.perk4	명상					noeval	겐지 주요 특전
+hanzo.perk1	음파 분열					noeval	한조 보조 특전
+hanzo.perk2	용의 분노					noeval	한조 보조 특전
+hanzo.perk3	냉기 화살					noeval	한조 주요 특전
+hanzo.perk4	갈래 화살					noeval	한조 주요 특전
+hazard.perk1	재편성					noeval	해저드 보조 특전
+hazard.perk2	무정부 광신자					noeval	해저드 보조 특전
+hazard.perk3	깊숙이 덤벼들기					noeval	해저드 주요 특전
+hazard.perk4	폭발성 꿰뚫기					noeval	해저드 주요 특전
+illari.perk1	빠른 조립					noeval	일리아리 보조 특전
+illari.perk2	하지					noeval	일리아리 보조 특전
+illari.perk3	태양의 섬광					noeval	일리아리 주요 특전
+illari.perk4	일광 화상					noeval	일리아리 주요 특전
+jetpack_cat.perk1	숨은 동기					noeval	제트팩 캣 보조 특전
+jetpack_cat.perk2	운송 보호막					noeval	제트팩 캣 보조 특전
+jetpack_cat.perk3	냥벽한 골골대기					noeval	제트팩 캣 주요 특전
+jetpack_cat.perk4	발톱 꺼내기					noeval	제트팩 캣 주요 특전
+junker_queen.perk1	광분 돌진					noeval	정커퀸 보조 특전
+junker_queen.perk2	전투의 외침					noeval	정커퀸 보조 특전
+junker_queen.perk3	선풍					noeval	정커퀸 주요 특전
+junker_queen.perk4	맹렬한 포식					noeval	정커퀸 주요 특전
+junkrat.perk1	니트로 부스트					noeval	정크랫 보조 특전
+junkrat.perk2	빵 터지는 여행					noeval	정크랫 보조 특전
+junkrat.perk3	지뢰 재활용					noeval	정크랫 주요 특전
+junkrat.perk4	폭탄 발사포					noeval	정크랫 주요 특전
+juno.perk1	익숙한 포착					noeval	주노 보조 특전
+juno.perk2	대상 포착					noeval	주노 보조 특전
+juno.perk3	이륙					noeval	주노 주요 특전
+juno.perk4	고속 블라스터					noeval	주노 주요 특전
+kiriko.perk1	긴급 치료					noeval	키리코 보조 특전
+kiriko.perk2	점술가					noeval	키리코 보조 특전
+kiriko.perk3	준비 단계					noeval	키리코 주요 특전
+kiriko.perk4	여우걸음					noeval	키리코 주요 특전
+lifeweaver.perk1	꽃잎 보호					noeval	라이프위버 보조 특전
+lifeweaver.perk2	질주 탈출					noeval	라이프위버 보조 특전
+lifeweaver.perk3	씨앗 뿌리기					noeval	라이프위버 주요 특전
+lifeweaver.perk4	초월 개화					noeval	라이프위버 주요 특전
+lucio.perk1	소리 파동 타기					noeval	루시우 보조 특전
+lucio.perk2	비트 드롭					noeval	루시우 보조 특전
+lucio.perk3	소음 공해					noeval	루시우 주요 특전
+lucio.perk4	아첼레란도					noeval	루시우 주요 특전
+mauga.perk1	키네틱 탄띠					noeval	마우가 보조 특전
+mauga.perk2	방화광					noeval	마우가 보조 특전
+mauga.perk3	불 위를 걷는 자					noeval	마우가 주요 특전
+mauga.perk4	전투 연료					noeval	마우가 주요 특전
+mei.perk1	스케이트장					noeval	메이 보조 특전
+mei.perk2	빙하 추진력					noeval	메이 보조 특전
+mei.perk3	냉대					noeval	메이 주요 특전
+mei.perk4	급속 폭풍					noeval	메이 주요 특전
+mercy.perk1	천사의 부활					noeval	메르시 보조 특전
+mercy.perk2	날개의 영역					noeval	메르시 보조 특전
+mercy.perk3	연쇄 증폭					noeval	메르시 주요 특전
+mercy.perk4	두 배 투여					noeval	메르시 주요 특전
+mizuki.perk1	샘물					noeval	미즈키 보조 특전
+mizuki.perk2	드러난 영혼					noeval	미즈키 보조 특전
+mizuki.perk3	공명 복귀					noeval	미즈키 주요 특전
+mizuki.perk4	잰걸음					noeval	미즈키 주요 특전
+moira.perk1	파괴의 분할					noeval	모이라 보조 특전
+moira.perk2	윤리적 양분 보충					noeval	모이라 보조 특전
+moira.perk3	반전					noeval	모이라 주요 특전
+moira.perk4	환영 걸음					noeval	모이라 주요 특전
+orisa.perk1	방어 프로토콜					noeval	오리사 보조 특전
+orisa.perk2	이동식 강화					noeval	오리사 보조 특전
+orisa.perk3	묵직한 투창					noeval	오리사 주요 특전
+orisa.perk4	보호 방벽					noeval	오리사 주요 특전
+pharah.perk1	충격력					noeval	파라 보조 특전
+pharah.perk2	나선 보호막					noeval	파라 보조 특전
+pharah.perk3	연료 저장					noeval	파라 주요 특전
+pharah.perk4	로켓 투하					noeval	파라 주요 특전
+ramattra.perk1	맹공 형태					noeval	라마트라 보조 특전
+ramattra.perk2	연장된 방벽					noeval	라마트라 보조 특전
+ramattra.perk3	공허 쇄도					noeval	라마트라 주요 특전
+ramattra.perk4	나노머신 수리					noeval	라마트라 주요 특전
+reaper.perk1	영혼 강탈자					noeval	리퍼 보조 특전
+reaper.perk2	잔존하는 망령					noeval	리퍼 보조 특전
+reaper.perk3	그림자 점멸					noeval	리퍼 주요 특전
+reaper.perk4	방아쇠 손가락					noeval	리퍼 주요 특전
+reinhardt.perk1	성전사의 화염					noeval	라인하르트 보조 특전
+reinhardt.perk2	성전사의 결의					noeval	라인하르트 보조 특전
+reinhardt.perk3	방패 강타					noeval	라인하르트 주요 특전
+reinhardt.perk4	불붙은 분노					noeval	라인하르트 주요 특전
+roadhog.perk1	고철 갈고리					noeval	로드호그 보조 특전
+roadhog.perk2	이리 와 꼬마 돼지야					noeval	로드호그 보조 특전
+roadhog.perk3	호그가스 노출					noeval	로드호그 주요 특전
+roadhog.perk4	독기 배출					noeval	로드호그 주요 특전
+shion.perk1	생존 본능					noeval	시온 보조 특전
+shion.perk2	X 마키나					noeval	시온 보조 특전
+shion.perk3	재급유					noeval	시온 주요 특전
+shion.perk4	죽음의 얼굴					noeval	시온 주요 특전
+sierra.perk1	전력 비행					noeval	시에라 보조 특전
+sierra.perk2	단단한 손아귀					noeval	시에라 보조 특전
+sierra.perk3	의료 드론					noeval	시에라 주요 특전
+sierra.perk4	대상 포착					noeval	시에라 주요 특전
+sigma.perk1	키네틱 순환					noeval	시그마 보조 특전
+sigma.perk2	초재생					noeval	시그마 보조 특전
+sigma.perk3	하이퍼 강타					noeval	시그마 주요 특전
+sigma.perk4	공중 부양					noeval	시그마 주요 특전
+sojourn.perk1	과충전					noeval	소전 보조 특전
+sojourn.perk2	감속장					noeval	소전 보조 특전
+sojourn.perk3	마찰 생성기					noeval	소전 주요 특전
+sojourn.perk4	이중 추진기					noeval	소전 주요 특전
+soldier_76.perk1	나선 추진					noeval	솔저: 76 보조 특전
+soldier_76.perk2	전술 일제 사격					noeval	솔저: 76 보조 특전
+soldier_76.perk3	전속력					noeval	솔저: 76 주요 특전
+soldier_76.perk4	전투자극제					noeval	솔저: 76 주요 특전
+sombra.perk1	생명력 해킹					noeval	솜브라 보조 특전
+sombra.perk2	CTRL ALT ESC					noeval	솜브라 보조 특전
+sombra.perk3	데이터 패킷					noeval	솜브라 주요 특전
+sombra.perk4	사이버 보안					noeval	솜브라 주요 특전
+symmetra.perk1	포탑 용량					noeval	시메트라 보조 특전
+symmetra.perk2	완벽한 정렬					noeval	시메트라 보조 특전
+symmetra.perk3	호버 방벽					noeval	시메트라 주요 특전
+symmetra.perk4	보호막 배터리					noeval	시메트라 주요 특전
+torbjorn.perk1	망치질 개시					noeval	토르비욘 보조 특전
+torbjorn.perk2	예열 완료					noeval	토르비욘 보조 특전
+torbjorn.perk3	고정 나사					noeval	토르비욘 주요 특전
+torbjorn.perk4	포탑 과부하					noeval	토르비욘 주요 특전
+tracer.perk1	시간적 재생					noeval	트레이서 보조 특전
+tracer.perk2	키네틱 재장전					noeval	트레이서 보조 특전
+tracer.perk3	점멸 팩					noeval	트레이서 주요 특전
+tracer.perk4	양자 얽힘					noeval	트레이서 주요 특전
+vendetta.perk1	추가 칼날					noeval	벤데타 보조 특전
+vendetta.perk2	맹렬한 폭풍					noeval	벤데타 보조 특전
+vendetta.perk3	착취의 강타					noeval	벤데타 주요 특전
+vendetta.perk4	무자비					noeval	벤데타 주요 특전
+venture.perk1	심층 잠복					noeval	벤처 보조 특전
+venture.perk2	발굴의 쾌감					noeval	벤처 보조 특전
+venture.perk3	스마트 연장기					noeval	벤처 주요 특전
+venture.perk4	먼지투성이					noeval	벤처 주요 특전
+widowmaker.perk1	저격 효율					noeval	위도우메이커 보조 특전
+widowmaker.perk2	저격수의 본능					noeval	위도우메이커 보조 특전
+widowmaker.perk3	추적 지뢰					noeval	위도우메이커 주요 특전
+widowmaker.perk4	위도우의 독니					noeval	위도우메이커 주요 특전
+winston.perk1	전하					noeval	윈스턴 보조 특전
+winston.perk2	묵직한 착륙					noeval	윈스턴 보조 특전
+winston.perk3	연쇄 번개					noeval	윈스턴 주요 특전
+winston.perk4	활력 충전 방벽					noeval	윈스턴 주요 특전
+wrecking_ball.perk1	증기 롤러					noeval	레킹볼 보조 특전
+wrecking_ball.perk2	멀티볼					noeval	레킹볼 보조 특전
+wrecking_ball.perk3	체공 시간					noeval	레킹볼 주요 특전
+wrecking_ball.perk4	적응형 방벽					noeval	레킹볼 주요 특전
+wuyang.perk1	범람					noeval	우양 보조 특전
+wuyang.perk2	균형					noeval	우양 보조 특전
+wuyang.perk3	밀물과 썰물					noeval	우양 주요 특전
+wuyang.perk4	쏟아지는 비					noeval	우양 주요 특전
+zarya.perk1	점프 소동					noeval	자리야 보조 특전
+zarya.perk2	지원 관찰					noeval	자리야 보조 특전
+zarya.perk3	출력 증폭					noeval	자리야 주요 특전
+zarya.perk4	에너지 장창					noeval	자리야 주요 특전
+zenyatta.perk1	부조화의 수리					noeval	젠야타 보조 특전
+zenyatta.perk2	승천					noeval	젠야타 보조 특전
+zenyatta.perk3	파괴 집중					noeval	젠야타 주요 특전
+zenyatta.perk4	이중 조화					noeval	젠야타 주요 특전

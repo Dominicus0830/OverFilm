@@ -384,3 +384,68 @@ pub fn alpha_glow(img: &mut Image, e: &EffectInstance, cx: &FxCtx) {
         p.copy_from_slice(&o);
     });
 }
+
+/// Light Sweep: a band of light crossing the layer along a line through Center at Direction,
+/// lighting only where the layer has alpha, plus a brighter rim on its edges.
+pub fn light_sweep(img: &mut Image, e: &EffectInstance, cx: &FxCtx) {
+    let c = pv(e, "center", cx, img);
+    let theta = fv(e, "direction", cx).to_radians();
+    let (nx, ny) = (theta.cos(), theta.sin());
+    let width = (fv(e, "width", cx) * cx.px_scale).max(0.5);
+    let shape = chv(e, "shape");
+    let sweep = fv(e, "sweep_intensity", cx).max(0.0) / 100.0;
+    let edge_k = fv(e, "edge_intensity", cx).max(0.0) / 100.0;
+    let thick = (fv(e, "edge_thickness", cx) * cx.px_scale).clamp(0.0, 200.0);
+    let col = lin(cv(e, "color", cx));
+    let cutout = chv(e, "reception") == 2;
+    let (w, h) = (img.w, img.h);
+    if w == 0 || h == 0 {
+        return;
+    }
+    // edges: where alpha changes, softened by Edge Thickness
+    let alpha = alpha_of(img);
+    let rim: Vec<f32> = if edge_k > 0.0 {
+        let soft = blur_plane(&alpha, w, h, thick.max(0.5));
+        (0..w * h)
+            .map(|i| {
+                let a = alpha.get(i).copied().unwrap_or(0.0);
+                let s = soft.get(i).copied().unwrap_or(0.0);
+                ((a - s).abs() * 2.0).min(1.0) * a
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let (ccx, ccy) = (c.x as f32, c.y as f32);
+    img.px.par_chunks_mut(w * 4).enumerate().for_each(|(y, row)| {
+        for (x, p) in row.chunks_mut(4).enumerate() {
+            let [_, _, _, a] = [p[0], p[1], p[2], p[3]];
+            if a <= 0.0 {
+                continue;
+            }
+            let d = ((x as f32 + 0.5 - ccx) * nx + (y as f32 + 0.5 - ccy) * ny).abs() / width;
+            if d >= 1.0 {
+                if cutout {
+                    p[..3].fill(0.0);
+                }
+                continue;
+            }
+            let t = 1.0 - d;
+            let profile = match shape {
+                0 => t,
+                2 => t * t * t * t,
+                _ => 0.5 - 0.5 * (std::f32::consts::PI * t).cos(),
+            };
+            let r = rim.get(y * w + x).copied().unwrap_or(0.0);
+            let k = profile * (sweep * a + edge_k * r * 2.0);
+            let add = [col[0] * k, col[1] * k, col[2] * k];
+            if cutout {
+                p[..3].copy_from_slice(&add);
+            } else {
+                for i in 0..3 {
+                    p[i] += add[i];
+                }
+            }
+        }
+    });
+}

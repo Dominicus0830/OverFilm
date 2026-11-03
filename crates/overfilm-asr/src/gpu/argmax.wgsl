@@ -1,5 +1,7 @@
 // Index of the largest value of each row (the first on ties). With a single row (the next token
-// while decoding), also its probability under softmax, as f32 bits in out[1].
+// while decoding), also its probability under softmax, as f32 bits in out[1]. With p.pad0 = 1
+// (one next token for each of several sequences) every row gets its probability, in
+// out[nrows + row].
 
 struct P {
     n: u32,
@@ -58,7 +60,8 @@ fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wg: vec
         out[row] = select(bi[0], 0u, bi[0] == 0xffffffffu);
         top = bv[0];
     }
-    if nrows != 1u {
+    let probs = p.pad0 == 1u;
+    if nrows != 1u && !probs {
         return;
     }
     // softmax probability of the best class: 1 / sum(exp(v - best))
@@ -66,7 +69,7 @@ fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wg: vec
     let m = top;
     var sum = 0.0;
     for (var i = li; i < p.n; i += 256u) {
-        sum += exp(x[i] - m);
+        sum += exp(x[row * p.n + i] - m);
     }
     bv[li] = sum;
     workgroupBarrier();
@@ -77,6 +80,6 @@ fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wg: vec
         workgroupBarrier();
     }
     if li == 0u {
-        out[1] = bitcast<u32>(select(1.0 / bv[0], 0.0, bv[0] < 1.0));
+        out[select(1u, nrows + row, probs)] = bitcast<u32>(select(1.0 / bv[0], 0.0, bv[0] < 1.0));
     }
 }

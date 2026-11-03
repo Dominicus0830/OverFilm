@@ -123,13 +123,16 @@ impl Opened {
     /// are replaced and only the captions that start in the part are laid out again, so hand
     /// fixes elsewhere stay. Returns the number of new captions.
     pub fn apply_redo(&mut self, o: &Options, from_ms: i64, to_ms: i64, words: Vec<overfilm_asr::Word>) -> Result<usize, String> {
+        // captions appear a little before their first word, so a caption of the part can start
+        // up to `lead_ms` before it
+        let lo = from_ms.saturating_sub(o.layout().lead_ms.max(0));
         let fresh: Vec<Caption> = match &mut self.transcript {
             Some(t) => {
                 job::splice(t, from_ms, to_ms, words);
                 let keep = if o.only_voices && t.speakers.iter().any(|s| s.enrolled && !s.game) { Keep::Enrolled } else { Keep::All };
                 speakers::captions_keep(t, o.game_voice, keep, &o.layout(), o.clean_fillers)
                     .into_iter()
-                    .filter(|c| c.start_ms >= from_ms && c.start_ms < to_ms)
+                    .filter(|c| c.start_ms >= lo && c.start_ms < to_ms)
                     .collect()
             }
             None => {
@@ -139,7 +142,7 @@ impl Opened {
             }
         };
         let n = fresh.len();
-        self.captions.retain(|c| !(c.start_ms >= from_ms && c.start_ms < to_ms));
+        self.captions.retain(|c| !(c.start_ms >= lo && c.start_ms < to_ms));
         self.captions.extend(fresh);
         self.captions.sort_by_key(|c| c.start_ms);
         // a new caption never runs into the next one
@@ -495,6 +498,8 @@ mod tests {
             device: "CPU".into(),
             chunks: vec![ChunkText { start_ms: 0, end_ms: 60_000, text: String::new(), words }],
             speakers: labels.iter().map(|l| Speaker { label: (*l).into(), seconds: 1.0, words: 1, game: false, enrolled: false }).collect(),
+            stages: Vec::new(),
+            silence_skipped: 0.0,
         }
     }
 

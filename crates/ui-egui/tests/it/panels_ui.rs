@@ -161,7 +161,7 @@ fn every_panel_opens_from_the_window_menu() {
     let menu = d.ok("ui.menu.list", json!({}));
     let window: Vec<String> =
         menu.as_array().unwrap().iter().filter(|m| m["path"] == json!(["Window"])).filter_map(|m| m["label"].as_str().map(str::to_string)).collect();
-    for p in ["Events", "Lumetri Scopes", "Metadata", "Progress", "Project Notes", "Reference Monitor", "Timecode"] {
+    for p in ["Events", "Lumetri Scopes", "Metadata", "Progress", "Project Notes", "Reference Monitor", "Timecode", "OverFilm"] {
         assert!(window.iter().any(|w| w == p), "{p} not in Window: {window:?}");
     }
     for (panel, key) in [
@@ -172,6 +172,7 @@ fn every_panel_opens_from_the_window_menu() {
         ("Progress", "progress.showFinished"),
         ("ReferenceMonitor", "reference.gang"),
         ("ProjectNotes", "notes.text"),
+        ("OverFilm", "overfilm.panel.run"),
     ] {
         d.ok("ui.menu.invoke", json!({"id": format!("window.panel.{panel}")}));
         d.frames(3);
@@ -895,4 +896,19 @@ fn menu_bar_menus_use_the_13pt_menu_text() {
             .unwrap_or_else(|| panic!("`{label}` is not drawn in {rect:?}"));
         assert_eq!(font.size, 13.0, "`{label}` in the File menu");
     }
+}
+
+/// The OverFilm panel: the one-go steps, Run, and the tools (FILMCRAFT_UI_SNAPSHOT_DIR to look).
+#[test]
+fn overfilm_panel_runs_from_the_window_menu() {
+    let mut d = Driver::demo();
+    d.ok("ui.menu.invoke", json!({"id": "app.language.korean"}));
+    d.ok("ui.menu.invoke", json!({"id": "overfilm.flow.run"}));
+    d.frames(4);
+    assert!(d.has("panel.tab.OverFilm"));
+    for key in ["overfilm.panel.autoCut", "overfilm.panel.captions", "overfilm.panel.run", "overfilm.panel.tool.overfilm.captions.stylize"] {
+        assert!(!d.ids(key).is_empty(), "no {key}");
+    }
+    d.snapshot("overfilm-panel", None);
+    d.ok("ui.menu.invoke", json!({"id": "app.language.english"}));
 }
