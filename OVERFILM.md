@@ -259,6 +259,35 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   more, same pair); a person's own file (`--per-speaker`, `--only-voices`) keeps the words said
   over someone else; a word of a game voice with a person talking over it that is no voice line
   goes to the person. Without the model the step is skipped.
+- **Turns at sentence ends** (`speakers/turns.rs`, `Params::turn_reach`, default 3): when two
+  people overlap, Qwen3-ASR still writes nearly everything both said, but turn by turn (the first
+  person's sentence to its end, then the second's), and the aligner squeezes the second person's
+  first words after the first's last. Labelling words by time then puts the end of one sentence
+  on the next speaker or the start of the next on the first. A speaker change not at a sentence
+  end (`.`, `?`, `!`) moves to the nearest one within 3 words, only over the giving speaker's
+  words, and both sides keep a word (a backchannel inside a sentence stays).
+  Set: 12 synthetic Zeroth conversations like the overlap set but with real transcripts
+  (`overfilm-eval/speakers/sep/gen_sep.py`: whole utterances, backchannels are short utterances,
+  2–4 people), the full app path (`overfilm-subs extract --cpu`); score = character errors
+  (CER, speakers ignored) and speaker-attributed CER (cpCER: each person's text against the
+  best-matching hypothesis speaker, `score.py`):
+
+  | turns | CER | cpCER | cpCER in overlapped utterances |
+  |---|---|---|---|
+  | off (reach 0) | 14.6 % | 19.2 % | 24.8 % |
+  | only where the segmentation sees overlap (prob ≥ 0.3 within 1 s), reach 2 | 14.6 % | 18.4 % | 23.6 % |
+  | **everywhere, reach 3 (chosen)** | 14.6 % | **16.4 %** | **22.8 %** |
+
+  On the T1 vs 로제 clip (no speaker truth) 24 of the changes move; read in context nearly all
+  join a sentence to its speaker ("…잘 하던데. / 몇 개의 발이…", "중요하겠죠." staying with the
+  caster who asked).
+  Tried and dropped: separating the overlap into two voices and recognising each. Conv-TasNet
+  (Libri2Mix 16 kHz, CC-BY-SA) gains only 7.9 dB SI-SDR on Korean mixtures, SepFormer
+  (WHAMR! 16 kHz, Apache-2.0; port checked against SpeechBrain to 7e-6) separates better but takes
+  about 3× real time on a CPU, and on 8 overlap windows the separated streams recognise worse than
+  the mixture (per-person 53–58 % vs 24.5 % plain CER on the mix: leakage and dropped words).
+  Using the streams' text only to decide who said each mixture word did not beat sentence ends
+  either (3 cases: cpCER 17.3 → 18.0–20.6 % vs 13.0 % with sentence ends).
 - **Game voice**: `overfilm_glossary::voicelines` matches runs of words against
   `voicelines.tsv` on letters only (edit distance at most a fifth of the line). An exact match of a line
   of 5+ characters (score ≥ 0.8 for lines of 8+) marks its words as game audio; a speaker with 2+ matches whose

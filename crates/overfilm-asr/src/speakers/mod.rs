@@ -12,6 +12,8 @@
 //!    centroid; a Viterbi pass makes speaker changes cheap at pauses and sentence ends and costly
 //!    inside fluent speech ([`label_words`]).
 //!
+//!    Changes that miss a sentence end by a word or two then move onto it ([`turns`]).
+//!
 //! 5. **Overlap** ([`overlap`], optional): [`seg`] (pyannote segmentation-3.0) finds where two
 //!    people talk at once, and such words get the other voice as a second speaker.
 //!
@@ -24,6 +26,7 @@ pub mod fbank;
 pub mod net;
 pub mod overlap;
 pub mod seg;
+pub mod turns;
 
 use serde::{Deserialize, Serialize};
 
@@ -56,6 +59,14 @@ pub struct Params {
     /// Enrolled voices: a speaker whose centroid is within [`KNOWN_MATCH`] of one takes its name.
     #[serde(default)]
     pub known: Vec<KnownVoice>,
+    /// A speaker change moves to the nearest sentence end at most this many words away
+    /// ([`turns`]); 0: changes stay where the voices put them.
+    #[serde(default = "default_turn_reach")]
+    pub turn_reach: usize,
+}
+
+fn default_turn_reach() -> usize {
+    3
 }
 
 impl Default for Params {
@@ -70,6 +81,7 @@ impl Default for Params {
             min_speaker_seconds: 10.0,
             switch_cost: 0.4,
             known: Vec::new(),
+            turn_reach: default_turn_reach(),
         }
     }
 }
@@ -445,7 +457,9 @@ pub fn label_words(words: &[Word], wins: &[(i64, i64)], vecs: &[Option<Vec<f32>>
             order.push(l);
         }
     }
-    let words_out: Vec<Option<usize>> = raw.iter().map(|l| order.iter().position(|o| o == l)).collect();
+    let mut words_out: Vec<Option<usize>> = raw.iter().map(|l| order.iter().position(|o| o == l)).collect();
+    // keeps first appearances in order: a change only moves over the giving speaker's words
+    turns::settle(words, &mut words_out, p.turn_reach);
     let mut speakers: Vec<SpeakerStat> =
         order.iter().enumerate().map(|(id, &o)| SpeakerStat { id, name: c.names.get(o).cloned().flatten(), ..Default::default() }).collect();
     for (w, l) in words.iter().zip(&words_out) {
