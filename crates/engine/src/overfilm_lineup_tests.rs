@@ -28,8 +28,9 @@ fn state(s: &Session) -> LineupState {
         events: vec![ev(1_000, 1, 1, None, 0), ev(1_000, 2, 2, None, 1), ev(5_000, 2, 2, Some(1), 2), ev(12_000, 1, 1, None, 0)],
         prints: vec![HeroPrint(vec![1]), HeroPrint(vec![2]), HeroPrint(vec![3])],
         names: vec![Some("트레이서".into()), None, Some("겐지".into())],
+        auto: Vec::new(),
     };
-    LineupState { seq: s.state.active_sequence.unwrap(), info, heroes, roster }
+    LineupState { seq: s.state.active_sequence.unwrap(), info, heroes, roster, plate_names: Vec::new() }
 }
 
 fn markers(s: &Session) -> Vec<(i64, String, String)> {

@@ -38,6 +38,10 @@ name = "lineup_raw"
 required-features = ["ocr"]
 
 [[example]]
+name = "names_raw"
+required-features = ["ocr"]
+
+[[example]]
 name = "recognise_raw"
 required-features = ["qwen"]
 

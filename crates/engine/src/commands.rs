@@ -4057,6 +4057,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::overfilm_reel::commands());
     v.extend(crate::overfilm_kills::commands());
     v.extend(crate::overfilm_lineup::commands());
+    v.extend(crate::overfilm_names::commands());
     v.extend(crate::overfilm_style::commands());
     v.extend(crate::overfilm_review::commands());
     v.extend(crate::overfilm_flow::commands());

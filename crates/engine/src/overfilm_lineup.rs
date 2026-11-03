@@ -77,6 +77,9 @@ pub struct LineupState {
     pub info: MatchInfo,
     pub heroes: HeroScan,
     pub roster: Roster,
+    /// Who sits on a plate (team, place) when text recognition did not read it: the kill feed
+    /// players the user named, paired with the plates (see `overfilm_vision::link`).
+    pub plate_names: Vec<((u8, u8), String)>,
 }
 
 impl LineupState {
@@ -92,7 +95,10 @@ impl LineupState {
     fn who(&self, ph: &PlayerHero) -> String {
         match self.player(ph.player) {
             Some(n) => n.to_string(),
-            None => format!("{}팀 {}번", ph.event.team, ph.event.player),
+            None => match self.plate_names.iter().find(|(p, _)| *p == (ph.event.team, ph.event.player)) {
+                Some((_, n)) => n.clone(),
+                None => format!("{}팀 {}번", ph.event.team, ph.event.player),
+            },
         }
     }
 }
@@ -111,8 +117,12 @@ fn list(s: &mut Session, _: &Value) -> Result<Value> {
     let heroes: Vec<Value> = (0..st.heroes.prints.len())
         .map(|i| {
             let first = st.heroes.events.iter().find(|e| e.to == i).map(|e| e.at).unwrap_or(0);
-            json!({"id": i + 1, "name": st.heroes.label(i), "named": st.heroes.names.get(i).cloned().flatten().is_some(), "picks": seen.get(i).copied().unwrap_or(0),
-                "first": overfilm_vision::plan::clock(Tick(first.saturating_mul(TICKS_PER_MS)))})
+            // where to look at it: a plate showing it, a second after it came on
+            let plate = st.heroes.events.iter().find(|e| e.to == i).map(|e| json!([e.team, e.player]));
+            json!({"id": i + 1, "name": st.heroes.label(i), "named": st.heroes.names.get(i).cloned().flatten().is_some(),
+                "auto": st.heroes.auto.get(i).copied().unwrap_or(false), "picks": seen.get(i).copied().unwrap_or(0),
+                "first": overfilm_vision::plan::clock(Tick(first.saturating_mul(TICKS_PER_MS))),
+                "preview": {"time": first.saturating_add(1_000).saturating_mul(TICKS_PER_MS), "plate": plate}})
         })
         .collect();
     let teams: Vec<Value> = (1..=2u8).map(|t| json!(st.team(t))).collect();
@@ -133,12 +143,28 @@ fn name(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(n) = st.heroes.names.get_mut(id - 1) {
         *n = (!name.is_empty()).then(|| name.clone());
     }
+    if let Some(a) = st.heroes.auto.get_mut(id - 1) {
+        *a = false;
+    }
     let st = st.clone();
     let mut set = load_set(&path)?;
     set.hero_names.set(print, &name);
     crate::overfilm_autocut::write_file(&path, &set.to_json())?;
     let n = mark(s, &st)?;
-    Ok(json!({"templates": path, "id": id, "name": name, "markers": n}))
+    // the kill feed's pictures of the same hero follow, and its markers name it
+    let mut feed_heroes = 0;
+    if let Some(f) = s.overfilm_feed.as_mut().filter(|f| f.seq == seq) {
+        for h in f.links.feed_heroes_of(id - 1) {
+            if let Some(c) = f.scan.heroes.get_mut(h).filter(|c| c.label.is_none() || c.auto) {
+                c.label = (!name.is_empty()).then(|| name.clone());
+                c.auto = true;
+                feed_heroes += 1;
+            }
+        }
+        let f = crate::overfilm_kills::FeedState { seq, scan: f.scan.clone(), links: f.links.clone() };
+        crate::overfilm_kills::mark_feed_with(s, &f, Some(&st))?;
+    }
+    Ok(json!({"templates": path, "id": id, "name": name, "markers": n, "feedHeroes": feed_heroes}))
 }
 
 /// Who played on each side's plates: "로제: 태종, 킬로, ?, …" per side.

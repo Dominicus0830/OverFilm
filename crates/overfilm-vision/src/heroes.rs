@@ -198,6 +198,10 @@ pub struct HeroScan {
     pub prints: Vec<HeroPrint>,
     /// The user's name for each hero, when they named it.
     pub names: Vec<Option<String>>,
+    /// Per hero: the name was taken from the kill feed ([`crate::link::fill_names`]), not given
+    /// by the user.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auto: Vec<bool>,
 }
 
 impl HeroScan {
@@ -381,7 +385,7 @@ impl HeroTracker {
         }
         let out_prints: Vec<HeroPrint> = number.iter().filter_map(|&h| prints.get(h).cloned()).collect();
         let out_names = out_prints.iter().map(|p| names.lookup(p).map(String::from)).collect();
-        HeroScan { events, prints: out_prints, names: out_names }
+        HeroScan { events, prints: out_prints, names: out_names, auto: Vec::new() }
     }
 }
 

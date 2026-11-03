@@ -199,13 +199,13 @@ fn sig(seed: u8) -> overfilm_vision::feedrows::Sig {
 fn feed_scan() -> FeedScan {
     use overfilm_vision::feedrows::Cluster;
     use overfilm_vision::{FeedEvent, Who};
-    let c = |seed| Cluster { sig: sig(seed), label: None, seen: 1, side: None, hero: None, more: Vec::new() };
+    let c = |seed| Cluster { sig: sig(seed), label: None, auto: false, seen: 1, side: None, hero: None, more: Vec::new() };
     let who = |side, player, hero| Who { side, player, hero: Some(hero) };
     FeedScan {
         events: vec![
-            FeedEvent { at: 2_000, killer: Some(who(Side::Blue, 0, 0)), victim: who(Side::Red, 1, 1), ult: false },
-            FeedEvent { at: 5_000, killer: Some(who(Side::Red, 1, 1)), victim: who(Side::Blue, 0, 0), ult: true },
-            FeedEvent { at: 9_000, killer: None, victim: who(Side::Red, 1, 1), ult: false },
+            FeedEvent { at: 2_000, killer: Some(who(Side::Blue, 0, 0)), victim: who(Side::Red, 1, 1), ult: false, seen: 0, y: 0.5 },
+            FeedEvent { at: 5_000, killer: Some(who(Side::Red, 1, 1)), victim: who(Side::Blue, 0, 0), ult: true, seen: 5_000, y: 0.5 },
+            FeedEvent { at: 9_000, killer: None, victim: who(Side::Red, 1, 1), ult: false, seen: 0, y: 0.5 },
         ],
         players: vec![c(1), c(2)],
         heroes: vec![c(3), c(4)],
@@ -228,7 +228,7 @@ fn kill_feed_kills_are_listed_and_named() {
 
     let scan = feed_scan();
     assert_eq!(mark_feed(&mut s, &scan).unwrap(), 3);
-    s.overfilm_feed = Some(FeedState { seq: s.state.active_sequence.unwrap(), scan });
+    s.overfilm_feed = Some(FeedState { seq: s.state.active_sequence.unwrap(), scan, links: overfilm_vision::Links::default() });
     assert_eq!(
         names(&s, MARK_FEED),
         [

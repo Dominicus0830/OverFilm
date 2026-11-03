@@ -43,6 +43,7 @@ use std::sync::{Arc, Mutex};
 
 use filmcraft_project::{ItemId, Label, Marker, MarkerId, MarkerKind};
 use filmcraft_time::{TICKS_PER_SECOND, Tick};
+use overfilm_vision::Links;
 use overfilm_vision::{
     Death, DeathTracker, FeedReader, FeedScan, FeedTracker, Fight, HeroScan, HeroTracker, KillFeed, LineupReader, Luma, MatchInfo, PlayerBar, Rgb, Side,
     UltIcon, UltTracker, UltUse, feedrows, ults,
@@ -218,6 +219,8 @@ fn learn_feed(s: &mut Session, p: &Value) -> Result<Value> {
 pub struct FeedState {
     pub seq: ItemId,
     pub scan: FeedScan,
+    /// The scan's kills paired with the name plates' deaths.
+    pub links: Links,
 }
 
 /// A running scan; [`poll`] marks its deaths (and ultimates, when the bars have icons).
@@ -464,8 +467,13 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
             out["heroSwaps"] = json!(h.events.iter().filter(|e| !e.picked()).count());
             out["heroes"] = json!(h.prints.len());
         }
-        if let Some(fs) = found_scan {
-            out["feedKills"] = fs.events.iter().map(|e| json!({"at": clock(e.at), "kill": fs.line(e), "ult": e.ult})).collect();
+        if found_scan.is_some()
+            && let Some(f) = s.overfilm_feed.as_ref().filter(|f| f.seq == seq)
+        {
+            let l = s.overfilm_lineup.as_ref().filter(|l| l.seq == seq);
+            out["feedKills"] = f.scan.events.iter().enumerate().map(|(k, e)| json!({"at": clock(e.at), "kill": feed_line(f, l, k), "ult": e.ult})).collect();
+            out["namesLinked"] = json!(f.scan.players.iter().chain(&f.scan.heroes).filter(|c| c.auto).count());
+            out["blueTeam"] = json!(f.links.blue_team);
         }
         if let Some(d) = found {
             let f = overfilm_vision::kills::fights(&d, gap_ms, min_kills);
@@ -594,14 +602,26 @@ pub fn poll(s: &mut Session) {
         {
             s.error_toast("overfilm.kills.scan", format!("Ultimates: {e}"));
         }
-        if let Some(fs) = found_scan {
-            if let Err(e) = mark_feed(s, &fs) {
+        let mut lineup =
+            found_lineup.map(|(info, heroes)| crate::overfilm_lineup::LineupState { seq: pj.seq, info, heroes, roster: pj.roster, plate_names: Vec::new() });
+        let mut feed = found_scan.map(|scan| FeedState { seq: pj.seq, scan, links: Links::default() });
+        // the feed and the plates name each other (see `overfilm_vision::link`)
+        if let (Some(f), Some(l)) = (feed.as_mut(), lineup.as_mut()) {
+            f.links = overfilm_vision::link::link(&f.scan, &deaths, &l.heroes, &l.info);
+            let roster = l.roster.clone();
+            let n = overfilm_vision::link::fill_names(&mut f.scan, &mut l.heroes, &f.links, &|p| roster.players.get(p).map(|p| p.name.clone()));
+            l.plate_names = plate_names(f);
+            if n > 0 {
+                s.toast(format!("OverFilm: {n} name(s) taken from the name plates and the kill feed"));
+            }
+        }
+        if let Some(f) = feed {
+            if let Err(e) = mark_feed_with(s, &f, lineup.as_ref()) {
                 s.error_toast("overfilm.kills.scan", format!("Kill feed: {e}"));
             }
-            s.overfilm_feed = Some(FeedState { seq: pj.seq, scan: fs });
+            s.overfilm_feed = Some(f);
         }
-        if let Some((info, heroes)) = found_lineup {
-            let st = crate::overfilm_lineup::LineupState { seq: pj.seq, info, heroes, roster: pj.roster };
+        if let Some(st) = lineup {
             if let Err(e) = crate::overfilm_lineup::mark(s, &st) {
                 s.error_toast("overfilm.kills.scan", format!("Players and heroes: {e}"));
             }
@@ -610,16 +630,82 @@ pub fn poll(s: &mut Session) {
     }
 }
 
+/// The plates of the feed players the user named: who sits there when text recognition did not
+/// read the plate.
+pub(crate) fn plate_names(f: &FeedState) -> Vec<((u8, u8), String)> {
+    let mut out: Vec<((u8, u8), String)> = Vec::new();
+    for (i, c) in f.scan.players.iter().enumerate() {
+        if let (Some(plate), Some(name)) = (f.links.player_plates.get(i).copied().flatten(), c.label.as_ref().filter(|_| !c.auto))
+            && !out.iter().any(|(p, _)| *p == plate)
+        {
+            out.push((plate, name.clone()));
+        }
+    }
+    out
+}
+
+/// Where to look at feed player or hero `i` again: the last sample showing its latest kill
+/// (sequence time) and that row's place in the kill feed.
+fn preview_at(f: &FeedState, hero: bool, i: usize) -> Value {
+    let is = |w: &overfilm_vision::Who| if hero { w.hero == Some(i) } else { w.player == i };
+    match f.scan.events.iter().rev().find(|e| is(&e.victim) || e.killer.as_ref().is_some_and(is)) {
+        Some(e) => json!({"time": e.seen.saturating_mul(TICKS_PER_MS), "y": e.y}),
+        None => Value::Null,
+    }
+}
+
+/// The name of the player on `plate` at `at`, as the plates read it.
+fn plate_player(l: &crate::overfilm_lineup::LineupState, plate: Option<(u8, u8)>, at: i64) -> Option<String> {
+    let (team, n) = plate?;
+    l.info.stretch_at(at).and_then(|s| s.player(team, n)).and_then(|p| l.roster.players.get(p)).map(|p| p.name.clone())
+}
+
+/// "NAME (HERO) → NAME (HERO)" of kill `k`: a player the user did not name is called what their
+/// plate says at that kill (two names alike in a blurry feed may share one player number, but
+/// each kill's victim is paired with one plate).
+fn feed_line(f: &FeedState, lineup: Option<&crate::overfilm_lineup::LineupState>, k: usize) -> String {
+    let Some(e) = f.scan.events.get(k) else { return String::new() };
+    let who = |w: &overfilm_vision::Who, plate: Option<(u8, u8)>| {
+        let user = |c: Option<&feedrows::Cluster>| c.is_some_and(|c| c.label.is_some() && !c.auto);
+        let name = if user(f.scan.players.get(w.player)) { None } else { lineup.and_then(|l| plate_player(l, plate, e.at)) }
+            .unwrap_or_else(|| f.scan.player(w.player));
+        // the hero on that plate then, when the user named it there (feed pictures are small)
+        let hero = |h: usize| {
+            let on_plate = lineup
+                .zip(plate)
+                .and_then(|(l, p)| overfilm_vision::link::hero_at(&l.heroes, &l.info, p, e.at).and_then(|ph| l.heroes.names.get(ph).cloned().flatten()));
+            if user(f.scan.heroes.get(h)) { None } else { on_plate }.unwrap_or_else(|| f.scan.hero(h))
+        };
+        match w.hero {
+            Some(h) => format!("{name} ({})", hero(h)),
+            None => name,
+        }
+    };
+    let victim = who(&e.victim, f.links.victims.get(k).copied().flatten());
+    match &e.killer {
+        Some(killer) => format!("{} → {victim}", who(killer, f.links.killers.get(k).copied().flatten())),
+        None => format!("{victim} 처치됨"),
+    }
+}
+
 /// Mark who killed whom (`scan`, read off the kill feed) on the active sequence, replacing
 /// earlier such markers (one undo step).
 pub fn mark_feed(s: &mut Session, scan: &FeedScan) -> Result<usize> {
+    let f = FeedState { seq: s.state.active_sequence.ok_or(EngineError::NoSequence)?, scan: scan.clone(), links: Links::default() };
+    mark_feed_with(s, &f, None)
+}
+
+/// [`mark_feed`] with what the name plates say about each kill (see [`feed_line`]).
+pub fn mark_feed_with(s: &mut Session, f: &FeedState, lineup: Option<&crate::overfilm_lineup::LineupState>) -> Result<usize> {
     let end = s.active_sequence().ok_or(EngineError::NoSequence)?.duration();
     let t = |ms: i64| Tick(ms.saturating_mul(TICKS_PER_MS)).clamp(Tick::ZERO, end);
-    let marks: Vec<(Tick, String, String, Label)> = scan
+    let marks: Vec<(Tick, String, String, Label)> = f
+        .scan
         .events
         .iter()
-        .map(|e| {
-            let name = format!("{MARK_FEED}: {}{}", scan.line(e), if e.ult { " (궁극기)" } else { "" });
+        .enumerate()
+        .map(|(k, e)| {
+            let name = format!("{MARK_FEED}: {}{}", feed_line(f, lineup, k), if e.ult { " (궁극기)" } else { "" });
             let comment = match e.killer {
                 Some(k) => format!("{} → {}", k.side.ko(), e.victim.side.ko()),
                 None => format!("{} 처치됨", e.victim.side.ko()),
@@ -688,9 +774,14 @@ fn list_kills(s: &mut Session, _: &Value) -> Result<Value> {
                 .players
                 .iter()
                 .enumerate()
-                .map(|(i, c)| json!({"id": i + 1, "name": f.scan.player(i), "named": c.label.is_some(), "seen": c.seen}))
+                .map(|(i, c)| json!({"id": i + 1, "name": f.scan.player(i), "named": c.label.is_some(), "auto": c.auto, "seen": c.seen, "preview": preview_at(f, false, i)}))
                 .collect(),
-            f.scan.heroes.iter().enumerate().map(|(i, c)| json!({"id": i + 1, "name": f.scan.hero(i), "named": c.label.is_some(), "seen": c.seen})).collect(),
+            f.scan
+                .heroes
+                .iter()
+                .enumerate()
+                .map(|(i, c)| json!({"id": i + 1, "name": f.scan.hero(i), "named": c.label.is_some(), "auto": c.auto, "seen": c.seen, "preview": preview_at(f, true, i)}))
+                .collect(),
         ),
         None => (Vec::new(), Vec::new()),
     };
@@ -714,12 +805,40 @@ fn name_feed(s: &mut Session, p: &Value) -> Result<Value> {
     let list = if hero { &mut state.scan.heroes } else { &mut state.scan.players };
     let Some(c) = list.get_mut(id - 1) else { return Err(bad(CMD, format!("no {} {id} in the last scan", if hero { "hero" } else { "player" }))) };
     c.label = (!name.is_empty()).then(|| name.chars().take(64).collect());
+    c.auto = false;
     let sig = c.sig.clone();
-    let scan = state.scan.clone();
+    let linked = if hero { state.links.heroes.get(id - 1).copied().flatten() } else { None };
     let mut set = load_set(&path)?;
     set.feed_names.teach(hero, &name, &sig);
+    // the same hero on the name plates takes the name too (unless the user named it there)
+    let mut plate_heroes = 0;
+    if let Some(ph) = linked
+        && let Some(l) = s.overfilm_lineup.as_mut().filter(|l| l.seq == seq)
+        && l.heroes.names.get(ph).is_some_and(|n| n.is_none() || l.heroes.auto.get(ph).copied().unwrap_or(false))
+        && let Some(print) = l.heroes.prints.get(ph).cloned()
+    {
+        if let Some(n) = l.heroes.names.get_mut(ph) {
+            *n = (!name.is_empty()).then(|| name.clone());
+        }
+        if let Some(a) = l.heroes.auto.get_mut(ph) {
+            *a = false;
+        }
+        set.hero_names.set(print, &name);
+        plate_heroes += 1;
+    }
     crate::overfilm_autocut::write_file(&path, &set.to_json())?;
-    let kills = scan
+    let Some(state) = s.overfilm_feed.as_mut().filter(|f| f.seq == seq) else { return Err(EngineError::NoSequence) };
+    // the other feed heroes linked to the same plate hero
+    if let Some(ph) = linked {
+        for other in state.links.feed_heroes_of(ph) {
+            if let Some(c) = state.scan.heroes.get_mut(other).filter(|c| c.label.is_none() || c.auto) {
+                c.label = (!name.is_empty()).then(|| name.chars().take(64).collect());
+                c.auto = true;
+            }
+        }
+    }
+    let kills = state
+        .scan
         .events
         .iter()
         .filter(|e| {
@@ -727,8 +846,17 @@ fn name_feed(s: &mut Session, p: &Value) -> Result<Value> {
             is(&e.victim) || e.killer.as_ref().is_some_and(is)
         })
         .count();
-    mark_feed(s, &scan)?;
-    Ok(json!({"templates": path, "kind": if hero { "hero" } else { "player" }, "id": id, "name": name, "kills": kills}))
+    let names = plate_names(state);
+    let f = FeedState { seq, scan: state.scan.clone(), links: state.links.clone() };
+    if let Some(l) = s.overfilm_lineup.as_mut().filter(|l| l.seq == seq) {
+        l.plate_names = names;
+    }
+    let lineup = s.overfilm_lineup.clone().filter(|l| l.seq == seq);
+    mark_feed_with(s, &f, lineup.as_ref())?;
+    if let Some(l) = lineup.as_ref() {
+        crate::overfilm_lineup::mark(s, l)?;
+    }
+    Ok(json!({"templates": path, "kind": if hero { "hero" } else { "player" }, "id": id, "name": name, "kills": kills, "plateHeroes": plate_heroes}))
 }
 
 /// Mark `deaths` and their fights on the active sequence, replacing earlier ones (one undo step).

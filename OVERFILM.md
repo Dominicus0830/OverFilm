@@ -587,7 +587,37 @@ shots and the feed moves up).
 - `overfilm.killFeed.name {kind: "player"|"hero", id, name, templates?}` (the panel's "선수·영웅
   이름 붙이기"): names player or hero `id`; the markers are written again (one undo step) and the
   name and its grid go into the template file (`feed_names`), so later scans name the same text or
-  picture themselves. Names are the user's: nothing ships with any.
+  picture themselves. Names are the user's: nothing ships with any. A hero named here also names
+  the plate hero linked to it (below), unless the user named that one differently.
+- `overfilm.names.preview {kind: "plate"|"player"|"hero", id, templates?}`: where to see plate
+  hero, feed player or feed hero `id`: the sequence time and the part of the frame (the whole
+  plate a second after the hero came on; the feed row on the last sample that showed its latest
+  kill). The panel's "보기" button next to each name cuts that part out of the frame, shows it
+  beside the name box and moves the playhead there.
+
+### The feed and the plates name each other
+
+`overfilm_vision::link`: when a scan reads both the kill feed and the name plates, each feed row
+is paired with the plate death of the victim's team nearest in time (2.5 s at most; two deaths of
+one team within 0.4 s of each other are left unpaired at first, then given to the plate that feed
+player was paired with before). Which team is blue in the feed is voted the same way. Then:
+
+- a feed player's plate is the plate most of their paired deaths were on (two at least, and 60 %), and
+  the plate's player read by text recognition names them ("Kilo (자동)" in the panel);
+- each kill's victim is named after their plate at that kill in the marker, even when two blurred
+  names share one "선수 N"; a killer is placed through their own deaths in that stretch;
+- a feed hero is the plate hero most of its paired appearances were on: a name given on either
+  side names the other, in the markers at once and (for the side named) in the template file;
+- a feed player the user named sits on their plate in the hero markers when text recognition did
+  not read that plate.
+
+Measured on the OWCS broadcast (720p, 25:00 to 45:00, `names_raw` pipeline example): team 1
+(RØDE) is blue; 24 of 45 feed kills paired (most of the others have no plate death within 2.5 s:
+a kill counted twice, or a death the plates missed); the four RØDE players whose feed names stay
+apart (Kilo, Taejong, Irony, Opener) named from the plates; O2's blurred names (WUTIAN, FAITH,
+A1IEN in one "선수 N") stay unnamed but each paired kill names its victim right. Feed hero
+pictures at 720p split into 33 groups for 16 plate heroes, so few feed heroes get enough votes;
+naming the 16 plate heroes is the work left, once per hero for every later video.
 
 Measured on the owner's kill feed screenshot (six rows): all six read right at its size, at 2/3 and
 at 1/2 of it (NECROS four times and FRANKYBOXING and LEEVI twice each, one player each; three
@@ -656,7 +686,9 @@ that scan against without: "오토플라스트" became "오투 블래스트", "�
 (`correct_raw`, same recogniser output) changes nothing but those names. The longer context also
 moves some unrelated words ("홈런볼" → "홈런 볼" twice, one "우텐" heard as "오투"), and WuTian is
 still often 우티언/우티안, so the prior helps team and player names most where they are spelled
-nearly right already.
+nearly right already. Since then the correction writes a name of three syllables or more from the
+name tables with the glossary's spacing (`홈런 볼이` → `홈런볼이`, `오투블래스트` → `오투 블래스트`),
+and 우티안/우티언 are misheard forms of 우톈 (우티안 was an accepted alias before).
 
 ## Claude Code review
 
