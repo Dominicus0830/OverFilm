@@ -1,16 +1,23 @@
 //! OverFilm: the whole edit in one go (see `OVERFILM.md`): Auto Cut, an optional Claude Code
-//! review of the unclear cuts, the cuts applied, OverFilm Captions, an optional Claude Code
-//! review of the captions. Each step is the command the menus run; this module only starts them
-//! one after another and waits for each background job.
+//! review of the unclear cuts, the cuts applied, the kill scan (kills, ultimates, teams, players
+//! and heroes off the HUD, so the captions can use the names), OverFilm Captions, an optional
+//! Claude Code review of the captions and an optional render. Each step is the command the menus
+//! run; this module only starts them one after another and waits for each background job.
 //!
 //! - `overfilm.flow.run {autoCut=true, templates?, keepBefore=10, fps=2, frozenPauses=true,
 //!   reviewCuts=false, applyCuts=true, captions="new"|"reuse"|"off", audioTrack?, mode, speakers,
 //!   numSpeakers?, extraTerms?, gpu, gameVoice, lineChars=16, maxLines=2, cleanFillers,
-//!   reviewCaptions=false, wait=false}`: `captions` "new" recognises the speech
+//!   reviewCaptions=false, kills=true, killFps=2, render=false, renderFormat="h264",
+//!   renderPath?, burnCaptions=true, captionSidecar?, wait=false}`: `captions` "new" recognises the speech
 //!   (`overfilm.captions.generate`), "reuse" lays the transcript the sequence already has out again
 //!   (`overfilm.captions.fromTranscript`, after the cuts: no second recognition). `applyCuts`
 //!   false leaves the cut markers for the user to check (the captions then follow the uncut
-//!   sequence). The first step starts at once, so its errors come back here; a later step that
+//!   sequence). `kills` runs `overfilm.kills.scan` after the cuts and before the captions when the
+//!   screen templates have name plates or a kill feed (else the step is left out); it is optional,
+//!   so a failed scan is noted and the run goes on. `render` exports the finished sequence with
+//!   `file.exportMedia` (`renderFormat` is any of its formats, burnt-in captions by default), or
+//!   with `overfilm.premiere.export` when `renderFormat` is "premiere"; `renderPath` is a folder or
+//!   a file (default: beside the project). The first step starts at once, so its errors come back here; a later step that
 //!   fails stops the run (a review that fails is noted and the run goes on: it is optional).
 //! - `overfilm.flow.status` returns the steps, each `pending`, `running` (with the job's progress
 //!   and status), `done`, `skipped` or `failed` with a message.
@@ -34,8 +41,10 @@ pub enum StepKind {
     AutoCut,
     ReviewCuts,
     ApplyCuts,
+    Kills,
     Captions,
     ReviewCaptions,
+    Render,
 }
 
 impl StepKind {
@@ -44,13 +53,16 @@ impl StepKind {
             StepKind::AutoCut => "autoCut",
             StepKind::ReviewCuts => "reviewCuts",
             StepKind::ApplyCuts => "applyCuts",
+            StepKind::Kills => "kills",
             StepKind::Captions => "captions",
             StepKind::ReviewCaptions => "reviewCaptions",
+            StepKind::Render => "render",
         }
     }
-    /// Whether a failure only skips this step (the reviews are optional).
+    /// Whether a failure only skips this step (the reviews and the kill scan are optional: the
+    /// captions are still made without the names).
     fn optional(self) -> bool {
-        matches!(self, StepKind::ReviewCuts | StepKind::ReviewCaptions)
+        matches!(self, StepKind::ReviewCuts | StepKind::ReviewCaptions | StepKind::Kills)
     }
 }
 
@@ -116,6 +128,8 @@ pub struct Flow {
     captions: Value,
     reuse: bool,
     review_captions: Value,
+    kills: Value,
+    render: Value,
     wait: bool,
     started: web_time::Instant,
 }
@@ -133,7 +147,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Cut and Caption in One Go (OverFilm)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"autoCut":bool=true,"templates":path?,"keepBefore":seconds=10,"fps":0.5..8=2,"frozenPauses":bool=true,"reviewCuts":bool=false,"applyCuts":bool=true,"captions":"new"|"reuse"|"off"="new","audioTrack":n?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"reviewCaptions":bool=false,"wait":bool=false}"#,
+            params: r#"{"autoCut":bool=true,"templates":path?,"keepBefore":seconds=10,"fps":0.5..8=2,"frozenPauses":bool=true,"reviewCuts":bool=false,"applyCuts":bool=true,"captions":"new"|"reuse"|"off"="new","audioTrack":n?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"reviewCaptions":bool=false,"kills":bool=true,"killFps":0.5..8=2,"render":bool=false,"renderFormat":"h264|hevc|av1|prores|dnxhr|mxf-op1a|gif|wav|aac|flac|premiere"="h264","renderPath":path?,"burnCaptions":bool=true,"captionSidecar":"srt|vtt"?,"wait":bool=false}"#,
             enabled: can_run,
             run,
             journal: false,
@@ -200,6 +214,12 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let apply = bool_p(p, "applyCuts").unwrap_or(true);
     let captions = str_p(p, "captions").unwrap_or("new");
     let review_captions = bool_p(p, "reviewCaptions").unwrap_or(false);
+    let kills = bool_p(p, "kills").unwrap_or(true) && kill_scan_ready(s, p);
+    let render = bool_p(p, "render").unwrap_or(false);
+    let render_format = str_p(p, "renderFormat").unwrap_or("h264");
+    if render && render_format != "premiere" && filmcraft_export::Format::from_name(render_format).is_none() {
+        return Err(bad(CMD, format!("renderFormat `{render_format}` is not an export format")));
+    }
     if !matches!(captions, "new" | "reuse" | "off") {
         return Err(bad(CMD, format!("captions is new, reuse or off, not {captions}")));
     }
@@ -216,14 +236,20 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
     if apply && (auto_cut || marked) {
         kinds.push(StepKind::ApplyCuts);
     }
+    if kills {
+        kinds.push(StepKind::Kills);
+    }
     if captions != "off" {
         kinds.push(StepKind::Captions);
         if review_captions {
             kinds.push(StepKind::ReviewCaptions);
         }
     }
+    if render {
+        kinds.push(StepKind::Render);
+    }
     if kinds.is_empty() {
-        return Err(bad(CMD, "nothing to do: turn on Auto Cut or the captions"));
+        return Err(bad(CMD, "nothing to do: turn on Auto Cut, the kill scan, the captions or the render"));
     }
     // what can be known now is checked now, not an hour in
     if (review_cuts || (review_captions && captions != "off")) && !crate::overfilm_review::settings(s).enabled {
@@ -268,6 +294,11 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
         )
     };
     let rev_p = pick(p, &["lineChars", "maxLines", "mode"]);
+    let mut kill_p = pick(p, &["templates"]);
+    if let Some(fps) = p.get("killFps").filter(|v| !v.is_null()) {
+        kill_p["fps"] = fps.clone();
+    }
+    let render_p = render_params(s, p, render_format);
     let steps =
         kinds.into_iter().map(|kind| Step { kind, state: StepState::Pending, message: String::new(), job: None, started: None, seconds: None }).collect();
     s.overfilm_flow = Some(Flow {
@@ -279,6 +310,8 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
         captions: cap_p,
         reuse: captions == "reuse",
         review_captions: rev_p,
+        kills: kill_p,
+        render: render_p,
         wait,
         started: web_time::Instant::now(),
     });
@@ -362,7 +395,8 @@ fn job_state(s: &Session, kind: StepKind, id: u64) -> JobState {
         StepKind::AutoCut => s.overfilm_jobs.iter().any(|j| j.job == id),
         StepKind::Captions => s.overfilm_caption_jobs.iter().any(|j| j.job == id),
         StepKind::ReviewCuts | StepKind::ReviewCaptions => s.overfilm_review.jobs.iter().any(|j| j.job == id),
-        StepKind::ApplyCuts => false,
+        StepKind::Kills => s.overfilm_kill_jobs.iter().any(|j| j.job == id),
+        StepKind::ApplyCuts | StepKind::Render => false,
     };
     let Some(job) = s.jobs.iter().find(|j| j.id == id) else {
         return if pending { JobState::Running } else { JobState::Done(String::new()) };
@@ -458,6 +492,7 @@ fn start(s: &mut Session, i: usize, kind: StepKind) -> Result<()> {
     }
     let wait = f.wait;
     let (cut_p, cap_p, rev_p, reuse) = (f.auto_cut.clone(), f.captions.clone(), f.review_captions.clone(), f.reuse);
+    let (kill_p, render_p) = (f.kills.clone(), f.render.clone());
     if let Some(st) = s.overfilm_flow.as_mut().and_then(|f| f.steps.get_mut(i)) {
         st.state = StepState::Running;
         st.started = Some(web_time::Instant::now());
@@ -492,6 +527,39 @@ fn start(s: &mut Session, i: usize, kind: StepKind) -> Result<()> {
             set(s, i, StepState::Done, format!("{}곳을 잘라냈습니다", v["cuts"].as_u64().unwrap_or(0)));
             return Ok(());
         }
+        StepKind::Kills => match s.execute("overfilm.kills.scan", with_wait(kill_p)) {
+            Ok(v) => v,
+            Err(e) => {
+                set(s, i, StepState::Failed, e.to_string());
+                return Ok(());
+            }
+        },
+        StepKind::Render => {
+            let premiere = render_p["format"] == "premiere";
+            let v = if premiere {
+                let mut q = render_p;
+                if let Some(m) = q.as_object_mut() {
+                    m.remove("format");
+                }
+                s.execute("overfilm.premiere.export", with_wait(q))?
+            } else {
+                s.execute("file.exportMedia", with_wait(render_p))?
+            };
+            let file = if premiere { v["xml"].as_str() } else { v["path"].as_str() };
+            let message = file.map(|f| format!("{f} 로 내보냅니다")).unwrap_or_default();
+            if let Some(st) = s.overfilm_flow.as_mut().and_then(|f| f.steps.get_mut(i)) {
+                st.message = message.clone();
+            }
+            match v["job"].as_u64() {
+                Some(id) if !wait => {
+                    if let Some(st) = s.overfilm_flow.as_mut().and_then(|f| f.steps.get_mut(i)) {
+                        st.job = Some(id);
+                    }
+                }
+                _ => set(s, i, StepState::Done, file.map(|f| format!("{f} 로 내보냈습니다")).unwrap_or(message)),
+            }
+            return Ok(());
+        }
         StepKind::Captions if reuse => {
             let v = s.execute("overfilm.captions.fromTranscript", cap_p)?;
             set(s, i, StepState::Done, format!("자막 {}개", v["captions"].as_u64().unwrap_or(0)));
@@ -522,6 +590,29 @@ fn start(s: &mut Session, i: usize, kind: StepKind) -> Result<()> {
         None => set(s, i, StepState::Done, out["message"].as_str().unwrap_or_default().to_string()),
     }
     Ok(())
+}
+
+/// Whether the kill scan can run with the run's screen templates (name plates or a kill feed
+/// learnt); a missing or plain template file leaves the step out instead of failing the run.
+fn kill_scan_ready(s: &Session, p: &Value) -> bool {
+    let Ok(path) = crate::overfilm_autocut::templates_path(s, &pick(p, &["templates"]), CMD) else { return false };
+    crate::overfilm_autocut::load_set(&path).is_ok_and(|set| !set.bars.is_empty() || set.killfeed.is_some())
+}
+
+/// The render step's command parameters: `file.exportMedia`'s, or `overfilm.premiere.export`'s
+/// (`format: "premiere"` marks those). The path is the user's folder or file, else beside the
+/// project.
+fn render_params(s: &Session, p: &Value, format: &str) -> Value {
+    let path = str_p(p, "renderPath").filter(|x| !x.trim().is_empty()).map(str::to_string);
+    if format == "premiere" {
+        let dir = path.unwrap_or_else(|| crate::export_tools::default_export_dir(s).to_string_lossy().into_owned());
+        return json!({"format": "premiere", "dir": dir});
+    }
+    let mut v = pick(p, &["captionSidecar"]);
+    v["format"] = json!(format);
+    v["path"] = json!(path.unwrap_or_else(|| crate::export_tools::default_export_dir(s).to_string_lossy().into_owned()));
+    v["burnCaptions"] = json!(bool_p(p, "burnCaptions").unwrap_or(true));
+    v
 }
 
 #[cfg(test)]

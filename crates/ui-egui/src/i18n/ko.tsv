@@ -3880,6 +3880,26 @@
 	Ask Claude Code About Cuts	컷을 Claude Code에 묻기
 	Ask Claude Code About Captions	자막을 Claude Code에 묻기
 	Export for Premiere Pro…	Premiere Pro로 내보내기…
+	Get ready	준비
+	Read the match	경기 읽기
+	Export Media…	미디어 내보내기…
+	Kills, ultimates and players	처치·궁극기·선수 읽기
+	Render	렌더링
+	Read kills, ultimates and players first (names for the captions)	먼저 처치·궁극기·선수 읽기 (자막 이름 보정용)
+	Then render the finished video	마지막에 완성 영상 렌더링
+	File type:	파일 형식:
+	Save to:	저장 위치:
+	a folder or file; empty = beside the project	폴더나 파일 경로, 비우면 프로젝트 옆
+	Burn the captions into the picture	자막을 영상에 입히기
+	MP4 (H.264)	MP4 (H.264)
+	MP4 (H.265, smaller)	MP4 (H.265, 더 작음)
+	MP4 (AV1)	MP4 (AV1)
+	MOV (ProRes, for editing)	MOV (ProRes, 편집용)
+	MOV (DNxHR, for editing)	MOV (DNxHR, 편집용)
+	GIF	GIF
+	WAV (sound only)	WAV (소리만)
+	M4A (sound only)	M4A (소리만)
+	Premiere Pro (XML + SRT)	Premiere Pro (XML + SRT)
 	Kills ({n})	처치 목록({n})
 	Who died, from the name plates. Learn the kill feed to see who killed whom.	이름판으로 찾은 처치당한 선수예요. 킬피드를 등록하면 누가 누구를 처치했는지 보여요.
 	Name players and heroes	선수·영웅 이름 붙이기

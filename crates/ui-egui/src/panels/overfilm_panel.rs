@@ -1,11 +1,13 @@
 //! The OverFilm panel (Window ▸ OverFilm, or Sequence ▸ OverFilm ▸ Cut and Caption in One Go):
 //! the whole edit in one go (`overfilm.flow.run`: Auto Cut, Claude Code on the unclear cuts if
-//! ticked, the cuts applied, OverFilm Captions, Claude Code on the captions if ticked) with each
-//! step's progress, and buttons for the other OverFilm tools. It docks like any panel.
+//! ticked, the cuts applied, the kill scan, OverFilm Captions, Claude Code on the captions if
+//! ticked, the render if ticked) with each step's progress, and buttons for the other OverFilm
+//! tools grouped in the order of the work. It docks like any panel.
 //!
 //! Automation ids: `overfilm.panel.<param>` for each control (`autoCut`, `templates`,
 //! `keepBefore`, `applyCuts`, `reviewCuts`, `captions`, `audioTrack`, `mode`, `who`, `gameVoice`,
-//! `maxLines`, `lineChars`, `reviewCaptions`), `overfilm.panel.run`, `overfilm.panel.stop`,
+//! `maxLines`, `lineChars`, `reviewCaptions`, `kills`, `render`, `renderFormat`, `renderPath`,
+//! `burnCaptions`), `overfilm.panel.run`, `overfilm.panel.stop`,
 //! `overfilm.panel.step.<n>` for each step of the run, `overfilm.panel.reviewSettings`,
 //! `overfilm.panel.tool.<command id>`,
 //! `overfilm.panel.kill.<n>` for each kill in the kill list (click: go there),
@@ -20,20 +22,62 @@ use crate::FilmcraftApp;
 
 const PRE: &str = "overfilm.panel";
 
-/// The other OverFilm tools, as buttons (menu commands: the dialogs open as from the menu).
-const TOOLS: &[(&str, &str)] = &[
-    ("overfilm.screenTemplate.learn", "Learn Screen Template…"),
-    ("overfilm.autoCut", "Auto Cut…"),
-    ("overfilm.autoCut.apply", "Apply Cut Markers"),
-    ("overfilm.assist.suggest", "Suggest Silences and Highlights"),
-    ("overfilm.kills.scan", "Find Kills, Ultimates and Team Fights"),
-    ("overfilm.highlights.reel", "Make Highlight Reel"),
-    ("overfilm.captions.generate", "Captions…"),
-    ("overfilm.captions.stylize", "Styled Captions…"),
-    ("overfilm.review.cuts", "Ask Claude Code About Cuts"),
-    ("overfilm.review.captions", "Ask Claude Code About Captions"),
-    ("overfilm.premiere.export", "Export for Premiere Pro…"),
+/// The other OverFilm tools, as buttons in the order of the work (menu commands: the dialogs
+/// open as from the menu): get ready, cut, read the match, captions, hand over.
+const TOOL_GROUPS: &[(&str, &[(&str, &str)])] = &[
+    ("Get ready", &[("overfilm.screenTemplate.learn", "Learn Screen Template…")]),
+    (
+        "Cut",
+        &[
+            ("overfilm.autoCut", "Auto Cut…"),
+            ("overfilm.assist.suggest", "Suggest Silences and Highlights"),
+            ("overfilm.review.cuts", "Ask Claude Code About Cuts"),
+            ("overfilm.autoCut.apply", "Apply Cut Markers"),
+        ],
+    ),
+    ("Read the match", &[("overfilm.kills.scan", "Find Kills, Ultimates and Team Fights"), ("overfilm.highlights.reel", "Make Highlight Reel")]),
+    (
+        "Captions",
+        &[
+            ("overfilm.captions.generate", "Captions…"),
+            ("overfilm.review.captions", "Ask Claude Code About Captions"),
+            ("overfilm.captions.stylize", "Styled Captions…"),
+        ],
+    ),
+    ("Export", &[("file.exportMedia", "Export Media…"), ("overfilm.premiere.export", "Export for Premiere Pro…")]),
 ];
+
+/// The tools of all groups, in order.
+fn tools() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
+    TOOL_GROUPS.iter().flat_map(|(_, list)| list.iter())
+}
+
+/// A group's heading in the user's words.
+fn group_label(group: &str) -> &'static str {
+    match group {
+        "Get ready" => tl!("Get ready"),
+        "Cut" => tl!("Cut"),
+        "Read the match" => tl!("Read the match"),
+        "Captions" => tl!("Captions"),
+        "Export" => tl!("Export"),
+        _ => "",
+    }
+}
+
+/// The render formats the run offers (`file.exportMedia` formats, and the Premiere hand-over).
+fn render_formats() -> Vec<(&'static str, String)> {
+    vec![
+        ("h264", tl!("MP4 (H.264)").to_string()),
+        ("hevc", tl!("MP4 (H.265, smaller)").to_string()),
+        ("av1", tl!("MP4 (AV1)").to_string()),
+        ("prores", tl!("MOV (ProRes, for editing)").to_string()),
+        ("dnxhr", tl!("MOV (DNxHR, for editing)").to_string()),
+        ("gif", tl!("GIF").to_string()),
+        ("wav", tl!("WAV (sound only)").to_string()),
+        ("aac", tl!("M4A (sound only)").to_string()),
+        ("premiere", tl!("Premiere Pro (XML + SRT)").to_string()),
+    ]
+}
 
 fn state_id() -> egui::Id {
     egui::Id::unique("overfilm-panel-params")
@@ -56,6 +100,11 @@ fn defaults(app: &mut FilmcraftApp) -> Value {
         "maxLines": 2,
         "lineChars": 16,
         "reviewCaptions": false,
+        "kills": true,
+        "render": false,
+        "renderFormat": "h264",
+        "renderPath": "",
+        "burnCaptions": true,
     })
 }
 
@@ -75,7 +124,19 @@ fn run_params(p: &Value) -> Value {
         "maxLines": p["maxLines"],
         "lineChars": p["lineChars"],
         "reviewCaptions": p["reviewCaptions"].as_bool().unwrap_or(false),
+        "kills": p["kills"].as_bool().unwrap_or(true),
+        "render": p["render"].as_bool().unwrap_or(false),
+        "renderFormat": p["renderFormat"].as_str().unwrap_or("h264"),
+        "renderPath": p["renderPath"],
+        "burnCaptions": p["burnCaptions"].as_bool().unwrap_or(true),
     });
+    if !out["render"].as_bool().unwrap_or(false)
+        && let Some(m) = out.as_object_mut()
+    {
+        for k in ["renderFormat", "renderPath", "burnCaptions"] {
+            m.remove(k);
+        }
+    }
     if out["captions"] == "reuse" {
         // laid out from the transcript: nothing is recognised again
         if let Some(m) = out.as_object_mut() {
@@ -93,8 +154,10 @@ fn step_label(step: &str) -> &'static str {
         "autoCut" => tl!("Auto Cut (waiting and pauses)"),
         "reviewCuts" => tl!("Claude Code: unclear cuts"),
         "applyCuts" => tl!("Cut the marked parts"),
+        "kills" => tl!("Kills, ultimates and players"),
         "captions" => tl!("Captions"),
         "reviewCaptions" => tl!("Claude Code: captions"),
+        "render" => tl!("Render"),
         _ => "",
     }
 }
@@ -141,7 +204,7 @@ fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
         revision,
         review_on: filmcraft_engine::overfilm_review::settings(s).enabled,
         has_words: !filmcraft_engine::transcript::sequence_words(s).is_empty(),
-        tools: TOOLS.iter().map(|(k, _)| (*k, s.is_enabled(k))).collect(),
+        tools: tools().map(|(k, _)| (*k, s.is_enabled(k))).collect(),
         kills,
         lineup,
     };
@@ -217,8 +280,10 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             ui.add_enabled_ui(review_on, |ui| {
                 check(ui, &mut elems, format!("{PRE}.reviewCuts"), tl!("Then let Claude Code check the unclear cuts"), &mut p["reviewCuts"]);
             });
+            // 2. Kills and players, so the captions get the names
+            check(ui, &mut elems, format!("{PRE}.kills"), tl!("Read kills, ultimates and players first (names for the captions)"), &mut p["kills"]);
             ui.add_space(6.0);
-            // 2. Captions
+            // 3. Captions
             egui::Grid::new("overfilm-panel-cap-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                 let mut kinds = vec![("new", tl!("Recognise the speech").to_string())];
                 if has_words {
@@ -266,6 +331,27 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             if p["captions"] != "off" {
                 ui.add_enabled_ui(review_on, |ui| {
                     check(ui, &mut elems, format!("{PRE}.reviewCaptions"), tl!("Then let Claude Code check the captions"), &mut p["reviewCaptions"]);
+                });
+            }
+            ui.add_space(6.0);
+            // 4. Render
+            check(ui, &mut elems, format!("{PRE}.render"), tl!("Then render the finished video"), &mut p["render"]);
+            if p["render"].as_bool().unwrap_or(false) {
+                ui.indent("overfilm-panel-render", |ui| {
+                    egui::Grid::new("overfilm-panel-render-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                        combo(ui, &mut elems, format!("{PRE}.renderFormat"), tl!("File type:"), &mut p["renderFormat"], &render_formats());
+                        text(
+                            ui,
+                            &mut elems,
+                            format!("{PRE}.renderPath"),
+                            tl!("Save to:"),
+                            &mut p["renderPath"],
+                            tl!("a folder or file; empty = beside the project"),
+                        );
+                    });
+                    if p["renderFormat"] != "premiere" && p["captions"] != "off" {
+                        check(ui, &mut elems, format!("{PRE}.burnCaptions"), tl!("Burn the captions into the picture"), &mut p["burnCaptions"]);
+                    }
                 });
             }
         });
@@ -327,14 +413,20 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         ui.add_space(10.0);
         ui.separator();
         ui.label(RichText::new(tl!("Tools")).strong());
-        ui.horizontal_wrapped(|ui| {
-            for (id, label) in TOOLS {
-                let enabled = facts.tools.iter().find(|(k, _)| k == id).is_some_and(|(_, on)| *on);
-                let r = ui.add_enabled(enabled, egui::Button::new(crate::i18n::t(label)));
-                elems.push((format!("{PRE}.tool.{id}"), r.rect, (*label).to_string()));
-                if r.clicked() {
-                    tool = Some(id);
-                }
+        egui::Grid::new("overfilm-panel-tools").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+            for (n, (group, list)) in TOOL_GROUPS.iter().enumerate() {
+                ui.label(RichText::new(format!("{}. {}", n + 1, group_label(group))).color(t.text_dim));
+                ui.horizontal_wrapped(|ui| {
+                    for (id, label) in list.iter() {
+                        let enabled = facts.tools.iter().find(|(k, _)| k == id).is_some_and(|(_, on)| *on);
+                        let r = ui.add_enabled(enabled, egui::Button::new(crate::i18n::t(label)));
+                        elems.push((format!("{PRE}.tool.{id}"), r.rect, (*label).to_string()));
+                        if r.clicked() {
+                            tool = Some(id);
+                        }
+                    }
+                });
+                ui.end_row();
             }
         });
         kill_list(ui, &mut elems, &facts.kills, &mut p, &mut seek, &mut name, t);

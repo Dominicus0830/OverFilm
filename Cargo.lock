@@ -4823,14 +4823,14 @@ dependencies = [
 
 [[package]]
 name = "overfilm-ai"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "overfilm-asr"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "bytemuck",
  "candle-core",
@@ -4851,7 +4851,7 @@ dependencies = [
 
 [[package]]
 name = "overfilm-captions"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-captions",
  "filmcraft-geom",
@@ -4864,7 +4864,7 @@ dependencies = [
 
 [[package]]
 name = "overfilm-eval"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-captions",
  "overfilm-glossary",
@@ -4875,14 +4875,14 @@ dependencies = [
 
 [[package]]
 name = "overfilm-glossary"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "overfilm-pipeline"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-speech",
  "ocrs",
@@ -4899,7 +4899,7 @@ dependencies = [
 
 [[package]]
 name = "overfilm-review"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4908,7 +4908,7 @@ dependencies = [
 
 [[package]]
 name = "overfilm-subs"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "craft-ui",
@@ -4929,7 +4929,7 @@ dependencies = [
 
 [[package]]
 name = "overfilm-vision"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "filmcraft-time",
  "serde",
