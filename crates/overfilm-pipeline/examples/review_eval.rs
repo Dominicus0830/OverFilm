@@ -94,7 +94,8 @@ fn main() -> Result<(), String> {
                 corrected,
                 ..Default::default()
             };
-            CaptionIn { q, words: ws }
+            let suspects = if with_terms { caps::suspects(&terms, &q.text) } else { Vec::new() };
+            CaptionIn { q, words: ws, suspects }
         })
         .collect();
     let before: Vec<(i64, i64, String)> = infos.iter().map(|i| (i.q.start_ms, i.q.end_ms, i.q.text.clone())).collect();

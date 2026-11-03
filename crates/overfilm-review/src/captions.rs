@@ -225,6 +225,29 @@ pub struct CaptionIn {
     /// id, times, text, pure recognition and corrected text (doubts and context left empty).
     pub q: CaptionQuestion,
     pub words: Vec<CapWord>,
+    /// Real words that are often a misrecognition of a glossary term ([`suspects`]).
+    pub suspects: Vec<String>,
+}
+
+/// The words of `text` that are a glossary's review-only misrecognition (a `misheard` form marked
+/// `@검토`: a real word too, so the correction step leaves it), as `경제하는 → 경쟁?`.
+pub fn suspects(terms: &[Term], text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for t in terms {
+        for m in t.misheard.iter().filter_map(|m| m.strip_suffix("@검토")) {
+            let f = bare(m);
+            if f.is_empty() {
+                continue;
+            }
+            for w in text.split_whitespace().filter(|w| bare(w).starts_with(&f)) {
+                let s = format!("{w} → {}?", t.aliases.first().unwrap_or(&t.ko));
+                if !out.contains(&s) {
+                    out.push(s);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The captions of a track worth asking about (all of them with `all`), in order, each with
@@ -244,7 +267,10 @@ pub fn select(infos: &[CaptionIn], lim: &Limits, all: bool, skip: impl Fn(&Capti
             continue;
         }
         let next = infos.get(i + 1).map(|x| x.q.text.as_str());
-        let (doubts, unsure) = doubts(&info.q.text, &info.words, info.q.raw.as_deref(), &info.q.corrected, next, lim);
+        let (mut doubts, unsure) = doubts(&info.q.text, &info.words, info.q.raw.as_deref(), &info.q.corrected, next, lim);
+        if !info.suspects.is_empty() {
+            doubts.push(format!("실제 낱말이지만 오버워치 영상에선 오인식이 잦은 단어: {}", info.suspects.join(", ")));
+        }
         if doubts.is_empty() && !all {
             continue;
         }
@@ -280,7 +306,12 @@ pub fn system(lim: &Limits) -> String {
 고칠 말을 고를 때: 한국어는 받침이 다음 글자로 넘어가 들리므로(짚어→[지퍼], 읽어→[일거]) \
 먼저 소리 나는 대로 읽었을 때 똑같거나 거의 같은 말을 찾고, 그중 문맥에 맞는 것을 쓴다. 뜻만 통하고 소리가 다른 말(지퍼→지켜봐)은 쓰지 않는다. \
 영웅 이름으로 바꾸기 전에 숫자·순위(일이삼위=1, 2, 3위, 이위=2위)나 흔한 낱말일 가능성을 먼저 따진다. \
-영웅 옆의 역할(탱커·딜러·힐러)이 영웅 목록의 역할과 다르면 인식이 틀린 것이니 목록의 역할로 고친다(둠피스트는 탱커). \
+인식기는 빠르게 이어 읽은 숫자를 엉뚱한 낱말로 적는다: 순위·점수를 말하는 문맥에서 없는 단어가 숫자를 이어 읽은 소리\
+(일이삼위[이리사뮈], 사오위[사오위], 십이삼위)와 비슷하면 숫자로 쓴다(키리섬이가 모두 힐러죠→1, 2, 3위가 모두 힐러죠). \
+앞뒤 자막에 이미 나온 말(경쟁전, 영웅 이름, 순위)과 소리가 비슷하면 그 말일 가능성이 높다(경쟁전 이야기 뒤의 경제하는→경쟁하는). \
+영웅 목록의 역할은 지금 게임 기준일 뿐이다. 영웅 옆의 역할이 목록과 다르면 먼저 화자가 역할 변경·과거·가정·비교를 말하는지 본다 \
+('둠피스트는 딜러로 다시 바뀌어야 해', '딜러 시절 둠피스트', '딜러처럼 쓰는'): 그런 말이면 화자 말 그대로 둔다. \
+그런 말이 없고 영웅을 그냥 소개·분류하는 자리(탱커 삼국밥 중 마지막, 고티어 힐러들)에서만 인식 오류로 보고 목록의 역할로 고친다. \
 없는 단어가 영웅 이름과 소리가 거의 같으면(자리하네요→자리야네요) 영웅 이름으로 고친다. \
 고칠 근거가 소리와 문맥 어디에도 없으면 keep. 발음과 동떨어진 말을 지어내지 않는다. \
 오버워치 용어는 교정본·정식 표기 목록의 표기를 따른다. 욕설은 초성으로 쓴다(예: ㅅㅂ). '(화자1)' 같은 화자 표시는 그대로 둔다. \
@@ -419,7 +450,10 @@ impl Background {
         }
         if !self.roster.is_empty() {
             let list: Vec<&str> = self.roster.iter().take(80).map(String::as_str).collect();
-            p.push_str(&format!("오버워치 영웅 전체와 역할 (탱커=돌격, 딜러=공격, 힐러=지원): {}\n", list.join(", ")));
+            p.push_str(&format!(
+                "오버워치 영웅 전체와 지금 게임의 역할 (탱커=돌격, 딜러=공격, 힐러=지원; 영상이 역할 변경을 말하면 화자 말을 따름): {}\n",
+                list.join(", ")
+            ));
         }
         if !self.terms.is_empty() {
             p.push_str("이 자막들에 나온 오버워치 용어의 정식 표기 (자막은 이 표기를 씀):\n");
@@ -635,7 +669,7 @@ mod tests {
 
     fn info(id: &str, text: &str, raw: &str, conf: f32) -> CaptionIn {
         let q = CaptionQuestion { id: id.into(), text: text.into(), corrected: text.into(), raw: Some(raw.into()), ..CaptionQuestion::default() };
-        CaptionIn { q, words: vec![cw(text, 0, 1, conf)] }
+        CaptionIn { q, words: vec![cw(text, 0, 1, conf)], suspects: Vec::new() }
     }
 
     #[test]
@@ -676,6 +710,19 @@ mod tests {
         // two-letter forms only as whole words (no 양이 inside 고양이)
         assert!(relevant_terms(&terms, &["고양이가"], 10).is_empty());
         assert_eq!(relevant_terms(&terms, &["둠피스트 겐지 벤율"], 1).len(), 1);
+    }
+
+    #[test]
+    fn review_only_misrecognitions() {
+        let t = Term { ko: "경쟁전".into(), aliases: vec!["경쟁".into()], misheard: vec!["경제@검토".into()], ..Term::default() };
+        assert_eq!(suspects(std::slice::from_ref(&t), "영상 보고 경제하는 걸"), ["경제하는 → 경쟁?"]);
+        assert!(suspects(std::slice::from_ref(&t), "경쟁하는 걸").is_empty());
+        let lim = Limits::default();
+        let mut i = info("1", "영상 보고 경제하는 걸.", "영상 보고 경제하는 걸", 1.0);
+        assert!(select(std::slice::from_ref(&i), &lim, false, |_| false, 5).is_empty());
+        i.suspects = suspects(&[t], &i.q.text);
+        let got = select(&[i], &lim, false, |_| false, 5);
+        assert!(got[0].1.doubts.iter().any(|d| d.contains("경제하는 → 경쟁?")), "{:?}", got[0].1.doubts);
     }
 
     #[test]

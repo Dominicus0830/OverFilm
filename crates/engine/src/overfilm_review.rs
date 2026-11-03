@@ -480,7 +480,7 @@ fn raw_of(s: &Session, words: &[&filmcraft_edit::transcript::SeqWord]) -> Option
 }
 
 /// One caption's words, corrected text and pure recognition.
-fn caption_info(s: &Session, all: &[filmcraft_edit::transcript::SeqWord], c: &Caption) -> caps::CaptionIn {
+fn caption_info(s: &Session, all: &[filmcraft_edit::transcript::SeqWord], terms: &[caps::Term], c: &Caption) -> caps::CaptionIn {
     let (a, b) = (c.start, c.start + c.duration);
     let ws: Vec<&filmcraft_edit::transcript::SeqWord> = all
         .iter()
@@ -493,7 +493,8 @@ fn caption_info(s: &Session, all: &[filmcraft_edit::transcript::SeqWord], c: &Ca
     let raw = raw_of(s, &ws);
     let words = ws.iter().map(|w| CapWord { text: w.text.clone(), start_ms: ms(w.start), end_ms: ms(w.end), confidence: w.confidence }).collect();
     let q = CaptionQuestion { id: c.id.0.to_string(), start_ms: ms(a), end_ms: ms(b), text: c.text.clone(), raw, corrected, ..Default::default() };
-    caps::CaptionIn { q, words }
+    let suspects = caps::suspects(terms, &c.text);
+    caps::CaptionIn { q, words, suspects }
 }
 
 fn limits_p(p: &Value) -> Limits {
@@ -523,7 +524,8 @@ fn caption_questions(s: &Session, p: &Value, track: TrackId, lim: &Limits, max: 
     let chosen = ids_p(p, "captions");
     let all_flag = bool_p(p, "all").unwrap_or(false) || chosen.is_some();
     let words = crate::transcript::sequence_words(s);
-    let infos: Vec<caps::CaptionIn> = t.captions.iter().map(|c| caption_info(s, &words, c)).collect();
+    let terms = review_terms();
+    let infos: Vec<caps::CaptionIn> = t.captions.iter().map(|c| caption_info(s, &words, &terms, c)).collect();
     let again = bool_p(p, "again").unwrap_or(false) || chosen.is_some();
     let skip = |info: &caps::CaptionIn| {
         chosen.as_ref().is_some_and(|c| !c.iter().any(|id| id.to_string() == info.q.id))

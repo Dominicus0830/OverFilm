@@ -703,7 +703,9 @@ the calls it is unsure of to the Claude Code command line on the same computer:
   Claude Code, `cargo run -p overfilm-pipeline --example review_eval`): CER 5.97 %
   before review; old instructions 5.83 %; with confident misrecognitions asked about 5.68 %; with the
   hero roster and roles and the "same sound first" rule 5.41 % (172 of 307 captions asked, terms 98.2 →
-  99.1 %); asking every caption (before the roster) 5.62 %.
+  99.1 %); asking every caption (before the roster) 5.62 %. A `misheard` form marked `@검토`
+  (`경제` for `경쟁`) is never replaced by the correction step; a caption with one is asked about
+  and the form goes with it as a likely misrecognition.
 - **On its own** (`auto`): after Auto Cut or Suggestions mark cuts, and after OverFilm Captions
   places captions, the matching review starts by itself.
 
