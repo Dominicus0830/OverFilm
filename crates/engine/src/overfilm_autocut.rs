@@ -604,6 +604,9 @@ fn mark(s: &mut Session, cuts: &[Cut]) -> Result<usize> {
                 ),
                 kind: MarkerKind::Comment,
                 color,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
             });
         }
         q.markers.sort_by_key(|m| m.start);

@@ -284,6 +284,9 @@ pub fn make(s: &mut Session, levels: &[f32], o: &AssistOptions) -> Result<Value>
                 comment: format!("{} – {} 조용함", clock(x.start_ms), clock(x.end_ms)),
                 kind: MarkerKind::Comment,
                 color: Label::Brown,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
             });
         }
         for (n, h) in highlights.iter().enumerate() {
@@ -309,6 +312,9 @@ pub fn make(s: &mut Session, levels: &[f32], o: &AssistOptions) -> Result<Value>
                 comment: why.join(" · "),
                 kind: MarkerKind::Comment,
                 color: Label::Green,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
             });
         }
         q.markers.sort_by_key(|m| m.start);

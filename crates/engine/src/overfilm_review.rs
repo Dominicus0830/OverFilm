@@ -464,6 +464,9 @@ fn apply_cuts(s: &mut Session, cases: &[CutQuestion], answers: Vec<CutAnswer>) -
                             comment: format!("원래 {} · {}", m.name, note("이 부분 유지")),
                             kind: MarkerKind::Comment,
                             color: Label::Blue,
+                            url: String::new(),
+                            author: String::new(),
+                            custom_color: None,
                         });
                     }
                 }

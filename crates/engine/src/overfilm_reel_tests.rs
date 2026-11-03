@@ -33,6 +33,9 @@ fn mark(s: &mut Session, name: &str, from: f64, to: f64) {
         comment: String::new(),
         kind: MarkerKind::Comment,
         color: Label::Green,
+        url: String::new(),
+        author: String::new(),
+        custom_color: None,
     });
     q.markers.sort_by_key(|m| m.start);
 }
