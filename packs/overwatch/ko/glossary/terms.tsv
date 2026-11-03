@@ -32,7 +32,7 @@ perk	특전	Perk					2025 도입
 minor_perk	보조 특전	Minor perk
 major_perk	주요 특전	Major perk
 hero_ban	영웅 금지	Hero ban	밴; 영웅 밴
-ban_rate	밴률	Ban rate	밴율
+ban_rate	밴율	Ban rate			밴률		한글 맞춤법 제11항 붙임1: ㄴ 받침 뒤는 율 (밴율, 픽률, 승률). 사용자 지정 2026-11-03
 pick_rate	픽률	Pick rate	픽율
 win_rate	승률	Win rate
 health	생명력	Health	체력; 피

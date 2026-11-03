@@ -267,7 +267,7 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
             ],
         )
     };
-    let rev_p = pick(p, &["lineChars", "maxLines"]);
+    let rev_p = pick(p, &["lineChars", "maxLines", "mode"]);
     let steps =
         kinds.into_iter().map(|kind| Step { kind, state: StepState::Pending, message: String::new(), job: None, started: None, seconds: None }).collect();
     s.overfilm_flow = Some(Flow {

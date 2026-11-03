@@ -11,6 +11,7 @@
 //! - [`captions`]: a caption that needs judgment (unsure words, a glossary correction, an awkward
 //!   line break): the pure recognition, the corrected text and the captions around it go out; a
 //!   keep, a corrected text or a split into several captions comes back.
+//! - [`setup`]: how to install Claude Code, signing in, and the models to choose from.
 //! - [`Settings`]: the user's switch and options, a small JSON file in the OverFilm data folder.
 //!
 //! Times are integer milliseconds of sequence time in and out (no floating-point seconds).
@@ -21,6 +22,7 @@ pub mod captions;
 pub mod cli;
 pub mod cuts;
 pub mod settings;
+pub mod setup;
 mod text;
 
 pub use cli::{ClaudeCode, Reviewer, Status};
@@ -34,7 +36,9 @@ pub enum ReviewError {
     Disabled,
     #[error("Claude Code(claude)를 찾지 못했습니다. 설치한 뒤 다시 해 보세요: https://claude.com/claude-code")]
     NotInstalled,
-    #[error("Claude Code에 로그인되어 있지 않습니다. 명령 창에서 `claude`를 실행해 구독 계정으로 로그인해 주세요")]
+    #[error(
+        "Claude Code에 로그인되어 있지 않습니다. 검토 설정의 '로그인…' 버튼을 누르거나 명령 창에서 `claude auth login`을 실행해 Claude 구독 계정으로 로그인해 주세요"
+    )]
     NotLoggedIn,
     #[error("Claude 사용 한도에 걸렸습니다: {0}")]
     Limit(String),

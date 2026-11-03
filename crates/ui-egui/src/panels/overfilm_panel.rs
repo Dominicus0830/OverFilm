@@ -375,9 +375,15 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         app.ui.status = plain_error(&e.to_string());
     }
     if run {
-        match app.session.execute("overfilm.flow.run", run_params(&p)) {
-            Ok(_) => app.ui.status = tl!("OverFilm: started, see each step in the OverFilm panel").to_string(),
-            Err(e) => app.ui.status = plain_error(&e.to_string()),
+        // a Claude Code step checks Claude Code first (install guide or settings when not ready)
+        let rp = run_params(&p);
+        if let Some(Err(e)) = crate::panels::overfilm_review::route(app, &ctx, "overfilm.flow.run", &rp) {
+            app.ui.status = plain_error(&e);
+        } else {
+            match app.session.execute("overfilm.flow.run", rp) {
+                Ok(_) => app.ui.status = tl!("OverFilm: started, see each step in the OverFilm panel").to_string(),
+                Err(e) => app.ui.status = plain_error(&e.to_string()),
+            }
         }
     }
     if running {
