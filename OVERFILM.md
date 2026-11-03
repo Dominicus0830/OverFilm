@@ -737,10 +737,19 @@ panel and stays in the saved workspace. It runs the ticked steps one after anoth
 2. **Claude Code on the unclear cuts** (`overfilm.review.cuts`), when ticked.
 3. **The cuts applied** (`overfilm.autoCut.apply`), unless the result is "markers to check first";
    markers already on the sequence (an earlier Auto Cut, Suggestions) are reviewed and applied too.
-4. **Captions**: recognised (`overfilm.captions.generate`, audio track, video kind, speakers,
+4. **Kills, ultimates and players** (`overfilm.kills.scan`, `killFps`), on by default (`kills`):
+   it reads the teams, players and heroes off the HUD before the captions, so they get the names
+   (see "Teams, players and heroes"). Left out when the template file has no name plates or kill
+   feed; a scan that fails is noted and the run goes on without the names.
+5. **Captions**: recognised (`overfilm.captions.generate`, audio track, video kind, speakers,
    in-game voice), or laid out again from the transcript the sequence already has
    (`overfilm.captions.fromTranscript`: after the cuts, without a second recognition).
-5. **Claude Code on the captions** (`overfilm.review.captions`), when ticked.
+6. **Claude Code on the captions** (`overfilm.review.captions`), when ticked.
+7. **Render** (`render`), when ticked: the finished sequence goes out with `file.exportMedia` in
+   the chosen `renderFormat` (MP4 H.264/H.265/AV1, MOV ProRes/DNxHR, GIF, WAV, M4A), captions burnt
+   in unless `burnCaptions` is off, or with `overfilm.premiere.export` (`renderFormat: "premiere"`:
+   FCP XML + SRT for Premiere Pro). `renderPath` is a folder or a file; empty puts it beside the
+   project.
 
 Each step waits for the one before (its background job and its result applied). What can be
 known at the start is refused at the start: no step chosen, a review ticked while Claude Code
@@ -751,7 +760,10 @@ setting starts after Auto Cut and OverFilm Captions are left to the run, so noth
 twice. The panel shows each step (waiting, running with its progress and time left, done,
 skipped, failed, how long it took); `Stop` (`overfilm.flow.stop`) stops the running job and the
 rest. `overfilm.flow.status` gives the same over the control channel and MCP. Undo takes back each
-step on its own. Below the run, buttons open the other OverFilm tools.
+step on its own. Below the run, buttons open the other OverFilm tools, grouped in the order of the
+work: get ready (screen templates), cut (Auto Cut, suggestions, Claude Code on the cuts, apply),
+read the match (kills, highlight reel), captions (captions, Claude Code on them, styles) and export
+(media, Premiere Pro).
 
 ## Editing style (beta)
 

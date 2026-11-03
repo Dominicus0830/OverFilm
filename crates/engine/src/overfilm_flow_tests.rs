@@ -153,10 +153,11 @@ fn the_kill_scan_runs_between_the_cuts_and_the_captions_when_the_templates_have_
     let r =
         s.execute("overfilm.flow.run", json!({"templates": tpl, "keepBefore": 1.0, "fps": 4, "captions": "off", "applyCuts": false, "wait": true})).unwrap();
     assert!(states(&r).iter().all(|(k, _)| k != "kills"), "{r}");
-    // name plates learnt (a strip at the top of a play frame): the scan runs after the cuts
+    // name plates learnt (a bright strip at the top): the scan runs after the cuts
     for team in [1, 2] {
         let x = if team == 1 { 0.0 } else { 0.6 };
-        s.execute("overfilm.playerBar.learn", json!({"templates": tpl, "team": team, "rect": [x, 0.0, 0.4, 0.1], "time": Tick(TICKS_PER_SECOND).0})).unwrap();
+        s.execute("overfilm.playerBar.learn", json!({"templates": tpl, "team": team, "rect": [x, 0.0, 0.4, 0.1], "time": Tick(6 * TICKS_PER_SECOND).0}))
+            .unwrap();
     }
     let r = s.execute("overfilm.flow.run", json!({"templates": tpl, "keepBefore": 1.0, "fps": 4, "killFps": 1, "captions": "off", "wait": true})).unwrap();
     assert_eq!(r["state"], "done", "{r}");

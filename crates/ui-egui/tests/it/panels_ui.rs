@@ -992,10 +992,27 @@ fn overfilm_panel_runs_from_the_window_menu() {
     d.ok("ui.menu.invoke", json!({"id": "overfilm.flow.run"}));
     d.frames(4);
     assert!(d.has("panel.tab.OverFilm"));
-    for key in ["overfilm.panel.autoCut", "overfilm.panel.captions", "overfilm.panel.run", "overfilm.panel.tool.overfilm.captions.stylize"] {
+    for key in [
+        "overfilm.panel.autoCut",
+        "overfilm.panel.kills",
+        "overfilm.panel.captions",
+        "overfilm.panel.render",
+        "overfilm.panel.run",
+        "overfilm.panel.tool.overfilm.captions.stylize",
+        "overfilm.panel.tool.file.exportMedia",
+    ] {
         assert!(!d.ids(key).is_empty(), "no {key}");
     }
+    assert!(d.ids("overfilm.panel.renderFormat").is_empty(), "the render choices show once the render is ticked");
     d.snapshot("overfilm-panel", None);
+    // the lower half: the render and the tools grouped in the order of the work
+    d.ok("ui.scroll", json!({"id": "overfilm.panel.captions", "dy": -800}));
+    d.frames(3);
+    d.click("overfilm.panel.render");
+    for key in ["overfilm.panel.renderFormat", "overfilm.panel.renderPath", "overfilm.panel.burnCaptions"] {
+        assert!(!d.ids(key).is_empty(), "no {key}");
+    }
+    d.snapshot("overfilm-panel-render-tools", None);
     d.ok("ui.menu.invoke", json!({"id": "app.language.english"}));
 }
 
