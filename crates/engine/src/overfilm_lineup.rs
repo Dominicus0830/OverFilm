@@ -315,15 +315,7 @@ pub fn prior_on_sequence(markers: &[Marker], end_ms: i64) -> MatchPrior {
     let mut ms: Vec<&Marker> = markers.iter().filter(|m| is_lineup_marker(&m.name)).collect();
     ms.sort_by_key(|m| m.start);
     // games: each "OverFilm 경기" marker with teams starts one, up to the next
-    let mut games: Vec<GamePrior> = Vec::new();
-    for m in &ms {
-        let Some(teams) = match_teams(&m.name) else { continue };
-        let at = m.start.0 / TICKS_PER_MS;
-        if let Some(g) = games.last_mut() {
-            g.end = at;
-        }
-        games.push(GamePrior { start: at, end: end_ms.max(at), teams, players: Vec::new() });
-    }
+    let mut games = matches_on_sequence(markers, end_ms);
     let mut state: Vec<(String, String)> = Vec::new();
     let mut since: Option<i64> = None;
     let push_heroes = |p: &mut MatchPrior, state: &[(String, String)], from: Option<i64>, to: i64| {
@@ -393,6 +385,25 @@ pub fn prior_on_sequence(markers: &[Marker], end_ms: i64) -> MatchPrior {
         p.games = games;
     }
     p
+}
+
+/// The matches on the sequence, from the "OverFilm 경기" markers (ms on the sequence's clock):
+/// each from its marker to the next one (the last to `end_ms`), with its teams (players left
+/// empty). One entry for a video with one match, none when no marker names a team. For exporting
+/// each match on its own ("날짜-팀1vs팀2.mp4").
+pub fn matches_on_sequence(markers: &[Marker], end_ms: i64) -> Vec<GamePrior> {
+    let mut ms: Vec<&Marker> = markers.iter().filter(|m| m.name.starts_with(MARK_MATCH)).collect();
+    ms.sort_by_key(|m| m.start);
+    let mut games: Vec<GamePrior> = Vec::new();
+    for m in ms {
+        let Some(teams) = match_teams(&m.name) else { continue };
+        let at = m.start.0 / TICKS_PER_MS;
+        if let Some(g) = games.last_mut() {
+            g.end = at;
+        }
+        games.push(GamePrior { start: at, end: end_ms.max(at), teams, players: Vec::new() });
+    }
+    games
 }
 
 /// The teams of an "OverFilm 경기: 로제 vs 오투 블래스트" marker (or "OverFilm 경기 2: …");

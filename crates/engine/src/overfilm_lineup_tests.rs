@@ -184,6 +184,14 @@ fn hand_edited_and_hostile_markers() {
     let p = prior_on_sequence(&ms, 100);
     assert_eq!(p.games.len(), 2);
     assert_eq!(p.games[0].players, ["태종"]);
+    let m = matches_on_sequence(&ms, 100);
+    assert_eq!((m.len(), m[0].start, m[0].end, m[1].end), (2, 10, 20, 100));
+    assert_eq!(m[1].teams, ["티원", "오투"]);
+    // one match: one entry over the rest of the video (the prior keeps no games for it)
+    let one = vec![mk(5, "OverFilm 경기: 로제 vs 오투", "")];
+    assert_eq!(matches_on_sequence(&one, 100).len(), 1);
+    assert!(prior_on_sequence(&one, 100).games.is_empty());
+    assert!(matches_on_sequence(&[], 100).is_empty());
 }
 
 #[test]
