@@ -7,36 +7,67 @@ busan	부산	Busan					쟁탈
 antarctic_peninsula	남극 반도	Antarctic Peninsula	남극				쟁탈
 samoa	사모아	Samoa					쟁탈
 dorado	도라도	Dorado					호위
-route_66	66번 국도	Route 66	육십육번 국도				호위
-gibraltar	감시 기지: 지브롤터	Watchpoint: Gibraltar	지브롤터				호위
+route_66	66번 국도	Route 66	육십육번 국도; 루트 66				호위
+gibraltar	감시 기지: 지브롤터	Watchpoint: Gibraltar	지브롤터; 지브				호위
 rialto	리알토	Rialto					호위
-circuit_royal	서킷 로얄	Circuit Royal					호위
+circuit_royal	서킷 로얄	Circuit Royal	서킷				호위
 havana	하바나	Havana					호위
-junkertown	쓰레기촌	Junkertown					호위
+junkertown	쓰레기촌	Junkertown	정크타운				호위
 shambali	샴발리 수도원	Shambali Monastery	샴발리				호위
-grimsvotn	감시 기지: 그림스보튼	Watchpoint: Grímsvötn	그림스보튼				호위, 2026 5시즌 신규. 한국어 표기 확인 필요
-kings_row	왕의 길	King's Row					혼합
+grimsvotn	그림스뵈튼	Watchpoint: Grímsvötn	감시 기지: 그림스뵈튼; 그림스보튼	감시 기지: 그림스보튼			호위, 2026 5시즌 신규. 한국어 표기 확인 필요; 나무위키 전장 목록 표기 (2026-11-03)
+kings_row	왕의 길	King's Row	왕길; 킹스 로우				혼합
 numbani	눔바니	Numbani					혼합
 hollywood	할리우드	Hollywood					혼합
-eichenwalde	아이헨발데	Eichenwalde			아이언발드; 아이언발데; 아이엔발데; 아이엔발드; 아이헨 발데; IM 발대		혼합
-blizzard_world	블리자드 월드	Blizzard World					혼합
+eichenwalde	아이헨발데	Eichenwalde	아이헨		아이언발드; 아이언발데; 아이엔발데; 아이엔발드; 아이헨 발데; IM 발대		혼합
+blizzard_world	블리자드 월드	Blizzard World	블월				혼합
 midtown	미드타운	Midtown					혼합
 paraiso	파라이수	Paraíso					혼합
 neon_junction	네온 교차로	Neon Junction					혼합, 2026 신규
-new_queen_street	뉴 퀸 스트리트	New Queen Street					밀기
+new_queen_street	뉴 퀸 스트리트	New Queen Street	뉴퀸				밀기
 colosseo	콜로세오	Colosseo					밀기
 esperanca	이스페란사	Esperança					밀기
 runasapi	루나사피	Runasapi					밀기
-new_junk_city	뉴 정크 시티	New Junk City					플래시포인트
+new_junk_city	뉴 정크 시티	New Junk City	뉴정크				플래시포인트
 suravasa	수라바사	Suravasa					플래시포인트
 aatlis	아틀리스	Aatlis					플래시포인트
 hanaoka	하나오카	Hanaoka					격돌
-anubis_throne	아누비스의 왕좌	Throne of Anubis					격돌
-wuxing_university	오행 대학						스타디움 전용 (영문명 확인 필요)
+anubis_throne	아누비스의 왕좌	Throne of Anubis	왕좌				격돌
+wuxing_university	오행 대학		오행 대학 - 물 학부; 물 학부				스타디움 전용 (영문명 확인 필요)
 lijiang_night_market	리장 야시장	Lijiang Night Market					스타디움 쟁탈, 2026 2시즌
 powder_keg_mine	화약통 광산	Powder Keg Mine					스타디움 전용
 hanamura	하나무라	Hanamura					점령 (일반 모드에서 제외)
 temple_of_anubis	아누비스 신전	Temple of Anubis					점령 (일반 모드에서 제외)
-volskaya	볼스카야 인더스트리	Volskaya Industries	볼스카야				점령 (일반 모드에서 제외)
+volskaya	볼스카야 인더스트리	Volskaya Industries	볼스카야; 볼스				점령 (일반 모드에서 제외)
 paris	파리	Paris					점령 (일반 모드에서 제외)
-horizon	호라이즌 달 기지	Horizon Lunar Colony	호라이즌				점령 (일반 모드에서 제외)
+horizon	호라이즌 달 기지	Horizon Lunar Colony	호라이즌; 호라				점령 (일반 모드에서 제외)
+# 데스매치·섬멸전·깃발 뺏기·스타디움·화물 경주 전장 (나무위키 오버워치/전장, 2026-11-03)
+malevento	말레벤토	Malevento					데스매치
+chateau_guillard	샤토 기야르	Château Guillard					데스매치
+kanezaka	카네자카	Kanezaka					데스매치
+petra	페트라	Petra					데스매치
+black_forest	검은 숲	Black Forest					섬멸전
+necropolis	네크로폴리스	Necropolis					섬멸전
+castillo	카스티요	Castillo					섬멸전
+ecopoint_antarctica	탐사 기지: 남극	Ecopoint: Antarctica					섬멸전
+ayutthaya	아유타야	Ayutthaya					깃발 뺏기
+overpass	고가도로						스타디움 쟁탈
+arena_victoriae	승리의 투기장	Arena Victoriae					스타디움 쟁탈
+redwood_dam	레드우드 제방	Redwood Dam					스타디움 밀기
+cross_plaza	십자 광장						스타디움 밀기
+serenza	세렌자						스타디움 밀기
+thames_district	템스 지구	Thames District					화물 경주
+practice_range	훈련장	Practice Range				noeval	전투 훈련
+# 쟁탈 전장 안의 구역 (해설에서 구역 이름만 부름). 흔한 낱말은 noeval
+ilios_lighthouse	등대	Lighthouse				noeval	일리오스
+ilios_well	우물	Well				noeval	일리오스
+ilios_ruins	폐허	Ruins	유적			noeval	일리오스
+lijiang_control_center	관제 센터	Control Center					리장 타워
+lijiang_garden	정원	Garden				noeval	리장 타워·오아시스
+nepal_village	마을	Village				noeval	네팔
+nepal_sanctum	성소	Sanctum				noeval	네팔
+nepal_shrine	제단	Shrine				noeval	네팔
+oasis_city_center	도심	City Center				noeval	오아시스
+oasis_university	대학	University				noeval	오아시스
+busan_meka_base	MEKA 기지	MEKA Base	메카 기지				부산
+busan_sanctuary	사찰	Sanctuary				noeval	부산
+busan_downtown	시내	Downtown				noeval	부산

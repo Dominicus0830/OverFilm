@@ -161,6 +161,9 @@ fn hand_edited_and_hostile_markers() {
         comment: comment.into(),
         kind: MarkerKind::Comment,
         color: Label::Iris,
+        url: String::new(),
+        author: String::new(),
+        custom_color: None,
     };
     let ms = vec![
         mk(0, "OverFilm 경기: ", ""),

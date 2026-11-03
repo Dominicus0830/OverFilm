@@ -97,6 +97,9 @@ fn add_cut(s: &mut Session, a: i64, b: i64) -> u64 {
             comment: "조용함".into(),
             kind: MarkerKind::Comment,
             color: Label::Brown,
+            url: String::new(),
+            author: String::new(),
+            custom_color: None,
         });
         Ok(id)
     })
@@ -247,6 +250,9 @@ fn captions_get_pure_recognition_and_fixes() {
     let p = &asked[0].prompt;
     assert!(p.contains("순수 인식(교정 전): 자 갠지가 들어가고"), "{p}");
     assert!(p.contains("자신 없는 단어: 겐지가"), "{p}");
+    assert!(p.contains("  - 겐지 (Genji"), "the glossary terms the captions mention: {p}");
+    assert!(!p.contains("영상 종류"), "no mode and no match info: {p}");
+    assert!(p.contains("둠피스트 탱커"), "every hero with their role: {p}");
     assert!(!p.contains("- 현재 자막:\n    류승룡"), "game voice is no caption: {p}");
     let after = caption_texts(&s);
     assert!(after.iter().any(|t| t.ends_with("자 겐지가\n들어가고")), "{after:?}");
@@ -256,6 +262,49 @@ fn captions_get_pure_recognition_and_fixes() {
     // asked once: not again
     let r = s.execute("overfilm.review.captions", json!({"wait": true})).unwrap();
     assert_eq!(r["asked"], 0, "{r}");
+}
+
+#[test]
+fn captions_get_the_match_info() {
+    let f = fake(|q| {
+        let ids: Vec<Value> =
+            q.prompt.split("### 자막 id=").skip(1).map(|sec| json!({"id": sec.split(' ').next().unwrap(), "decision": "keep", "reason": "맞음"})).collect();
+        Ok(json!({"answers": ids}))
+    });
+    let mut s = session(&f);
+    s.execute("overfilm.captions.fromTranscript", json!({})).unwrap();
+    for (i, (name, comment)) in
+        [("OverFilm 경기: 로제 vs 오투 블래스트", ""), ("OverFilm 선수", "로제: 태종, 킬로"), ("OverFilm 영웅 교체", "태종: 트레이서 → 겐지")]
+            .into_iter()
+            .enumerate()
+    {
+        s.edit("test", |pr, st| {
+            let id = pr.alloc_id();
+            let q = pr.sequence_mut(st.active_sequence.unwrap()).unwrap();
+            // the swap comes long after the captions: not sent yet
+            let at = if i == 2 { 3_600_000 } else { 0 };
+            q.markers.push(Marker {
+                id: MarkerId(id),
+                start: tick(at),
+                duration: tick(0),
+                name: name.into(),
+                comment: comment.into(),
+                kind: MarkerKind::Comment,
+                color: Label::Blue,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
+            });
+            Ok(())
+        })
+        .unwrap();
+    }
+    s.execute("overfilm.review.captions", json!({"all": true, "wait": true})).unwrap();
+    let asked = lock(&f.asked).clone();
+    let p = &asked[0].prompt;
+    assert!(p.contains("영상 종류: 대회 해설"), "match info means commentary: {p}");
+    assert!(p.contains("OverFilm 경기: 로제 vs 오투 블래스트\n") && p.contains("OverFilm 선수 — 로제: 태종, 킬로"), "{p}");
+    assert!(!p.contains("트레이서 → 겐지"), "{p}");
 }
 
 #[test]
@@ -358,4 +407,25 @@ fn one_go_reviews_cuts_and_captions_once_each() {
     assert_eq!(s.active_sequence().unwrap().duration(), before);
     assert!(markers(&s).iter().any(|m| m.name == MARK_KEEP));
     assert!(!caption_texts(&s).is_empty());
+}
+
+#[test]
+fn setup_commands() {
+    let mut s = Session::default();
+    let v = s.execute("overfilm.review.install", json!({})).unwrap();
+    assert!(v["steps"].as_array().unwrap().iter().any(|x| x["command"].as_str().unwrap().contains("claude auth login")));
+    // a path that is not there: the usual models, Claude Code's default first
+    let v = s.execute("overfilm.review.models", json!({"cliPath": "/nonexistent/claude"})).unwrap();
+    let ids: Vec<&str> = v["models"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
+    assert_eq!(ids.first(), Some(&""));
+    assert!(ids.contains(&"sonnet") && ids.contains(&"opus"), "{ids:?}");
+    assert!(s.execute("overfilm.review.login", json!({"cliPath": "/nonexistent/claude"})).is_err());
+    // review off: the commands are there to ask for, and say it is off
+    let f = fake(|_| Ok(json!({})));
+    let mut s = session(&f);
+    s.execute("overfilm.review.settings", json!({"enabled": false})).unwrap();
+    s.execute("overfilm.captions.fromTranscript", json!({})).unwrap();
+    assert!(s.is_enabled("overfilm.review.captions"));
+    let e = s.execute("overfilm.review.captions", json!({"wait": true})).unwrap_err().to_string();
+    assert!(e.contains("꺼져"), "{e}");
 }

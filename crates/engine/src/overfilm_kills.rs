@@ -640,7 +640,18 @@ pub fn mark_feed(s: &mut Session, scan: &FeedScan) -> Result<usize> {
         let q = pr.sequence_mut(seq).ok_or(EngineError::NoSequence)?;
         q.markers.retain(|m| !m.name.starts_with(MARK_FEED));
         for ((start, name, comment, color), id) in marks.into_iter().zip(ids) {
-            q.markers.push(Marker { id: MarkerId(id), start, duration: Tick::ZERO, name, comment, kind: MarkerKind::Comment, color });
+            q.markers.push(Marker {
+                id: MarkerId(id),
+                start,
+                duration: Tick::ZERO,
+                name,
+                comment,
+                kind: MarkerKind::Comment,
+                color,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
+            });
         }
         q.markers.sort_by_key(|m| m.start);
         Ok(())
@@ -744,6 +755,9 @@ pub fn mark(s: &mut Session, deaths: &[Death], gap_ms: i64, min_kills: usize) ->
                 comment: String::new(),
                 kind: MarkerKind::Comment,
                 color: if d.team == 1 { Label::Cerulean } else { Label::Rose },
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
             });
         }
         for (k, f) in fights.iter().enumerate() {
@@ -757,6 +771,9 @@ pub fn mark(s: &mut Session, deaths: &[Death], gap_ms: i64, min_kills: usize) ->
                 comment: format!("{}킬 (1팀 {}명, 2팀 {}명 처치됨)", f.kills(), f.dead[0], f.dead[1]),
                 kind: MarkerKind::Comment,
                 color: Label::Mango,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
             });
         }
         q.markers.sort_by_key(|m| m.start);
@@ -804,6 +821,9 @@ pub fn mark_ults(s: &mut Session, uses: &[UltUse], deaths: &[Death], window_ms: 
                 comment: if k > 0 { format!("{k}킬로 이어짐{how}") } else { String::new() },
                 kind: MarkerKind::Comment,
                 color: Label::Violet,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
             });
         }
         for (at, death, by, from_feed) in &kills {
@@ -816,7 +836,18 @@ pub fn mark_ults(s: &mut Session, uses: &[UltUse], deaths: &[Death], window_ms: 
                 (false, Some(u)) => format!("궁극기 {:.1}초 뒤 처치 (킬피드가 없어 시간으로 추정)", at.saturating_sub(u.at) as f64 / 1000.0),
                 (false, None) => String::new(),
             };
-            q.markers.push(Marker { id: MarkerId(id), start: t(*at), duration: Tick::ZERO, name, comment, kind: MarkerKind::Comment, color: Label::Yellow });
+            q.markers.push(Marker {
+                id: MarkerId(id),
+                start: t(*at),
+                duration: Tick::ZERO,
+                name,
+                comment,
+                kind: MarkerKind::Comment,
+                color: Label::Yellow,
+                url: String::new(),
+                author: String::new(),
+                custom_color: None,
+            });
         }
         q.markers.sort_by_key(|m| m.start);
         Ok(())

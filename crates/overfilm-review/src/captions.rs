@@ -16,6 +16,10 @@ use crate::text::{bare, cap, clock, display_width};
 /// Words below this recogniser confidence are "unsure" (the OverFilmSubs threshold).
 pub const UNSURE: f32 = 0.7;
 
+/// Words below this confidence are worth a look too: the recogniser is often sure of a wrong
+/// word that sounds alike (measured on the aichi set: most misses were between 0.7 and 0.9).
+pub const CHECK: f32 = 0.9;
+
 /// One recognised word of a caption.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CapWord {
@@ -96,6 +100,10 @@ pub fn doubts(text: &str, words: &[CapWord], raw: Option<&str>, corrected: &str,
     let unsure: Vec<String> = words.iter().filter(|w| w.confidence < UNSURE).map(|w| w.text.clone()).take(20).collect();
     if !unsure.is_empty() {
         why.push(format!("인식이 자신 없는 단어: {}", unsure.join(", ")));
+    }
+    let check: Vec<&str> = words.iter().filter(|w| (UNSURE..CHECK).contains(&w.confidence)).map(|w| w.text.as_str()).take(20).collect();
+    if !check.is_empty() {
+        why.push(format!("조금 덜 확실한 단어 (비슷한 소리의 다른 말일 수 있음): {}", check.join(", ")));
     }
     if let Some(r) = raw
         && bare(r) != bare(corrected)
@@ -211,19 +219,106 @@ impl RawChunk {
     }
 }
 
+/// One caption with what is known about it, before it is chosen to ask about.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CaptionIn {
+    /// id, times, text, pure recognition and corrected text (doubts and context left empty).
+    pub q: CaptionQuestion,
+    pub words: Vec<CapWord>,
+    /// Real words that are often a misrecognition of a glossary term ([`suspects`]).
+    pub suspects: Vec<String>,
+}
+
+/// The words of `text` that are a glossary's review-only misrecognition (a `misheard` form marked
+/// `@검토`: a real word too, so the correction step leaves it), as `경제하는 → 경쟁?`.
+pub fn suspects(terms: &[Term], text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for t in terms {
+        for m in t.misheard.iter().filter_map(|m| m.strip_suffix("@검토")) {
+            let f = bare(m);
+            if f.is_empty() {
+                continue;
+            }
+            for w in text.split_whitespace().filter(|w| bare(w).starts_with(&f)) {
+                let s = format!("{w} → {}?", t.aliases.first().unwrap_or(&t.ko));
+                if !out.contains(&s) {
+                    out.push(s);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The captions of a track worth asking about (all of them with `all`), in order, each with
+/// its doubts and the two captions on either side; `skip` leaves some out (already reviewed).
+pub fn select(infos: &[CaptionIn], lim: &Limits, all: bool, skip: impl Fn(&CaptionIn) -> bool, max: usize) -> Vec<(usize, CaptionQuestion)> {
+    let neighbor = |i: usize| {
+        infos.get(i).map(|x| Neighbor {
+            start_ms: x.q.start_ms,
+            end_ms: x.q.end_ms,
+            text: x.q.text.clone(),
+            raw: x.q.raw.clone().filter(|r| bare(r) != bare(&x.q.corrected)),
+        })
+    };
+    let mut out = Vec::new();
+    for (i, info) in infos.iter().enumerate() {
+        if skip(info) {
+            continue;
+        }
+        let next = infos.get(i + 1).map(|x| x.q.text.as_str());
+        let (mut doubts, unsure) = doubts(&info.q.text, &info.words, info.q.raw.as_deref(), &info.q.corrected, next, lim);
+        if !info.suspects.is_empty() {
+            doubts.push(format!("실제 낱말이지만 오버워치 영상에선 오인식이 잦은 단어: {}", info.suspects.join(", ")));
+        }
+        if doubts.is_empty() && !all {
+            continue;
+        }
+        let mut c = info.q.clone();
+        c.doubts = doubts;
+        c.unsure = unsure;
+        c.before = (i.saturating_sub(2)..i).filter_map(&neighbor).collect();
+        c.after = (i + 1..i + 3).filter_map(&neighbor).collect();
+        out.push((i, c));
+        if out.len() >= max {
+            break;
+        }
+    }
+    out
+}
+
 /// The system prompt.
 pub fn system(lim: &Limits) -> String {
     format!(
-        "당신은 오버워치 영상의 한국어 자막을 검토하는 사람입니다. 음성 인식(STT)이 만든 자막 중 판단이 필요한 것만 보냅니다. \
+        "당신은 오버워치 영상의 한국어 자막을 검토하는 사람입니다. 음성 인식(STT)이 만든 자막을 보냅니다. \
 각 자막마다 '순수 인식'(단어집 교정 전), '교정본'(오버워치 단어집으로 영웅·스킬·맵·선수 이름을 고친 것), 현재 자막, \
-그리고 앞뒤 자막(앞뒤 소리의 인식 결과)이 주어집니다. 앞뒤 문맥으로 실제로 한 말을 판단하세요.\n\
+그리고 앞뒤 자막(앞뒤 소리의 인식 결과)이 주어집니다. 앞뒤 문맥과 오버워치 지식으로 실제로 한 말을 판단하세요.\n\
 다음 중 하나를 고르세요.\n\
 - keep: 지금 자막이 맞다.\n\
 - fix: text에 고친 자막 전체를 쓴다. 줄바꿈은 \\n, 최대 {}줄, 한 줄은 한글 {}자 안팎. 의미 단위로 자연스럽게 끊는다 \
 (조사·어미 앞에서 끊지 않는다).\n\
 - split: 너무 긴 자막이나 두 문장이 섞인 자막을 parts에 순서대로 나눠 쓴다 (2~4개, 각각 위 줄 규칙을 지킨다).\n\
-규칙: 들리지 않은 말을 지어내지 않는다. 고칠 근거(순수 인식, 앞뒤 문맥, 오버워치 용어)가 없으면 keep. \
-오버워치 용어는 교정본의 표기를 따른다. 욕설은 초성으로 쓴다(예: ㅅㅂ). '(화자1)' 같은 화자 표시는 그대로 둔다. \
+오인식 고치기: 인식기는 자신 있게 틀리기도 합니다. 발음이 비슷한 다른 말로 적어 문장이 말이 안 되거나, 없는 단어가 되거나, \
+문맥과 맞지 않는 단어(예: 탱커 영웅을 딜러라고 부름, 힐러 자리에 킬러)가 있으면, 발음이 비슷하고 문맥에 맞는 말로 고친다 \
+(예: 궁 개이지→궁 게이지, 뒤로 빠저야→뒤로 빠져야). 띄어쓰기·맞춤법 오류도 고친다. \
+오버워치 용어·은어(투 서브 딜러=서브 딜러 둘, 줄여 말해도 이렇게 씀, 투 히트, 밴율·픽률·승률(ㄴ 받침 뒤는 율), 한타, 궁, 냥이=제트팩 캣 등)와 \
+아래 '정식 표기' 목록의 이름을 떠올려 보고, 소리가 비슷한 용어가 있으면 그 표기로 쓴다. \
+고칠 말을 고를 때: 한국어는 받침이 다음 글자로 넘어가 들리므로(짚어→[지퍼], 읽어→[일거]) \
+먼저 소리 나는 대로 읽었을 때 똑같거나 거의 같은 말을 찾고, 그중 문맥에 맞는 것을 쓴다. 뜻만 통하고 소리가 다른 말(지퍼→지켜봐)은 쓰지 않는다. \
+영웅 이름으로 바꾸기 전에 숫자·순위(일이삼위=1, 2, 3위, 이위=2위)나 흔한 낱말일 가능성을 먼저 따진다. \
+인식기는 빠르게 이어 읽은 숫자를 엉뚱한 낱말로 적는다: 순위·점수를 말하는 문맥에서 없는 단어가 숫자를 이어 읽은 소리\
+(일이삼위[이리사뮈], 사오위[사오위], 십이삼위)와 비슷하면 숫자로 쓴다(키리섬이가 모두 힐러죠→1, 2, 3위가 모두 힐러죠). \
+앞뒤 자막에 이미 나온 말(경쟁전, 영웅 이름, 순위)과 소리가 비슷하면 그 말일 가능성이 높다(경쟁전 이야기 뒤의 경제하는→경쟁하는). \
+영웅 목록의 역할은 지금 게임 기준일 뿐이다. 영웅 옆의 역할이 목록과 다르면 먼저 화자가 역할 변경·과거·가정·비교를 말하는지 본다 \
+('둠피스트는 딜러로 다시 바뀌어야 해', '딜러 시절 둠피스트', '딜러처럼 쓰는'): 그런 말이면 화자 말 그대로 둔다. \
+그런 말이 없고 영웅을 그냥 소개·분류하는 자리(탱커 삼국밥 중 마지막, 고티어 힐러들)에서만 인식 오류로 보고 목록의 역할로 고친다. \
+없는 단어가 영웅 이름과 소리가 거의 같으면(자리하네요→자리야네요) 영웅 이름으로 고친다. \
+고칠 근거가 소리와 문맥 어디에도 없으면 keep. 발음과 동떨어진 말을 지어내지 않는다. \
+오버워치 용어는 교정본·정식 표기 목록의 표기를 따른다. 욕설은 초성으로 쓴다(예: ㅅㅂ). '(화자1)' 같은 화자 표시는 그대로 둔다. \
+예스러운 접속어는 자막에서 요즘 말로 쓴다: '허나'→'그러나', '헌데'→'근데'. '이러한'은 '이런'으로 줄이지 않는다. 그 밖의 말투(~거든요, ~잖아요)는 화자 그대로 둔다. \
+다만 '~단 것', '~단 거죠'처럼 줄인 꼴은 '~다는 것', '~다는 거죠'로 풀어 쓴다(변했다는 것, 비슷하다는 거죠). \
+개수: 수량을 세거나 비교하는 말(2개가 붙어 있다, 3개 봉)은 숫자로, 말하듯 쓴 한두 개(한두 개 정도, 두 개 다 좋다)는 한글로 쓴다. \
+아무 개수를 뜻하는 N은 대문자(N개씩), 티어 이름은 대문자(ABC 티어, S티어). \
 숫자: 영어로 읽은 '투'(two)·'원'(one)이 이름이나 순번 뒤에 오면 숫자로 쓴다(오버워치 2, 메인 딜러 2, 시즌 1). \
 뒤의 말을 꾸미는 '두 개'라는 뜻이면 그대로 둔다(투 서브 딜러, 투 히트, 투탱). 단위 앞의 한국어 숫자는 아라비아 숫자로 쓴다(5시즌, 13위, 6개월). \
 reason은 한국어 한 문장.",
@@ -247,9 +342,145 @@ fn neighbor_lines(ns: &[Neighbor]) -> String {
     out
 }
 
+/// A glossary term as the reviewer is shown it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Term {
+    /// The spelling captions use.
+    pub ko: String,
+    pub en: String,
+    /// What it is: "heroes", "players", "maps"… (the glossary table).
+    pub kind: String,
+    /// Other names people say for it, and forms the recogniser is known to write for it.
+    pub aliases: Vec<String>,
+    pub misheard: Vec<String>,
+    /// What it means or its role (`돌격-개시자`, `서브 딜러 둘`).
+    pub note: String,
+}
+
+/// A glossary form without its context mark (`양이@영웅` → `양이`).
+fn plain_form(f: &str) -> &str {
+    f.split('@').next().unwrap_or(f).trim()
+}
+
+/// The terms of `terms` that the `texts` mention, by their spelling, another name or a known
+/// misrecognition (spacing ignored; two-letter forms count only as whole words), at most `max`,
+/// one line each: `겐지 (Genji, 영웅; 다른 이름: …; 잘못 인식되는 꼴: …)`.
+pub fn relevant_terms(terms: &[Term], texts: &[&str], max: usize) -> Vec<String> {
+    let bare_texts: Vec<String> = texts.iter().map(|t| bare(t)).collect();
+    let words: std::collections::HashSet<String> = texts.iter().flat_map(|t| t.split_whitespace().map(bare)).collect();
+    let hit = |form: &str| {
+        let b = bare(plain_form(form));
+        match b.chars().count() {
+            0 | 1 => false,
+            2 => words.iter().any(|w| w.starts_with(&b)),
+            _ => bare_texts.iter().any(|t| t.contains(&b)),
+        }
+    };
+    let mut out = Vec::new();
+    for t in terms {
+        if out.len() >= max {
+            break;
+        }
+        if !(hit(&t.ko) || t.aliases.iter().any(|a| hit(a)) || t.misheard.iter().any(|m| hit(m))) {
+            continue;
+        }
+        let mut line = t.ko.clone();
+        let mut info = Vec::new();
+        if !t.en.is_empty() {
+            info.push(t.en.clone());
+        }
+        if !t.kind.is_empty() {
+            info.push(t.kind.clone());
+        }
+        if !t.note.is_empty() {
+            info.push(cap(&t.note, 60));
+        }
+        if !t.aliases.is_empty() {
+            info.push(format!("다른 이름: {}", t.aliases.iter().take(6).cloned().collect::<Vec<_>>().join(", ")));
+        }
+        if !t.misheard.is_empty() {
+            info.push(format!("잘못 인식되는 꼴: {}", t.misheard.iter().take(6).map(|m| plain_form(m)).collect::<Vec<_>>().join(", ")));
+        }
+        if !info.is_empty() {
+            line.push_str(&format!(" ({})", info.join("; ")));
+        }
+        out.push(line);
+    }
+    out
+}
+
+/// The role a hero's note names first (`돌격-투사` → tank), in the words casters use.
+fn role(note: &str) -> Option<&'static str> {
+    [("돌격", "탱커"), ("공격", "딜러"), ("지원", "힐러")].into_iter().filter_map(|(k, r)| note.find(k).map(|i| (i, r))).min_by_key(|(i, _)| *i).map(|(_, r)| r)
+}
+
+/// Every hero with their role (`자리야 탱커`), so the reviewer can tell a hero name from a
+/// common word that sounds like one and check that a role said next to a hero fits.
+pub fn roster(terms: &[Term]) -> Vec<String> {
+    terms
+        .iter()
+        .filter(|t| t.kind == "heroes")
+        .map(|t| match role(&t.note) {
+            Some(r) => format!("{} {r}", t.ko),
+            None => t.ko.clone(),
+        })
+        .collect()
+}
+
+/// What the reviewer should know about the whole video.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Background {
+    /// "일반 게임 영상" or "대회 해설 중계".
+    pub video: String,
+    /// What the screen showed around these captions: the match, the players, the heroes in play.
+    pub on_screen: Vec<String>,
+    /// Glossary terms the captions mention ([`relevant_terms`]).
+    pub terms: Vec<String>,
+    /// Every hero with their role ([`roster`]).
+    pub roster: Vec<String>,
+}
+
+impl Background {
+    fn text(&self) -> String {
+        let mut p = String::new();
+        if !self.video.is_empty() {
+            p.push_str(&format!("영상 종류: {}\n", self.video));
+        }
+        if !self.on_screen.is_empty() {
+            p.push_str("화면에서 읽은 경기 정보 (이 이름들이 나올 가능성이 높음):\n");
+            for l in self.on_screen.iter().take(20) {
+                p.push_str(&format!("  - {}\n", cap(l, 300)));
+            }
+        }
+        if !self.roster.is_empty() {
+            let list: Vec<&str> = self.roster.iter().take(80).map(String::as_str).collect();
+            p.push_str(&format!(
+                "오버워치 영웅 전체와 지금 게임의 역할 (탱커=돌격, 딜러=공격, 힐러=지원; 영상이 역할 변경을 말하면 화자 말을 따름): {}\n",
+                list.join(", ")
+            ));
+        }
+        if !self.terms.is_empty() {
+            p.push_str("이 자막들에 나온 오버워치 용어의 정식 표기 (자막은 이 표기를 씀):\n");
+            for l in self.terms.iter().take(60) {
+                p.push_str(&format!("  - {}\n", cap(l, 200)));
+            }
+        }
+        if !p.is_empty() {
+            p.push('\n');
+        }
+        p
+    }
+}
+
 /// The question for a batch of captions.
 pub fn question(cases: &[CaptionQuestion], lim: &Limits) -> Question {
-    let mut p = String::from("다음 자막들을 검토해 주세요.\n\n");
+    question_with(cases, lim, &Background::default())
+}
+
+/// The question for a batch of captions, with what is known about the video.
+pub fn question_with(cases: &[CaptionQuestion], lim: &Limits, bg: &Background) -> Question {
+    let mut p = bg.text();
+    p.push_str("다음 자막들을 검토해 주세요.\n\n");
     for c in cases {
         p.push_str(&format!("### 자막 id={} [{}–{}]\n", c.id, clock(c.start_ms), clock(c.end_ms)));
         p.push_str(&format!("- 현재 자막:\n    {}\n", cap(&c.text, 400).replace('\n', "\n    ")));
@@ -261,7 +492,10 @@ pub fn question(cases: &[CaptionQuestion], lim: &Limits) -> Question {
         if !c.unsure.is_empty() {
             p.push_str(&format!("- 자신 없는 단어: {}\n", c.unsure.join(", ")));
         }
-        p.push_str(&format!("- 판단이 필요한 이유: {}\n", if c.doubts.is_empty() { "(확인 요청)".into() } else { c.doubts.join("; ") }));
+        p.push_str(&format!(
+            "- 판단이 필요한 이유: {}\n",
+            if c.doubts.is_empty() { "(문맥 확인: 말이 안 되거나 문맥과 안 맞는 단어가 없는지)".into() } else { c.doubts.join("; ") }
+        ));
         p.push_str("- 앞 자막:\n");
         p.push_str(&neighbor_lines(&c.before));
         p.push_str("- 뒤 자막:\n");
@@ -431,6 +665,98 @@ mod tests {
         assert!(two("지금 투 서브 딜러가", None));
         assert!(two("메인 딜러 2라고", Some("메인 딜러 투라고")));
         assert!(!two("이번 투표는", None));
+        // confident but not quite: asked about too
+        let (d, u) = doubts("이 영웅은 지퍼야겠죠.", &[cw("지퍼야겠죠.", 0, 1, 0.8)], None, "이 영웅은 지퍼야겠죠.", None, &lim);
+        assert!(u.is_empty());
+        assert!(d.iter().any(|d| d.contains("지퍼야겠죠")), "{d:?}");
+    }
+
+    fn info(id: &str, text: &str, raw: &str, conf: f32) -> CaptionIn {
+        let q = CaptionQuestion { id: id.into(), text: text.into(), corrected: text.into(), raw: Some(raw.into()), ..CaptionQuestion::default() };
+        CaptionIn { q, words: vec![cw(text, 0, 1, conf)], suspects: Vec::new() }
+    }
+
+    #[test]
+    fn selects_doubtful_with_neighbours() {
+        let lim = Limits::default();
+        let infos =
+            vec![info("1", "하나.", "하나", 1.0), info("2", "둘.", "둘", 1.0), info("3", "겐지가 간다.", "갠지가 간다", 1.0), info("4", "넷.", "넷", 1.0)];
+        let got = select(&infos, &lim, false, |_| false, 10);
+        assert_eq!(got.len(), 1);
+        let (i, c) = &got[0];
+        assert_eq!(*i, 2);
+        assert_eq!(c.before.iter().map(|n| n.text.as_str()).collect::<Vec<_>>(), ["하나.", "둘."]);
+        assert_eq!(c.after.len(), 1);
+        assert!(c.after[0].raw.is_none(), "same as the caption: not repeated");
+        assert_eq!(select(&infos, &lim, true, |_| false, 10).len(), 4);
+        assert_eq!(select(&infos, &lim, true, |x| x.q.id == "1", 2).len(), 2);
+        assert!(select(&[], &lim, true, |_| false, 10).is_empty());
+    }
+
+    fn term(ko: &str, misheard: &[&str], note: &str) -> Term {
+        Term {
+            ko: ko.into(),
+            en: String::new(),
+            kind: "heroes".into(),
+            aliases: Vec::new(),
+            misheard: misheard.iter().map(|s| s.to_string()).collect(),
+            note: note.into(),
+        }
+    }
+
+    #[test]
+    fn terms_the_captions_mention() {
+        let terms = vec![term("둠피스트", &[], "돌격-개시자"), term("냥이", &["양이@영웅"], ""), term("겐지", &[], ""), term("밴률", &["벤율"], "")];
+        let got = relevant_terms(&terms, &["둠피스트 딜러가", "양이 캐서디 연계", "벤율이 높죠"], 10);
+        assert_eq!(got.len(), 3, "{got:?}");
+        assert!(got[0].starts_with("둠피스트 (heroes; 돌격-개시자"), "{got:?}");
+        assert!(got[1].contains("잘못 인식되는 꼴: 양이") && !got[1].contains('@'), "{got:?}");
+        // two-letter forms only as whole words (no 양이 inside 고양이)
+        assert!(relevant_terms(&terms, &["고양이가"], 10).is_empty());
+        assert_eq!(relevant_terms(&terms, &["둠피스트 겐지 벤율"], 1).len(), 1);
+    }
+
+    #[test]
+    fn review_only_misrecognitions() {
+        let t = Term { ko: "경쟁전".into(), aliases: vec!["경쟁".into()], misheard: vec!["경제@검토".into()], ..Term::default() };
+        assert_eq!(suspects(std::slice::from_ref(&t), "영상 보고 경제하는 걸"), ["경제하는 → 경쟁?"]);
+        assert!(suspects(std::slice::from_ref(&t), "경쟁하는 걸").is_empty());
+        let lim = Limits::default();
+        let mut i = info("1", "영상 보고 경제하는 걸.", "영상 보고 경제하는 걸", 1.0);
+        assert!(select(std::slice::from_ref(&i), &lim, false, |_| false, 5).is_empty());
+        i.suspects = suspects(&[t], &i.q.text);
+        let got = select(&[i], &lim, false, |_| false, 5);
+        assert!(got[0].1.doubts.iter().any(|d| d.contains("경제하는 → 경쟁?")), "{:?}", got[0].1.doubts);
+    }
+
+    #[test]
+    fn heroes_with_roles() {
+        let terms = vec![
+            term("둠피스트", &[], "돌격-개시자"),
+            term("솜브라", &[], "2026-10 5시즌부터 지원 (전에는 공격-수색가)"),
+            term("시온", &[], ""),
+            Term { kind: "maps".into(), ..term("일리오스", &[], "") },
+        ];
+        assert_eq!(roster(&terms), ["둠피스트 탱커", "솜브라 힐러", "시온"]);
+        let bg = Background { roster: roster(&terms), ..Background::default() };
+        assert!(bg.text().contains("둠피스트 탱커, 솜브라 힐러"), "{}", bg.text());
+    }
+
+    #[test]
+    fn background_goes_first() {
+        let lim = Limits::default();
+        let c = CaptionQuestion { id: "7".into(), text: "둠피스트 딜러".into(), ..CaptionQuestion::default() };
+        let bg = Background {
+            video: "대회 해설".into(),
+            on_screen: vec!["OverFilm 선수 — 로제: 태종".into()],
+            terms: vec!["둠피스트 (돌격)".into()],
+            roster: Vec::new(),
+        };
+        let q = question_with(std::slice::from_ref(&c), &lim, &bg);
+        let (v, s, t, case) = (q.prompt.find("영상 종류"), q.prompt.find("로제: 태종"), q.prompt.find("둠피스트 (돌격)"), q.prompt.find("### 자막 id=7"));
+        assert!(v < s && s < t && t < case && v.is_some(), "{}", q.prompt);
+        assert!(!question(&[c], &lim).prompt.contains("영상 종류"));
+        assert!(q.system.contains("자신 있게 틀리기도"));
     }
 
     #[test]
