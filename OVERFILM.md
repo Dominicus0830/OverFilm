@@ -277,6 +277,12 @@ no caption mixes two speakers, a labelled turn starts with `(화자1)`).
   | off (reach 0) | 14.6 % | 19.2 % | 24.8 % |
   | only where the segmentation sees overlap (prob ≥ 0.3 within 1 s), reach 2 | 14.6 % | 18.4 % | 23.6 % |
   | **everywhere, reach 3 (chosen)** | 14.6 % | **16.4 %** | **22.8 %** |
+  | everywhere, reach 2 / 4 | 14.6 % | 16.8 / 15.8 % | 23.2 / 22.1 % |
+
+  Reach 4 scores a little better on read speech; 3 is kept because real commentary has short,
+  loosely punctuated sentences. Six conversations without overlaps (`NOOV=1`, turns 80–600 ms
+  apart): cpCER 6.8 → 5.5 %, equal to the plain CER, so clean turn-taking is not hurt (the few
+  words around a change that the aligner put on the wrong side come back too).
 
   On the T1 vs 로제 clip (no speaker truth) 24 of the changes move; read in context nearly all
   join a sentence to its speaker ("…잘 하던데. / 몇 개의 발이…", "중요하겠죠." staying with the
