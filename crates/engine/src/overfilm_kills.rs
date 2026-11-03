@@ -461,6 +461,7 @@ fn scan(s: &mut Session, p: &Value) -> Result<Value> {
                     .collect::<Vec<_>>()
             );
             out["players"] = json!(info.players().len());
+            out["games"] = json!(info.games.len());
             out["heroSwaps"] = json!(h.events.iter().filter(|e| !e.picked()).count());
             out["heroes"] = json!(h.prints.len());
         }

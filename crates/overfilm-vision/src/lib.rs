@@ -37,7 +37,7 @@ pub use feedrows::{FeedEvent, FeedNames, FeedReader, FeedScan, Side, Who};
 pub use heroes::{HeroEvent, HeroNames, HeroPrint, HeroScan, HeroTracker};
 pub use killfeed::{FeedTracker, KillFeed};
 pub use kills::{Death, DeathTracker, Fight, PlayerBar};
-pub use lineup::{LineupReader, MatchInfo, PlayerHero, Roster, RosterPlayer, RosterTeam};
+pub use lineup::{Game, LineupReader, MatchInfo, PlayerHero, Roster, RosterPlayer, RosterTeam};
 pub use luma::{Luma, NRect, Rgb};
 pub use plan::{Analyzer, Cut, CutParams, CutReason, Detected, Look, Sample, Segment, plan_cuts, segments};
 pub use template::{Part, Template, TemplateSet};
