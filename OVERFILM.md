@@ -665,6 +665,17 @@ Off until switched on in `Sequence ▸ OverFilm ▸ Claude Code Review Settings�
 maxItems=60}`, saved as `claude-review.json` in the OverFilm data folder). When on, the editor hands
 the calls it is unsure of to the Claude Code command line on the same computer:
 
+- **Getting ready**: asking for a review (`overfilm.review.cuts`, `overfilm.review.captions`, or the
+  one-go run with a review step) checks Claude Code first. Not installed: an install guide opens
+  with the commands for this system (native installer, npm, `claude auth login --claudeai`) and
+  Copy buttons (`overfilm.review.install`). Review off, not signed in, or signed in with an API key:
+  the settings open with what to do and a Sign In button (`overfilm.review.login` starts
+  `claude auth login --claudeai` in its own window). The model is picked from a list
+  (`overfilm.review.models`): Claude Code's default, the aliases the installed version's `--help`
+  names for `--model`, opus/sonnet/haiku, and the user's default from `~/.claude/settings.json`, or
+  typed. A good check is trusted for ten minutes. The review commands stay in the menu while review
+  is off, so they can lead the user there.
+
 - **How it runs** (`overfilm_review::cli`): one `claude -p --output-format json --json-schema …
   --tools "" --no-session-persistence --strict-mcp-config` run per batch of questions, the prompt on
   stdin, in an empty temporary folder. `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are removed

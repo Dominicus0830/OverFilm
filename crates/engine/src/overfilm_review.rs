@@ -9,6 +9,12 @@
 //!   and after OverFilm Captions places captions.
 //! - `overfilm.review.status {cliPath?}` finds `claude` (at `cliPath` when given, not saved), its
 //!   version and whether it is signed in.
+//! - `overfilm.review.models {cliPath?}` the models to choose from: Claude Code's default, the
+//!   aliases the installed version names, the usual ones and the user's Claude Code default.
+//! - `overfilm.review.login {cliPath?}` starts `claude auth login --claudeai` in its own window.
+//! - `overfilm.review.install` how to install Claude Code and sign in, for this system.
+//! - The review commands stay available while review is off; running one then fails with
+//!   "turned off", and the editor opens the settings (or the install guide) instead.
 //! - `overfilm.review.cuts {markers?:[id], all=false, again=false, rules?, wait=false}` asks about
 //!   the "OverFilm 컷" markers the rules are unsure of (speech at an edge or inside, game voice
 //!   inside, a highlight or team fight next to it; `all`: every one; `markers`: these) with the words heard 30 s
@@ -103,6 +109,36 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             journal: false,
         },
         CommandSpec {
+            id: "overfilm.review.models",
+            label: "Claude Code Models (OverFilm)",
+            menu: &[],
+            shortcut: None,
+            params: r#"{"cliPath":str?}"#,
+            enabled: crate::commands::always,
+            run: models_cmd,
+            journal: false,
+        },
+        CommandSpec {
+            id: "overfilm.review.login",
+            label: "Sign In to Claude Code (OverFilm)",
+            menu: &[],
+            shortcut: None,
+            params: r#"{"cliPath":str?}"#,
+            enabled: crate::commands::always,
+            run: login_cmd,
+            journal: false,
+        },
+        CommandSpec {
+            id: "overfilm.review.install",
+            label: "How to Install Claude Code (OverFilm)",
+            menu: &[],
+            shortcut: None,
+            params: "{}",
+            enabled: crate::commands::always,
+            run: install_cmd,
+            journal: false,
+        },
+        CommandSpec {
             id: "overfilm.review.cuts",
             label: "Ask Claude Code About Unclear Cuts (OverFilm)",
             menu: &["Sequence", "OverFilm"],
@@ -151,9 +187,10 @@ pub fn settings(s: &Session) -> Settings {
     settings_path(s).map(|p| Settings::load(&p)).unwrap_or_default()
 }
 
+/// The review commands stay available while review is off, so asking for one can lead the user to
+/// the settings (the run itself answers [`ReviewError::Disabled`]).
 fn review_on(s: &Session) -> std::result::Result<(), String> {
-    crate::commands::has_seq(s)?;
-    if settings(s).enabled { Ok(()) } else { Err(ReviewError::Disabled.to_string()) }
+    crate::commands::has_seq(s)
 }
 
 fn cut_marker(m: &Marker) -> bool {
@@ -206,17 +243,46 @@ fn settings_cmd(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn status_cmd(s: &mut Session, p: &Value) -> Result<Value> {
-    let mut st = settings(s);
-    if let Some(t) = str_p(p, "cliPath") {
-        // checking a path being typed in the settings dialog, not saved
-        st.cli_path = t.to_string();
-        st = st.clamped();
-    }
+    let st = settings_with_path(s, p);
     let status = match overfilm_review::ClaudeCode::new(&st) {
         Ok(cc) => cc.status(),
         Err(e) => overfilm_review::Status { message: e.to_string(), ..Default::default() },
     };
     Ok(json!({"settings": st, "status": status}))
+}
+
+/// The settings with `cliPath` from `p` when given (a path being typed, not saved).
+fn settings_with_path(s: &Session, p: &Value) -> Settings {
+    let mut st = settings(s);
+    if let Some(t) = str_p(p, "cliPath") {
+        st.cli_path = t.to_string();
+        st = st.clamped();
+    }
+    st
+}
+
+fn models_cmd(s: &mut Session, p: &Value) -> Result<Value> {
+    let st = settings_with_path(s, p);
+    let models = match overfilm_review::ClaudeCode::new(&st) {
+        Ok(cc) => cc.models(&st.model),
+        // not installed: still the usual choices
+        Err(_) => overfilm_review::setup::models("", None, &st.model),
+    };
+    Ok(json!({"models": models, "model": st.model}))
+}
+
+fn login_cmd(s: &mut Session, p: &Value) -> Result<Value> {
+    let st = settings_with_path(s, p);
+    let cc = overfilm_review::ClaudeCode::new(&st).map_err(|e| EngineError::Other(e.to_string()))?;
+    if cfg!(test) {
+        return Ok(json!({"started": false}));
+    }
+    cc.login().map_err(|e| EngineError::Other(e.to_string()))?;
+    Ok(json!({"started": true, "message": "브라우저에서 Claude 계정으로 로그인한 뒤 '다시 확인'을 눌러 주세요"}))
+}
+
+fn install_cmd(_: &mut Session, _: &Value) -> Result<Value> {
+    Ok(json!({"steps": overfilm_review::setup::install_steps(), "docs": overfilm_review::setup::INSTALL_DOCS}))
 }
 
 fn reviewer(s: &Session, st: &Settings) -> std::result::Result<Arc<dyn Reviewer>, ReviewError> {

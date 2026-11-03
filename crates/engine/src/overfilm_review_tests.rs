@@ -402,3 +402,24 @@ fn one_go_reviews_cuts_and_captions_once_each() {
     assert!(markers(&s).iter().any(|m| m.name == MARK_KEEP));
     assert!(!caption_texts(&s).is_empty());
 }
+
+#[test]
+fn setup_commands() {
+    let mut s = Session::default();
+    let v = s.execute("overfilm.review.install", json!({})).unwrap();
+    assert!(v["steps"].as_array().unwrap().iter().any(|x| x["command"].as_str().unwrap().contains("claude auth login")));
+    // a path that is not there: the usual models, Claude Code's default first
+    let v = s.execute("overfilm.review.models", json!({"cliPath": "/nonexistent/claude"})).unwrap();
+    let ids: Vec<&str> = v["models"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
+    assert_eq!(ids.first(), Some(&""));
+    assert!(ids.contains(&"sonnet") && ids.contains(&"opus"), "{ids:?}");
+    assert!(s.execute("overfilm.review.login", json!({"cliPath": "/nonexistent/claude"})).is_err());
+    // review off: the commands are there to ask for, and say it is off
+    let f = fake(|_| Ok(json!({})));
+    let mut s = session(&f);
+    s.execute("overfilm.review.settings", json!({"enabled": false})).unwrap();
+    s.execute("overfilm.captions.fromTranscript", json!({})).unwrap();
+    assert!(s.is_enabled("overfilm.review.captions"));
+    let e = s.execute("overfilm.review.captions", json!({"wait": true})).unwrap_err().to_string();
+    assert!(e.contains("꺼져"), "{e}");
+}
