@@ -634,13 +634,22 @@ mod tests {
         assert_eq!(
             run_params(&p),
             json!({"autoCut": true, "templates": "s.json", "keepBefore": 10.0, "applyCuts": false, "reviewCuts": true, "captions": "new",
-                   "audioTrack": 2, "mode": "commentary", "speakers": true, "numSpeakers": 1, "gameVoice": "drop", "reviewCaptions": false})
+                   "audioTrack": 2, "mode": "commentary", "speakers": true, "numSpeakers": 1, "gameVoice": "drop", "reviewCaptions": false,
+                   "kills": true, "render": false})
         );
         // from the transcript: no recognition settings; an empty template file is left to the default
         let p = json!({"autoCut": false, "templates": "", "captions": "reuse", "audioTrack": "1", "who": "3", "gameVoice": "label"});
         assert_eq!(
             run_params(&p),
-            json!({"autoCut": false, "applyCuts": true, "reviewCuts": false, "captions": "reuse", "gameVoice": "label", "reviewCaptions": false})
+            json!({"autoCut": false, "applyCuts": true, "reviewCuts": false, "captions": "reuse", "gameVoice": "label", "reviewCaptions": false,
+                   "kills": true, "render": false})
+        );
+        // the render: its choices go only when it is ticked
+        let p = json!({"render": true, "renderFormat": "prores", "renderPath": "/out/", "renderSplit": "one", "burnCaptions": false, "kills": false});
+        let r = run_params(&p);
+        assert_eq!(
+            (r["render"].clone(), r["renderFormat"].clone(), r["renderPath"].clone(), r["renderSplit"].clone(), r["burnCaptions"].clone(), r["kills"].clone()),
+            (json!(true), json!("prores"), json!("/out/"), json!("one"), json!(false), json!(false))
         );
         assert_eq!(run_params(&Value::Null)["captions"], "new");
         // the caption shape set in the panel goes to the run
