@@ -4,7 +4,7 @@
 //!
 //! - `overfilm.captions.generate {items?, audioTrack?, mode="general"|"commentary", speakers=true,
 //!   numSpeakers?, extraTerms?, gpu=true, gameVoice="drop"|"label"|"keep", lineChars=25,
-//!   maxLines=1, leadMs=120, holdMs=400, readingCps=12, cleanFillers=true, wait=false}` recognises the media of the sequence's audio
+//!   maxLines=1, leadMs=120, holdMs=400, readingCps=12, periods=true, cleanFillers=true, wait=false}` recognises the media of the sequence's audio
 //!   clips (or `items`, or the Project panel selection) in a background job (feature
 //!   `overfilm-qwen`; models are downloaded on first use into the folder OverFilmSubs uses), stores
 //!   each item's transcript (Text panel ▸ Transcript; in-game voice is the speaker "게임 음성"),
@@ -18,7 +18,7 @@
 //!   there, the item's report carries a `warning`). The time left
 //!   is estimated from the average speed since recognition started (it moves in long steps).
 //! - `overfilm.captions.fromTranscript {gameVoice?, lineChars?, maxLines?, leadMs?, holdMs?,
-//!   readingCps?, cleanFillers?}` lays the sequence transcript out as Korean captions (two lines
+//!   readingCps?, periods?, cleanFillers?}` lays the sequence transcript out as Korean captions (two lines
 //!   at most, breaks at natural Korean boundaries, a turn per speaker, `(화자1)` labels when two
 //!   or more people talk; shown `leadMs` before the voice and `holdMs` after it, longer when the
 //!   text needs time to read at `readingCps` letters a second) on the caption track "OverFilm 자막",
@@ -56,7 +56,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "OverFilm Captions (Korean)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"items":[id]?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"skipSilence":bool?,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=25,"maxLines":1|2=1,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"wait":bool=false}"#,
+            params: r#"{"items":[id]?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"skipSilence":bool?,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=25,"maxLines":1|2=1,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"periods":bool=true,"cleanFillers":bool=true,"wait":bool=false}"#,
             enabled: can_generate,
             run: generate,
             journal: true,
@@ -66,7 +66,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "OverFilm Captions from Transcript",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"gameVoice":"drop"|"label"|"keep"?,"lineChars":n?,"maxLines":1|2?,"leadMs":n?,"holdMs":n?,"readingCps":n?,"cleanFillers":bool?}"#,
+            params: r#"{"gameVoice":"drop"|"label"|"keep"?,"lineChars":n?,"maxLines":1|2?,"leadMs":n?,"holdMs":n?,"readingCps":n?,"periods":bool?,"cleanFillers":bool?}"#,
             enabled: has_words,
             run: from_transcript,
             journal: true,
@@ -113,6 +113,7 @@ fn caption_options(p: &Value, cmd: &str) -> Result<CaptionOptions> {
             lead_ms: u64_p(p, "leadMs").map_or(Layout::default().lead_ms, |v| v.min(1000) as i64),
             hold_ms: u64_p(p, "holdMs").map_or(Layout::default().hold_ms, |v| v.min(3000) as i64),
             reading_cps: u64_p(p, "readingCps").map_or(Layout::default().reading_cps, |v| v.min(40) as u32),
+            periods: bool_p(p, "periods").unwrap_or(true),
             ..Layout::default()
         },
         clean: bool_p(p, "cleanFillers").unwrap_or(true),

@@ -31,7 +31,7 @@ use std::process::ExitCode;
 use overfilm_subs::{export, job, mcp, pack, review, speakers, voices};
 
 const USAGE: &str = "사용법:
-  overfilm-subs extract <영상/오디오> [-o 저장.srt] [--mode general|commentary] [--terms \"이름, 용어\"] [--no-mask] [--no-digits] [--glossary 폴더] [--line-chars 25] [--two-lines] [--lead 120] [--hold 400] [--cps 12] [--cpu]
+  overfilm-subs extract <영상/오디오> [-o 저장.srt] [--mode general|commentary] [--terms \"이름, 용어\"] [--no-mask] [--no-digits] [--glossary 폴더] [--line-chars 25] [--two-lines] [--lead 120] [--hold 400] [--cps 12] [--no-periods] [--cpu]
                 [--speakers auto|off|숫자] [--game-voice drop|label|keep] [--per-speaker]
       --speakers     목소리 구별: auto(기본, 사람 수 자동), off(끔), 숫자(사람 수를 알 때, 1이면 구별을 건너뛰어 빠름)
       --audio-track  인식할 오디오 트랙 번호 (1부터, 기본 1). OBS에서 마이크를 따로 녹음한 트랙 등
@@ -45,7 +45,7 @@ const USAGE: &str = "사용법:
       --from 1:23 --to 4:56   이 구간만 인식 (자막 시간은 원본 기준)
   overfilm-subs review <자막.srt>
   overfilm-subs fix <자막.srt>      단어집 교정 적용 (원본은 .srt.bak)
-  overfilm-subs relayout <이름.overfilm.json> [-o 저장.srt] [--line-chars 25] [--two-lines] [--lead 120] [--hold 400] [--cps 12] [--keep-fillers] [--game-voice …] [--rename 화자1=이름]   인식 다시 안 하고 자막만 다시 나누기
+  overfilm-subs relayout <이름.overfilm.json> [-o 저장.srt] [--line-chars 25] [--two-lines] [--lead 120] [--hold 400] [--cps 12] [--no-periods] [--keep-fillers] [--game-voice …] [--rename 화자1=이름]   인식 다시 안 하고 자막만 다시 나누기
   overfilm-subs redo <자막.srt> --from 00:01:23,000 --to 00:01:40,000 [--input 영상] [--terms \"이름\"]   이 부분만 다시 인식 (다른 곳 고친 글자는 그대로)
   overfilm-subs export <자막.srt> [--format srt|vtt|ass|txt] [--fps 29.97] [--gap 2] [-o 저장]   다른 형식으로 (프레임 맞춤, 자막 사이 빈 프레임)
   overfilm-subs voice add <이름> <영상/오디오> [--from 1:23] [--to 1:45]   목소리 등록 (10~30초 권장, 그 사람만 말하는 구간)
@@ -86,6 +86,7 @@ fn extract(args: &[String]) -> Result<(), String> {
             "--lead" => o.lead_ms = val()?.parse().map_err(|_| "--lead는 밀리초")?,
             "--hold" => o.hold_ms = val()?.parse().map_err(|_| "--hold는 밀리초")?,
             "--cps" => o.reading_cps = val()?.parse().map_err(|_| "--cps는 초당 글자 수")?,
+            "--no-periods" => o.periods = false,
             "--cpu" => o.gpu = false,
             "--speakers" => match val()?.as_str() {
                 "auto" | "자동" => (o.speakers, o.num_speakers) = (true, None),
@@ -304,6 +305,7 @@ fn relayout(args: &[String]) -> Result<(), String> {
             "--lead" => o.lead_ms = it.next().and_then(|v| v.parse().ok()).ok_or("--lead는 밀리초")?,
             "--hold" => o.hold_ms = it.next().and_then(|v| v.parse().ok()).ok_or("--hold는 밀리초")?,
             "--cps" => o.reading_cps = it.next().and_then(|v| v.parse().ok()).ok_or("--cps는 초당 글자 수")?,
+            "--no-periods" => o.periods = false,
             "--cpu" => o.gpu = false,
             "--clean" => o.clean_fillers = true,
             "--keep-fillers" => o.clean_fillers = false,

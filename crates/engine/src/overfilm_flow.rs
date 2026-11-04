@@ -160,7 +160,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Cut and Caption in One Go (OverFilm)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"autoCut":bool=true,"templates":path?,"keepBefore":seconds=10,"fps":0.5..8=2,"frozenPauses":bool=true,"reviewCuts":bool=false,"applyCuts":bool=true,"captions":"new"|"reuse"|"off"="new","audioTrack":n?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=25,"maxLines":1|2=1,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"reviewCaptions":bool=false,"kills":bool=true,"killFps":0.5..8=2,"render":bool=false,"renderFormat":"h264|hevc|av1|prores|dnxhr|mxf-op1a|gif|wav|aac|flac|premiere"="h264","renderPath":path?,"renderSplit":"match"|"one"="match","burnCaptions":bool=true,"captionSidecar":"srt|vtt"?,"wait":bool=false}"#,
+            params: r#"{"autoCut":bool=true,"templates":path?,"keepBefore":seconds=10,"fps":0.5..8=2,"frozenPauses":bool=true,"reviewCuts":bool=false,"applyCuts":bool=true,"captions":"new"|"reuse"|"off"="new","audioTrack":n?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=25,"maxLines":1|2=1,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"periods":bool=true,"cleanFillers":bool=true,"reviewCaptions":bool=false,"kills":bool=true,"killFps":0.5..8=2,"render":bool=false,"renderFormat":"h264|hevc|av1|prores|dnxhr|mxf-op1a|gif|wav|aac|flac|premiere"="h264","renderPath":path?,"renderSplit":"match"|"one"="match","burnCaptions":bool=true,"captionSidecar":"srt|vtt"?,"wait":bool=false}"#,
             enabled: can_run,
             run,
             journal: false,
@@ -297,7 +297,7 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
         crate::overfilm_autocut::load_set(&path)?;
     }
     let cap_p = if captions == "reuse" {
-        pick(p, &["gameVoice", "lineChars", "maxLines", "leadMs", "holdMs", "readingCps", "cleanFillers"])
+        pick(p, &["gameVoice", "lineChars", "maxLines", "leadMs", "holdMs", "readingCps", "periods", "cleanFillers"])
     } else {
         pick(
             p,
@@ -315,6 +315,7 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
                 "leadMs",
                 "holdMs",
                 "readingCps",
+                "periods",
                 "cleanFillers",
             ],
         )

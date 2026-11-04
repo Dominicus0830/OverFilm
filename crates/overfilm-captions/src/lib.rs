@@ -69,6 +69,8 @@ pub struct Layout {
     pub max_linger_ms: i64,
     /// A gap to the next caption shorter than this is closed, so the screen doesn't blink (ms).
     pub chain_ms: i64,
+    /// Keep the periods at the ends of sentences (`?` and `!` always stay).
+    pub periods: bool,
 }
 
 impl Default for Layout {
@@ -84,6 +86,7 @@ impl Default for Layout {
             reading_cps: 12,
             max_linger_ms: 1500,
             chain_ms: 500,
+            periods: true,
         }
     }
 }
@@ -238,6 +241,8 @@ const GLUE_AFTER: &[&str] = &[
     "또",
     "그냥",
     "바로",
+    // `다` = "all" (`범인이 다 다르다`), not a sentence ending
+    "다",
     "같은",
     "다른",
     "약간",
@@ -409,7 +414,20 @@ fn verb_phrase(w: &str, next: &str) -> bool {
         || (ends(&["어", "아", "여", "해", "워", "와", "봐", "줘", "놔", "둬", "내"])
             && starts(&["보", "봐", "봤", "볼", "주", "줘", "줬", "버리", "버려", "버렸", "버린", "놓", "놔", "놨", "둬", "뒀", "있"]))
         || (matches!(w, "수" | "수가" | "수도" | "수는") && starts(&["있", "없"]))
+        // a quote and its verb: `영웅이다라고 볼 수 있다`, `존재한다고 보면 된다`
+        || (ends(&["다고", "라고", "냐고", "자고"])
+            && starts(&["보", "볼", "봐", "봤", "하", "해", "했", "할", "합", "표현", "말", "생각", "얘기", "이야기", "느끼", "느껴"]))
         || (matches!(w, "것" | "거" | "걸" | "건" | "줄") && starts(&["같", "알", "몰"]))
+}
+
+/// Whether `w` is a verb or adjective in its modifying form (`보이는`, `지워진`, `애매한`,
+/// `압도적인`, `줄었다라는`), which belongs with the noun after it. Checked before the particles,
+/// since `-는`/`-은` would otherwise read as the topic particle.
+fn adnominal(w: &str) -> bool {
+    const ENDS: &[&str] = &["하는", "되는", "있는", "없는", "이는", "다는", "라는", "던", "적인", "한", "된", "진", "생긴"];
+    const ADJ: &[&str] =
+        &["높은", "낮은", "좋은", "많은", "적은", "작은", "넓은", "좁은", "쉬운", "어려운", "아쉬운", "새로운", "구린", "강한", "약한", "큰", "센"];
+    ADJ.iter().any(|a| w.ends_with(a)) || (w.chars().count() > 1 && ENDS.iter().any(|e| w.ends_with(e)))
 }
 
 /// Cost of breaking a caption or a line between `w` and `next`: 0 natural … 70 inside a noun
@@ -430,7 +448,10 @@ fn break_cost(w: &str, next: Option<&str>) -> u32 {
         return 150;
     }
     if PRONOUNS.contains(&core) {
-        return 150;
+        return 200;
+    }
+    if adnominal(core) {
+        return 120;
     }
     let ends = |list: &[&str]| list.iter().any(|e| core.ends_with(e));
     let cost = if ends(FINAL_ENDINGS) {
@@ -531,7 +552,15 @@ fn split_segment(words: &[TimedWord], o: &Layout) -> Vec<std::ops::Range<usize>>
                 continue;
             }
             let brk = if end == n { 0 } else { cost_after(words, end - 1, false) };
-            let short = if joined_width(slice) < 12 && !(start == 0 && end == n) { 40 } else { 0 };
+            let w = joined_width(slice);
+            // a very short caption flashes by; on one line nothing else shares the screen with it
+            let short = match (start == 0 && end == n, w < 12, o.max_lines < 2 && w < 14) {
+                (true, ..) => 0,
+                (_, true, true) => 70,
+                (_, true, false) => 40,
+                (_, false, true) => 30,
+                _ => 0,
+            };
             let cost = prev + 50 + u64::from(brk) + u64::from(fit.unwrap_or(0)) + short;
             if let Some(b) = best.get_mut(end)
                 && cost < b.0
@@ -610,18 +639,40 @@ pub fn layout_turns(turns: &[(Option<String>, Vec<TimedWord>)], o: &Layout) -> V
     caps
 }
 
+/// `words` with the periods at their ends dropped (`했습니다.` → `했습니다`, `...` and `…` too);
+/// a word that is only punctuation stays as it is.
+fn without_periods(words: &[TimedWord]) -> Vec<TimedWord> {
+    words
+        .iter()
+        .map(|w| {
+            let core = w.text.trim_end_matches(CLOSERS);
+            let closers = w.text.get(core.len()..).unwrap_or("");
+            let bare = core.trim_end_matches(['.', '。', '…']);
+            if bare.is_empty() || bare.len() == core.len() {
+                return w.clone();
+            }
+            TimedWord { text: format!("{bare}{closers}"), ..w.clone() }
+        })
+        .collect()
+}
+
 fn segment(words: &[TimedWord], o: &Layout) -> Vec<Caption> {
     let mut caps = Vec::new();
     let mut seg_start = 0;
     for i in 0..words.len() {
         let (Some(w), next) = (words.get(i), words.get(i + 1)) else { continue };
-        let pause = next.is_some_and(|n| n.start_ms - w.end_ms >= o.pause_ms);
+        // A short opener left alone by a breath (`그래서`, `4위`) waits for what follows, unless
+        // the silence is long.
+        let opener =
+            words.get(seg_start..=i).is_some_and(|s| joined_width(s) < 10) && next.is_some_and(|n| n.start_ms - w.end_ms < o.pause_ms.saturating_mul(2));
+        let pause = next.is_some_and(|n| n.start_ms - w.end_ms >= o.pause_ms) && !opener;
         if next.is_none() || pause || sentence_end(&w.text) {
             let seg = words.get(seg_start..=i).unwrap_or(&[]);
             for r in split_segment(seg, o) {
                 let part = seg.get(r).unwrap_or(&[]);
                 let (Some(f), Some(l)) = (part.first(), part.last()) else { continue };
-                caps.push(Caption { start_ms: f.start_ms, end_ms: l.end_ms, lines: lines_of(part, o) });
+                let lines = if o.periods { lines_of(part, o) } else { lines_of(&without_periods(part), o) };
+                caps.push(Caption { start_ms: f.start_ms, end_ms: l.end_ms, lines });
             }
             seg_start = i + 1;
         }
@@ -841,6 +892,49 @@ mod tests {
             assert!(!all.contains("그게 /") && !all.contains("그게 |"), "{all}");
             assert!(all.contains("했었고 | 그게") || all.contains("했었고 / 그게"), "{all}");
         }
+    }
+
+    #[test]
+    fn modifiers_quotes_and_all_stay_with_what_follows() {
+        let one = Layout { max_lines: 1, max_line: 50, ..Layout::default() };
+        for (text, o, bad) in [
+            ("밴하느냐 아니면 이번 시즌 사기성이 보이는 솜브라 독트린을 밴하느냐 이를 섞는 것도 충분히 가능하고요.", &one, "보이는 |"),
+            ("유저들이 문제라 지목하여 일단 지워진 영웅들이 존재했었죠.", &one, "지워진 |"),
+            ("이번 시즌도 약간 이런 느낌이 존재한다고 보면 됩니다.", &one, "존재한다고 |"),
+            ("현재 유일하게 나오면 무조건 이기는 영웅이다라고 볼 수 있습니다.", &one, "영웅이다라고 |"),
+            ("유저들의 생각이 합쳐지지 않는다는 소리고 모두가 생각하는 범인이 다 다르단 소리입니다.", &Layout::default(), " 다 /"),
+        ] {
+            let all = texts(&layout(&seq(text, 250), o)).join(" | ");
+            assert!(!all.contains(bad) && !all.contains(&bad.replace('|', "/")), "{all}");
+        }
+    }
+
+    #[test]
+    fn one_line_captions_leave_no_short_tail() {
+        let one = Layout { max_lines: 1, max_line: 50, ..Layout::default() };
+        let c = layout(&seq("아나 전 시즌 대비 확실하게 현재 하락 추세가 보이죠.", 250), &one);
+        assert!(c.iter().all(|c| width(&c.text()) >= 14), "{:?}", texts(&c));
+    }
+
+    #[test]
+    fn a_lone_opener_waits_for_the_words_after_a_breath() {
+        let w = words(&[("그래서", 0, 400), ("현재", 1300, 1500), ("2위가", 1500, 1900), ("아나입니다.", 1900, 2600)]);
+        assert_eq!(texts(&layout(&w, &Layout::default())), vec!["그래서 현재 2위가 아나입니다.".to_string()]);
+        // a long silence still ends it
+        let w = words(&[("그래서", 0, 400), ("현재", 3000, 3200), ("2위가", 3200, 3600), ("아나입니다.", 3600, 4300)]);
+        assert_eq!(layout(&w, &Layout::default()).len(), 2);
+    }
+
+    #[test]
+    fn periods_can_be_left_out() {
+        let text = "반갑습니다. 정말요? 그렇죠... \"좋아요.\" 끝";
+        let o = Layout { periods: false, max_line: 80, ..Layout::default() };
+        let all = texts(&layout(&seq(text, 250), &o)).join(" | ");
+        assert_eq!(all, "반갑습니다 | 정말요? | 그렇죠 | \"좋아요\" | 끝");
+        // the sentences still end the captions where the periods were
+        assert_eq!(texts(&layout(&seq(text, 250), &Layout { max_line: 80, ..Layout::default() })).len(), 5);
+        // a word that is only dots stays
+        assert_eq!(without_periods(&seq("...", 10)).first().map(|w| w.text.as_str()), Some("..."));
     }
 
     #[test]

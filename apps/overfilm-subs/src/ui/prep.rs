@@ -172,6 +172,9 @@ fn settings(app: &mut App, ui: &mut egui::Ui) {
         setting(ui, "읽기 속도", "말이 빨라도 이 속도로 읽을 수 있게 조금 더 남깁니다 (0: 끔)", true, |ui| {
             ui.add(egui::DragValue::new(&mut o.reading_cps).range(0..=40).prefix("초당 ").suffix("자"));
         });
+        setting(ui, "문장 끝에 마침표", "끄면 '했습니다.' → '했습니다' (물음표·느낌표는 그대로)", true, |ui| {
+            toggle(ui, &mut o.periods);
+        });
         setting(ui, "욕설은 초성으로", "씨발 → ㅅㅂ", true, |ui| {
             toggle(ui, &mut o.mask_profanity);
         });

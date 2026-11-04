@@ -3956,3 +3956,4 @@
 	e.g. Remove the parts where they talk about nothing useful	예: 쓸데없는 말 하는 부분 지워줘
 	With a request every caption is checked, and captions it says to remove are removed (one undo brings them back).	요구사항이 있으면 모든 자막을 검토하고, 지우라는 자막은 지웁니다 (실행 취소 한 번이면 돌아옵니다).
 	Caption review	자막 검토
+	End sentences with a period	문장 끝에 마침표
