@@ -374,6 +374,14 @@ it by default (`apps/filmcraft` feature `overfilm-qwen`).
   OverFilmSubs' SRT of the same clip.
 - Overlapped speech (`화자1·화자2` turns) is not carried into the project transcript, which has one
   speaker per word; OverFilmSubs still writes those.
+- The user's own words: OverFilm panel ▸ Tools ▸ `Glossary…` (or `Sequence ▸ OverFilm ▸ Glossary
+  (OverFilm)…`) opens a window with the user's words, the built-in ones (searched) and a form
+  with the table's columns (right spelling, wrong spellings, also right, former names, English
+  name, note, the `mask` and `inword` ticks). It writes `…\OverFilm\glossary\user.tsv`, the table
+  OverFilmSubs' 단어집 page writes (`overfilm_pipeline::usergloss`), so both programs share it.
+  Commands: `overfilm.glossary {query?, limit?, file?}`, `overfilm.glossary.add {ko, misheard?,
+  aliases?, old?, en?, note?, mask?, inword?, id?, file?}` (with `id`: change that word),
+  `overfilm.glossary.remove {id, file?}`. Any other `.tsv` in that folder is read too.
 
 ## Styled captions and Premiere Pro
 

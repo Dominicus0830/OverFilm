@@ -15,6 +15,7 @@ pub mod pack;
 #[cfg(feature = "qwen")]
 pub mod recognise;
 pub mod speakers;
+pub mod usergloss;
 pub mod voices;
 
 use std::path::PathBuf;
