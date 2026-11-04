@@ -429,3 +429,49 @@ fn setup_commands() {
     let e = s.execute("overfilm.review.captions", json!({"wait": true})).unwrap_err().to_string();
     assert!(e.contains("꺼져"), "{e}");
 }
+
+#[test]
+fn the_editors_request_and_stutters() {
+    let f = fake(|q| {
+        let answers: Vec<Value> = q
+            .prompt
+            .split("### 자막 id=")
+            .skip(1)
+            .map(|sec| {
+                let id = sec.split(' ').next().unwrap().to_string();
+                let current = sec.split("- 순수 인식").next().unwrap();
+                if current.contains("트레이서") {
+                    json!({"id": id, "decision": "drop", "reason": "쓸데없는 말"})
+                } else {
+                    json!({"id": id, "decision": "keep", "reason": "맞음"})
+                }
+            })
+            .collect();
+        Ok(json!({"answers": answers}))
+    });
+    let mut s = session(&f);
+    // on by default, saved with the settings
+    let st = s.execute("overfilm.review.settings", json!({})).unwrap();
+    assert_eq!(st["fixStutter"], true, "{st}");
+    assert_eq!(st["request"], "", "{st}");
+    s.execute("overfilm.captions.fromTranscript", json!({})).unwrap();
+    let before = caption_texts(&s);
+    // no request: drop is not allowed, the caption stays
+    s.execute("overfilm.review.captions", json!({"wait": true, "all": true})).unwrap();
+    assert_eq!(caption_texts(&s), before);
+    let p = lock(&f.asked).last().unwrap().clone();
+    assert!(p.system.contains("일부러 되풀이한 것은 그대로") && !p.prompt.contains("편집자 요구사항"), "{}", p.system);
+    // the request, saved: every caption asked again, the one it fits dropped
+    let st = s.execute("overfilm.review.settings", json!({"request": " 쓸데없는 말 하는 부분 지워줘 ", "fixStutter": false})).unwrap();
+    assert_eq!(st["request"], " 쓸데없는 말 하는 부분 지워줘 ", "kept as typed, trimmed when used");
+    s.execute("overfilm.review.captions", json!({"wait": true})).unwrap();
+    let p = lock(&f.asked).last().unwrap().clone();
+    assert!(p.prompt.starts_with("편집자 요구사항 (모든 자막에 적용):\n쓸데없는 말 하는 부분 지워줘"), "{}", p.prompt);
+    assert!(p.system.contains("들린 그대로 둔다"), "{}", p.system);
+    let after = caption_texts(&s);
+    assert!(!after.iter().any(|t| t.contains("트레이서")), "{after:?}");
+    assert_eq!(after.len() + before.iter().filter(|t| t.contains("트레이서")).count(), before.len(), "{before:?} {after:?}");
+    // one undo brings it back
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(caption_texts(&s), before);
+}

@@ -3950,3 +3950,9 @@
 	Your choices here are saved and come back the next time you open the panel.	여기서 고른 설정은 저장되어 다음에 패널을 열 때 그대로 불러옵니다.
 	Open this panel when the editor starts	편집기를 켤 때 이 패널 열기
 	Back to the default settings	기본 설정으로 되돌리기
+	Fix stutters into the sentence meant	말 더듬은 부분을 바른 문장으로 고치기
+	Claude decides whether a word said again was a real stutter or said on purpose (excited, for effect) and leaves the latter.	Claude가 진짜로 더듬은 것인지, 일부러 되풀이한 것인지(흥분·강조) 판단해서 일부러 한 말은 그대로 둡니다.
+	What else should Claude do with the captions? (optional)	Claude에게 자막 요구사항 (선택)
+	e.g. Remove the parts where they talk about nothing useful	예: 쓸데없는 말 하는 부분 지워줘
+	With a request every caption is checked, and captions it says to remove are removed (one undo brings them back).	요구사항이 있으면 모든 자막을 검토하고, 지우라는 자막은 지웁니다 (실행 취소 한 번이면 돌아옵니다).
+	Caption review	자막 검토

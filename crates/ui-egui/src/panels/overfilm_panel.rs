@@ -7,7 +7,8 @@
 //! Automation ids: `overfilm.panel.<param>` for each control (`autoCut`, `templates`,
 //! `keepBefore`, `applyCuts`, `reviewCuts`, `captions`, `audioTrack`, `mode`, `who`, `gameVoice`,
 //! `maxLines`, `lineChars`, `reviewCaptions`, `kills`, `render`, `renderFormat`, `renderPath`,
-//! `renderSplit`, `burnCaptions`), `overfilm.panel.run`, `overfilm.panel.stop`,
+//! `renderSplit`, `burnCaptions`; with the caption review ticked `fixStutter` and `request`, kept
+//! with the review settings), `overfilm.panel.run`, `overfilm.panel.stop`,
 //! `overfilm.panel.step.<n>` for each step of the run, `overfilm.panel.reviewSettings`,
 //! `overfilm.panel.tool.<command id>`,
 //! `overfilm.panel.kill.<n>` for each kill in the kill list (click: go there),
@@ -261,6 +262,9 @@ struct Facts {
     kills: Value,
     /// `overfilm.heroes.list`: the teams, players and hero portraits read off the name plates.
     lineup: Value,
+    /// What the editor asks of the caption review (`fixStutter`, `request`, from the review
+    /// settings; the panel changes them there).
+    wishes: Value,
 }
 
 fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
@@ -274,10 +278,12 @@ fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
         if app.session.active_sequence().is_some() { app.session.execute("overfilm.killFeed.list", json!({})).unwrap_or_default() } else { Value::Null };
     let lineup = if app.session.active_sequence().is_some() { app.session.execute("overfilm.heroes.list", json!({})).unwrap_or_default() } else { Value::Null };
     let s = &app.session;
+    let st = filmcraft_engine::overfilm_review::settings(s);
     let f = Facts {
         at: now,
         revision,
-        review_on: filmcraft_engine::overfilm_review::settings(s).enabled,
+        review_on: st.enabled,
+        wishes: json!({"fixStutter": st.fix_stutter, "request": st.request}),
         has_words: !filmcraft_engine::transcript::sequence_words(s).is_empty(),
         tools: tools().map(|(k, _)| (*k, s.is_enabled(k))).collect(),
         kills,
@@ -308,8 +314,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let status = filmcraft_engine::overfilm_flow::status(&app.session);
     let running = status["state"] == "running";
     let has_seq = app.session.active_sequence().is_some();
-    let facts = facts(app, &ctx);
+    let mut facts = facts(app, &ctx);
     let (review_on, has_words) = (facts.review_on, facts.has_words);
+    let mut wishes = facts.wishes.clone();
     let tracks: Vec<(String, String)> = app
         .session
         .active_sequence()
@@ -412,6 +419,11 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             if p["captions"] != "off" {
                 ui.add_enabled_ui(review_on, |ui| {
                     check(ui, &mut elems, format!("{PRE}.reviewCaptions"), tl!("Then let Claude Code check the captions"), &mut p["reviewCaptions"]);
+                    if p["reviewCaptions"].as_bool().unwrap_or(false) {
+                        ui.indent("overfilm-panel-review-wishes", |ui| {
+                            crate::panels::overfilm_review::wishes_ui(ui, &mut elems, PRE, &mut wishes);
+                        });
+                    }
                 });
             }
             ui.add_space(6.0);
@@ -536,6 +548,17 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     for (id, r, l) in elems {
         app.auto.add(&id, r, &l);
     }
+    if wishes != facts.wishes {
+        // kept with the review settings (the menu's review and the automatic one use them too)
+        let w = json!({"fixStutter": wishes["fixStutter"], "request": wishes["request"]});
+        match app.session.execute("overfilm.review.settings", w) {
+            Ok(v) => {
+                facts.wishes = json!({"fixStutter": v["fixStutter"], "request": wishes["request"]});
+                ctx.data_mut(|m| m.insert_temp(egui::Id::unique("overfilm-panel-facts"), facts.clone()));
+            }
+            Err(e) => app.ui.status = plain_error(&e.to_string()),
+        }
+    }
     let (seek, name) = picked;
     if settings {
         let _ = crate::menus::invoke(app, &ctx, "overfilm.review.settings", json!({}));
@@ -590,6 +613,11 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         {
             app.ui.status = plain_error(&e.to_string());
         }
+        // the caption review's wishes shown here go back to theirs too
+        if let Err(e) = app.session.execute("overfilm.review.settings", json!({"fixStutter": true, "request": ""})) {
+            app.ui.status = plain_error(&e.to_string());
+        }
+        ctx.data_mut(|m| m.remove::<Facts>(egui::Id::unique("overfilm-panel-facts")));
         // filled again from the defaults on the next frame
         ctx.data_mut(|m| {
             m.remove::<Value>(state_id());
