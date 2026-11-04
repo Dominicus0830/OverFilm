@@ -85,6 +85,10 @@ cargo run -p overfilm-eval -- --terms packs/overwatch/ko/glossary reference.srt 
   `트레`), team names checked on 나무위키 (`로데 잔사이드 게이밍`, `오투 블래스트`) and play verbs
   (`물다`, `눕다`, `끊다`, `녹이다`, `궁 빼다`, `비비다`, `밀다`; `noeval`). `눕다` means dying, so it moved
   off `앵커링`. Floors: `이층` → `2층`; `이 층` stays unless next to another floor number.
+- 2026-11-04 user report: `제트팩 캣` always came out as `제트팩et` (the recogniser wrote 캣 half as a
+  cut-off byte sequence, half as Latin `et`). Fixed by the corrector's broken-last-syllable rule and
+  the forms `제트팩et`, `제트팩햇`; `제트팩캣` (no space) moved from `aliases` to `misheard`, since the
+  official spelling has a space (Blizzard's Korean hero page, 나무위키).
 - Team short names from the DCinside OWCS gallery: 라쿤, 제타, 팔콘, 티원, 로제, O2, 치벅/처벅/CB,
   세이지 (SEIJI ESPORTS).
 - Rosters: 나무위키 (namu.moe mirror) team and player pages, 2026 OWCS Korea Stage 3

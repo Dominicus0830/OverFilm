@@ -25,6 +25,11 @@
 //!   longer ones two. A word that already is a spelling in any table is never changed (common
 //!   words that sound like a name, such as `나이스` for `나이프`, are listed in `slang.tsv` for that), and a difference
 //!   only in a last syllable that is a particle (`자리에` vs `자리야`) is not a match.
+//! - With [`Corrector::fuzzy`], a name whose last syllable came out broken is restored too: the
+//!   recogniser sometimes writes a syllable half in bytes that are not a character (dropped when
+//!   decoding) and half in Latin letters, so `제트팩 캣` comes out as `제트팩et`. Korean syllables
+//!   followed by one to four lowercase Latin letters that end the word become the one name that
+//!   is those syllables plus one more; when no name or several fit, the word is left alone.
 //! - With [`Corrector::apply_preferring`], names known to be in play (the teams and players on
 //!   screen, the heroes being played; see [`Preferred`]) win a tie with other names and three
 //!   syllables or more allow one more jamo edit (`홈런보` → `홈런볼` would anyway; `우텐` is two
@@ -45,6 +50,9 @@ struct Rule {
     /// Only next to a hero name (`@영웅` forms).
     hero: bool,
 }
+
+/// Longest Latin tail of a broken last syllable (`et` of `제트팩et`).
+const MAX_BROKEN_TAIL: usize = 4;
 
 /// Marks a `misheard` form that is replaced only next to a hero name.
 const HERO_MARK: &str = "@영웅";
@@ -375,6 +383,32 @@ impl Corrector {
         best.map(|(_, n, name)| (n, name.spelling.as_str()))
     }
 
+    /// A name whose last syllable came out broken (see the module docs): Korean syllables, then
+    /// one to four lowercase Latin letters ending the word, where the syllables plus exactly one
+    /// more spell exactly one name (`제트팩et` → `제트팩 캣`). Returns (characters consumed, name).
+    fn broken_tail_match(&self, rest: &[char]) -> Option<(usize, &str)> {
+        let head = rest.iter().take_while(|c| is_syllable(**c)).count();
+        if head < 2 {
+            return None;
+        }
+        let tail = rest.get(head..)?.iter().take_while(|c| c.is_ascii_lowercase()).count();
+        if !(1..=MAX_BROKEN_TAIL).contains(&tail) || rest.get(head + tail).is_some_and(|c| c.is_alphanumeric()) {
+            return None;
+        }
+        let h = rest.get(..head)?;
+        let mut found: Option<&str> = None;
+        for name in self.names.iter().filter(|n| n.syllables == head + 1) {
+            if !name.spelling.chars().filter(|c| !c.is_whitespace()).take(head).eq(h.iter().copied()) {
+                continue;
+            }
+            match found {
+                Some(f) if f != name.spelling => return None,
+                _ => found = Some(name.spelling.as_str()),
+            }
+        }
+        found.map(|f| (head + tail, f))
+    }
+
     /// Also fix Korean spelling and spacing slips after the glossary rules (see [`crate::ko`]).
     pub fn korean(mut self) -> Corrector {
         self.korean = true;
@@ -433,6 +467,7 @@ impl Corrector {
             });
             let hit = rule
                 .map(|r| (r.from.len(), r.to.as_str()))
+                .or_else(|| if word_start { self.broken_tail_match(rest) } else { None })
                 .or_else(|| if word_start && !(self.names.is_empty() && preferred.is_empty()) { self.fuzzy_match(rest, preferred) } else { None });
             let hit = hit.filter(|(len, to)| rest.iter().take(*len).copied().ne(to.chars()));
             match hit {
@@ -542,6 +577,22 @@ mod tests {
         assert_eq!(c.apply("제트팩켓 제트팩켓이").text, "제트팩 캣 제트팩 캣이");
         assert_eq!(c.apply("제트팩 캣 제트팩이 라이프 위버").replaced, 0);
         assert_eq!(c.apply("가나다라마바").replaced, 0);
+    }
+
+    #[test]
+    fn broken_last_syllable_restores_the_name() {
+        let c = fuzzy("jc\t제트팩 캣\njp\t제트팩\nlw\t라이프 위버\nsg\t시그마\nsm\t시메트라\n");
+        assert_eq!(c.apply("솜브라, 제트팩et 독트린").text, "솜브라, 제트팩 캣 독트린");
+        assert_eq!(c.apply("제트팩et.").text, "제트팩 캣.");
+        // only names exactly one syllable longer count (시그마, not 시메트라)
+        assert_eq!(c.apply("시그et").text, "시그마");
+        // not a broken name: no name fits, the Latin goes on, or it is too long
+        assert_eq!(c.apply("오버워치et").text, "오버워치et");
+        assert_eq!(c.apply("제트팩jetpack").text, "제트팩jetpack");
+        assert_eq!(c.apply("제트팩et2").text, "제트팩et2");
+        // two names of the right length: left alone
+        let c = fuzzy("a\t가나다라\nb\t가나다마\n");
+        assert_eq!(c.apply("가나다et").text, "가나다et");
     }
 
     #[test]
