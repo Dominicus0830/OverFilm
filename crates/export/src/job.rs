@@ -508,6 +508,11 @@ impl Exporter {
         let mut tail = std::mem::take(&mut self.queued);
         tail.extend(self.venc.flush()?);
         self.write_video(tail)?;
+        // an encoder that learnt its parameter sets only from its stream (a hardware MFT holding the
+        // first pictures back) completes the sample entry now
+        if let (Some(mux), Some(entry)) = (self.mux.as_mut(), self.venc.final_sample_entry()) {
+            mux.set_sample_entry(self.vt, entry).map_err(|e| ExportError::Io(e.to_string()))?;
+        }
         self.write_audio(mixed)?;
         if let (Some(at), Some(a)) = (self.at, self.aenc.as_mut()) {
             let mux = self.mux.as_mut().ok_or_else(|| ExportError::Encode("internal: the container writer was not created".into()))?;

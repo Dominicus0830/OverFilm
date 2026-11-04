@@ -207,6 +207,9 @@ fn render_parameters_follow_the_panel_choices() {
     let v = super::render_params(&s, &json!({"renderPath": "  "}), "h264");
     assert_eq!(v["burnCaptions"], true, "captions burnt in by default");
     assert!(!v["path"].as_str().unwrap().trim().is_empty(), "beside the project when no path is given");
+    assert_eq!((&v["hardwareEncoding"], &v["gpuRendering"], &v["encoderSpeed"]), (&json!("auto"), &json!("auto"), &json!("speed")), "fast by default");
+    let v = super::render_params(&s, &json!({"renderFast": false}), "h264");
+    assert_eq!((&v["hardwareEncoding"], &v["gpuRendering"], &v["encoderSpeed"]), (&json!("off"), &json!("off"), &json!("balanced")));
     let v = super::render_params(&s, &json!({"renderPath": "/x"}), "premiere");
     assert_eq!(v, json!({"format": "premiere", "dir": "/x"}));
 }

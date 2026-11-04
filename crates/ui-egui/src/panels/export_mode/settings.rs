@@ -1,5 +1,5 @@
 use super::{
-    AudioCodec, BitrateMode, ExportSettings, ExrCompression, FieldOrder, FileDialog, FilmcraftApp, Format, FrameRate, GpuRendering, H264Profile,
+    AudioCodec, BitrateMode, EncoderSpeed, ExportSettings, ExrCompression, FieldOrder, FileDialog, FilmcraftApp, Format, FrameRate, GpuRendering, H264Profile,
     HardwareEncoding, Multiplexer, MxfVideoCodec, Placement, PresetManager, Rect, Reg, SampleFormat, Sense, TextOverlay, Tokens, apply_preset, is_export_busy,
     pos2, vec2,
 };
@@ -568,6 +568,19 @@ fn video_section(ui: &mut egui::Ui, reg: &mut Reg, s: &mut ExportSettings, t: &T
                     *k = v as u32;
                 }
             });
+            // The built-in encoder's search effort (hardware encoders ignore it)
+            if !hevc {
+                row(ui, t, "Encoder Speed", |ui| {
+                    let all = [EncoderSpeed::Speed, EncoderSpeed::Balanced, EncoderSpeed::Quality];
+                    let labels = ["Fast", "Balanced", "Best quality"];
+                    let cur = all.iter().position(|k| *k == s.encoder_speed).unwrap_or(1);
+                    if let Some(i) = combo(ui, reg, "export.video.encoderSpeed", labels.get(cur).copied().unwrap_or("Balanced"), &opts(&labels), 160.0)
+                        && let Some(v) = all.get(i)
+                    {
+                        s.encoder_speed = *v;
+                    }
+                });
+            }
             // The system's hardware encoder where there is one (VideoToolbox on macOS, NVENC on NVIDIA
             // GPUs on Windows, VA-API on Linux); everything it does not take (two-pass, HDR, MXF) and
             // every machine without one keeps the built-in encoder.

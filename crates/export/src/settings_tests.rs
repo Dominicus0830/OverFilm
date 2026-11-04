@@ -1663,3 +1663,31 @@ fn own_importer_reads_32_bit_flac_at_full_scale() {
         }
     }
 }
+
+/// Export ▸ Encoder Speed reaches the built-in H.264 encoder: the stream's settings SEI names the
+/// preset, and Balanced stays the default.
+#[test]
+fn encoder_speed_reaches_the_h264_encoder() {
+    let (p, seq, m) = matte([0.2, 0.6, 0.9, 1.0], 64, 36, None);
+    let dir = Scratch::new("encoder-speed");
+    for (speed, name) in [(None, "balanced"), (Some(EncoderSpeed::Speed), "speed"), (Some(EncoderSpeed::Quality), "quality")] {
+        let path = dir.path(&format!("{name}.mp4"));
+        let mut settings = ExportSettings {
+            format: Format::H264,
+            path: path.clone(),
+            include_audio: false,
+            range: Some(TimeRange::new(Tick::ZERO, FrameRate::FPS_24.tick_of(3))),
+            ..Default::default()
+        };
+        if let Some(s) = speed {
+            settings.encoder_speed = s;
+        }
+        export(&p, seq, &settings, &m, &Progress::default()).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let needle = format!("preset={name}");
+        assert!(bytes.windows(needle.len()).any(|w| w == needle.as_bytes()), "{name}: settings SEI");
+    }
+    let parsed: ExportSettings = serde_json::from_str(r#"{"encoderSpeed": "speed"}"#).unwrap();
+    assert_eq!(parsed.encoder_speed, EncoderSpeed::Speed);
+    assert_eq!(EncoderSpeed::Speed.name(), "speed");
+}

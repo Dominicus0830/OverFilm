@@ -35,11 +35,15 @@ mod annexb;
 #[cfg_attr(not(any(target_os = "windows", target_os = "linux")), allow(dead_code))]
 mod biplanar;
 pub mod cursor;
+// The Windows hardware H.264 export (Media Foundation encoder MFTs); its stream handling is compiled
+// everywhere so its tests run on every system.
 #[cfg(target_os = "macos")]
 pub mod hardware_encode;
 pub mod hybrid;
 #[cfg(target_os = "windows")]
 pub mod media_foundation;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod mf_h264;
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 pub mod nvdec;
 #[cfg(any(target_os = "windows", all(target_os = "linux", target_pointer_width = "64")))]
@@ -97,7 +101,12 @@ pub fn register() -> Availability {
         static ENCODERS: std::sync::Once = std::sync::Once::new();
         // Export ▸ Hardware encoding (NVENC H.264): in front of the software encoder, taking an
         // export only when asked for and when NVENC can do it
-        ENCODERS.call_once(|| filmcraft_export::register_encoder(nvenc::export::factory));
+        // Media Foundation's encoder MFTs (AMD, Intel; NVIDIA too, but NVENC is registered after it and
+        // so asked first) behind NVENC: the GPUs NVENC does not serve
+        ENCODERS.call_once(|| {
+            filmcraft_export::register_encoder(mf_h264::factory);
+            filmcraft_export::register_encoder(nvenc::export::factory);
+        });
         filmcraft_codecs::register_video_decoder(media_foundation_factory);
         filmcraft_codecs::hw::set_hw_backend("Media Foundation");
         Availability::Available("Media Foundation")
