@@ -68,7 +68,14 @@ struct Prefs {
     /// Sleep afterwards, or nothing.
     #[serde(default)]
     after_done: notify::After,
+    /// The caption shape's defaults' version (see [`Prefs::upgrade`]).
+    #[serde(default)]
+    caption_shape: u32,
 }
+
+/// The caption shape's defaults' version: 2 is one line of up to 25 characters (before: two
+/// lines of 16).
+const CAPTION_SHAPE: u32 = 2;
 
 fn yes() -> bool {
     true
@@ -86,7 +93,25 @@ impl Default for Prefs {
             export: export::Export::default(),
             notify_done: true,
             after_done: notify::After::Nothing,
+            caption_shape: CAPTION_SHAPE,
         }
+    }
+}
+
+impl Prefs {
+    /// Preferences saved before the caption shape's defaults changed hold the old defaults (the
+    /// whole options are saved): two lines of 16 there become the new defaults once. Any other
+    /// shape the user picked stays.
+    fn upgrade(mut self) -> Self {
+        if self.caption_shape < CAPTION_SHAPE {
+            let o = &mut self.options;
+            if o.line_chars == 16 && o.max_lines == 2 {
+                o.line_chars = job::LINE_CHARS;
+                o.max_lines = job::MAX_LINES;
+            }
+            self.caption_shape = CAPTION_SHAPE;
+        }
+        self
     }
 }
 
@@ -101,7 +126,9 @@ fn recent_path() -> PathBuf {
 fn load_prefs() -> Prefs {
     let p = prefs_path();
     match std::fs::metadata(&p) {
-        Ok(m) if m.len() < 1 << 20 => std::fs::read_to_string(&p).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+        Ok(m) if m.len() < 1 << 20 => {
+            std::fs::read_to_string(&p).ok().and_then(|s| serde_json::from_str::<Prefs>(&s).ok()).map(Prefs::upgrade).unwrap_or_default()
+        }
         _ => Prefs::default(),
     }
 }
@@ -655,4 +682,29 @@ fn main() -> eframe::Result {
             Ok(Box::new(app))
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_caption_defaults_give_way_once() {
+        let mut old = serde_json::to_value(Prefs::default()).unwrap();
+        old["options"]["line_chars"] = 16.into();
+        old["options"]["max_lines"] = 2.into();
+        old.as_object_mut().unwrap().remove("caption_shape");
+        let p = serde_json::from_value::<Prefs>(old.clone()).unwrap().upgrade();
+        assert_eq!((p.options.line_chars, p.options.max_lines, p.caption_shape), (25, 1, CAPTION_SHAPE));
+        // a shape the user picked stays
+        old["options"]["line_chars"] = 20.into();
+        let p = serde_json::from_value::<Prefs>(old.clone()).unwrap().upgrade();
+        assert_eq!((p.options.line_chars, p.options.max_lines), (20, 2));
+        // and two lines of 16 picked after the change stay too
+        old["options"]["line_chars"] = 16.into();
+        old["caption_shape"] = CAPTION_SHAPE.into();
+        let p = serde_json::from_value::<Prefs>(old).unwrap().upgrade();
+        assert_eq!((p.options.line_chars, p.options.max_lines), (16, 2));
+        assert_eq!((Prefs::default().options.line_chars, Prefs::default().options.max_lines), (25, 1));
+    }
 }

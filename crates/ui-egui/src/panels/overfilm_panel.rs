@@ -104,8 +104,9 @@ fn defaults(app: &mut FilmcraftApp) -> Value {
         "mode": "general",
         "who": "auto",
         "gameVoice": "drop",
-        "maxLines": 2,
-        "lineChars": 16,
+        "maxLines": 1,
+        "lineChars": 25,
+        "captionShape": CAPTION_SHAPE,
         "reviewCaptions": false,
         "kills": true,
         "render": false,
@@ -155,6 +156,27 @@ pub(crate) fn open_at_start(app: &mut FilmcraftApp) -> bool {
     }
     let Some(file) = settings_file(&app.session) else { return false };
     app.session.execute("overfilm.panel.settings", json!({"file": file})).ok().and_then(|r| r["openAtStart"].as_bool()).unwrap_or(true)
+}
+
+/// The caption shape's defaults' version: 2 is one line of up to 25 characters (before: two
+/// lines of 16).
+const CAPTION_SHAPE: u64 = 2;
+
+/// Settings saved before the caption shape's defaults changed hold the old defaults (every
+/// choice is saved as soon as one changes): two lines of 16 there are dropped once so the new
+/// defaults apply. Any other shape the user picked stays.
+fn upgrade_saved(mut saved: serde_json::Map<String, Value>) -> serde_json::Map<String, Value> {
+    if saved.is_empty() || saved.get("captionShape").and_then(Value::as_u64).is_some_and(|v| v >= CAPTION_SHAPE) {
+        return saved;
+    }
+    let old = saved.get("lineChars").and_then(Value::as_f64).is_none_or(|v| (v - 16.0).abs() < 0.5)
+        && saved.get("maxLines").and_then(Value::as_f64).is_none_or(|v| (v - 2.0).abs() < 0.5);
+    if old {
+        saved.remove("lineChars");
+        saved.remove("maxLines");
+    }
+    saved.remove("captionShape");
+    saved
 }
 
 /// The defaults with the saved settings over them (a saved value of another type than the
@@ -304,7 +326,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let mut p = match ctx.data(|m| m.get_temp::<Value>(state_id())) {
         Some(p) => p,
         None => {
-            let saved = load_saved(app);
+            let saved = upgrade_saved(load_saved(app));
             let p = with_saved(defaults(app), &saved);
             ctx.data_mut(|m| m.insert_temp(saved_id(), kept(&p)));
             p
@@ -827,6 +849,22 @@ fn kill_rows(ui: &mut egui::Ui, elems: &mut Elems, list: &[Value], seek: &mut Op
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_caption_defaults_give_way_once() {
+        let d = json!({"maxLines": 1, "lineChars": 25, "captionShape": CAPTION_SHAPE, "mode": "general"});
+        // saved before the change: two lines of 16 were the defaults then
+        let old = json!({"maxLines": 2.0, "lineChars": 16.0, "mode": "commentary"});
+        let p = with_saved(d.clone(), &upgrade_saved(old.as_object().unwrap().clone()));
+        assert_eq!(p, json!({"maxLines": 1, "lineChars": 25, "captionShape": CAPTION_SHAPE, "mode": "commentary"}));
+        // a shape the user picked stays, before and after the change
+        let picked = json!({"maxLines": 2.0, "lineChars": 20.0});
+        let p = with_saved(d.clone(), &upgrade_saved(picked.as_object().unwrap().clone()));
+        assert_eq!((p["maxLines"].as_f64(), p["lineChars"].as_f64()), (Some(2.0), Some(20.0)));
+        let again = json!({"maxLines": 2.0, "lineChars": 16.0, "captionShape": CAPTION_SHAPE});
+        let p = with_saved(d, &upgrade_saved(again.as_object().unwrap().clone()));
+        assert_eq!((p["maxLines"].as_f64(), p["lineChars"].as_f64()), (Some(2.0), Some(16.0)));
+    }
 
     #[test]
     fn saved_settings_over_the_defaults() {

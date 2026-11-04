@@ -241,10 +241,11 @@ fn captions_get_pure_recognition_and_fixes() {
         Ok(json!({"answers": answers}))
     });
     let mut s = session(&f);
-    s.execute("overfilm.captions.fromTranscript", json!({})).unwrap();
+    // the fix is a line break: two lines allowed
+    s.execute("overfilm.captions.fromTranscript", json!({"maxLines": 2, "lineChars": 16})).unwrap();
     let before = caption_texts(&s);
     assert!(before.iter().any(|t| t.contains("겐지가")), "{before:?}");
-    let r = s.execute("overfilm.review.captions", json!({"wait": true})).unwrap();
+    let r = s.execute("overfilm.review.captions", json!({"maxLines": 2, "lineChars": 16, "wait": true})).unwrap();
     let asked = lock(&f.asked).clone();
     assert_eq!(asked.len(), 1, "{r}");
     let p = &asked[0].prompt;

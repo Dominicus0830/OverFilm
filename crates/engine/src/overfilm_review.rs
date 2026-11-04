@@ -21,8 +21,8 @@
 //!   around and what the screen showed. Per marker: cut (kept, the reason added), keep (renamed
 //!   "OverFilm 유지 (Claude)", which Apply OverFilm Cut Markers leaves alone), or partial (the
 //!   marker replaced by cut markers for the parts to cut and keep markers for the parts to keep).
-//! - `overfilm.review.captions {track?, captions?:[id], all=false, again=false, lineChars=16,
-//!   maxLines=2, wait=false}` asks about the captions that need judgment (unsure words, a glossary
+//! - `overfilm.review.captions {track?, captions?:[id], all=false, again=false, lineChars=25,
+//!   maxLines=1, wait=false}` asks about the captions that need judgment (unsure words, a glossary
 //!   correction, words the recogniser was not quite sure of, awkward breaks) with the pure
 //!   recognition, the corrected text and the captions around them, plus the kind of video
 //!   (`mode`), the match info markers ("OverFilm 경기/선수/영웅 선택/영웅 교체") and the glossary
@@ -157,7 +157,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Ask Claude Code About Unclear Captions (OverFilm)",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"track":id?,"captions":[id]?,"all":bool=false,"again":bool=false,"mode":"general"|"commentary"?,"lineChars":n=16,"maxLines":1|2=2,"request":str?,"fixStutter":bool?,"wait":bool=false}"#,
+            params: r#"{"track":id?,"captions":[id]?,"all":bool=false,"again":bool=false,"mode":"general"|"commentary"?,"lineChars":n=25,"maxLines":1|2=1,"request":str?,"fixStutter":bool?,"wait":bool=false}"#,
             enabled: can_review_captions,
             run: review_captions,
             journal: true,
@@ -577,8 +577,8 @@ fn caption_info(s: &Session, all: &[filmcraft_edit::transcript::SeqWord], terms:
 }
 
 fn limits_p(p: &Value) -> Limits {
-    let chars = u64_p(p, "lineChars").map(|n| n.clamp(4, 60) as u32).unwrap_or(16);
-    let lines = u64_p(p, "maxLines").map(|n| n.clamp(1, 2) as u32).unwrap_or(2);
+    let chars = u64_p(p, "lineChars").map(|n| n.clamp(4, 60) as u32).unwrap_or(25);
+    let lines = u64_p(p, "maxLines").map(|n| n.clamp(1, 2) as u32).unwrap_or(1);
     Limits { line_width: chars * 2, max_lines: lines }
 }
 
