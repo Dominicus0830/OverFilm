@@ -19,6 +19,12 @@
 //! rather than Vulkan ([`intel_gen9_to_gen11`]). Intel's Vulkan driver for them (`igvk64.dll`)
 //! dies with 0xc0000005 when the device is created (#512, #1425), after the adapters are listed, so
 //! choosing the other entry here avoids it.
+//!
+//! And the window of an AMD GPU on Windows draws through DirectX 12 rather than Vulkan
+//! ([`choose_for_window`]). Through AMD's Vulkan driver the window flashed black in the places
+//! that changed (a panel, the status bar's export progress) while the mouse moved during an
+//! export, which keeps the GPU busy; DirectX 12 presents through the Windows compositor's own
+//! swap chains. The off-screen export device keeps wgpu's choice.
 
 use std::cmp::Reverse;
 use std::fmt;
@@ -148,6 +154,24 @@ pub fn choose(candidates: &[Candidate], power: PowerPreference) -> Option<usize>
 
 /// PCI vendor id of Intel.
 const INTEL: u32 = 0x8086;
+/// PCI vendor id of AMD.
+const AMD: u32 = 0x1002;
+
+/// [`choose`] for the adapter that draws the window: where that is an AMD GPU through Vulkan,
+/// the same GPU's usable DirectX 12 entry instead, if there is one. AMD's Vulkan presentation on
+/// Windows flashed parts of the window black while an export kept the GPU busy (they changed
+/// under the moving mouse); DirectX 12 presents through DXGI, the compositor's own swap chains.
+/// Without a DirectX 12 entry (`WGPU_BACKEND=vulkan`, another system) the choice is [`choose`]'s.
+pub fn choose_for_window(candidates: &[Candidate], power: PowerPreference) -> Option<usize> {
+    let index = choose(candidates, power)?;
+    let Some(chosen) = candidates.get(index) else {
+        return Some(index);
+    };
+    if chosen.backend != Backend::Vulkan || chosen.vendor != AMD {
+        return Some(index);
+    }
+    candidates.iter().position(|c| c.usable && c.backend == Backend::Dx12 && c.vendor == AMD && c.device == chosen.device).or(Some(index))
+}
 
 /// Whether `device` is an Intel Gen 9 to Gen 11 integrated GPU: 6th to 10th generation Core, and
 /// the Atom, Pentium and Celeron graphics of those years (Skylake, Broxton, Gemini Lake, Kaby
@@ -175,16 +199,17 @@ fn dx12_instead(candidates: &[Candidate], preferred: &Candidate) -> Option<usize
     candidates.iter().position(|c| c.usable && c.backend == Backend::Dx12 && c.vendor == INTEL && c.device == preferred.device)
 }
 
-/// [`choose`] over enumerated adapters, as egui-wgpu's `native_adapter_selector` for the window
-/// (`surface`), and for the off-screen export device (no surface). The adapters and the choice go
-/// to the log.
+/// [`choose_for_window`] over enumerated adapters, as egui-wgpu's `native_adapter_selector` for
+/// the window (`surface`), and [`choose`] for the off-screen export device (no surface). The
+/// adapters and the choice go to the log.
 pub fn pick(adapters: &[Adapter], surface: Option<&Surface<'_>>, power: PowerPreference) -> Result<Adapter, String> {
     let candidates: Vec<Candidate> = adapters.iter().map(|a| Candidate::of(a, surface)).collect();
     for candidate in &candidates {
         log::info!("graphics adapter available: {candidate}");
     }
     let listed = || candidates.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-    let index = choose(&candidates, power).ok_or_else(|| format!("no usable graphics adapter among {}: {}", candidates.len(), listed()))?;
+    let chose = if surface.is_some() { choose_for_window } else { choose };
+    let index = chose(&candidates, power).ok_or_else(|| format!("no usable graphics adapter among {}: {}", candidates.len(), listed()))?;
     let (Some(chosen), Some(adapter)) = (candidates.get(index), adapters.get(index)) else {
         return Err(format!("graphics adapter {index} of {} is missing", adapters.len()));
     };
@@ -201,7 +226,11 @@ pub fn pick(adapters: &[Adapter], surface: Option<&Surface<'_>>, power: PowerPre
         && wgpu_own.backend == Backend::Vulkan
         && chosen.backend == Backend::Dx12
     {
-        log::warn!("Intel's Vulkan driver for \"{}\" crashes when the device is created (#512): drawing through DirectX 12", wgpu_own.name);
+        if wgpu_own.vendor == AMD {
+            log::info!("drawing the window of \"{}\" through DirectX 12: through AMD's Vulkan driver it flashed black during exports", wgpu_own.name);
+        } else {
+            log::warn!("Intel's Vulkan driver for \"{}\" crashes when the device is created (#512): drawing through DirectX 12", wgpu_own.name);
+        }
     }
     log::info!("graphics adapter chosen: {chosen}");
     Ok(adapter.clone())
@@ -214,7 +243,6 @@ mod tests {
     use wgpu::DeviceType::{Cpu, DiscreteGpu, IntegratedGpu, Other};
     use wgpu::PowerPreference::{HighPerformance, LowPower};
 
-    const AMD: u32 = 0x1002;
     const RX_6800M: u32 = 0x73df;
     const RADEON_IGPU: u32 = 0x1638;
     const POWERS: [PowerPreference; 3] = [PowerPreference::None, LowPower, HighPerformance];
@@ -381,6 +409,56 @@ mod tests {
         laptop.insert(1, gpu("NVIDIA GeForce MX250", Vulkan, DiscreteGpu, 0x10de, 0x1d13, "0000:01:00.0", "NVIDIA", "", 70));
         assert_eq!(choose(&laptop, HighPerformance), Some(1));
         assert_eq!(choose(&laptop, LowPower), Some(2));
+    }
+
+    /// The RX 9060 XT of the black flashes, as Windows lists it: Vulkan first, then DirectX 12.
+    fn rx_9060_xt() -> Vec<Candidate> {
+        vec![
+            gpu("AMD Radeon RX 9060 XT", Vulkan, DiscreteGpu, AMD, 0x7590, "", "AMD proprietary driver", "26.10.1", 70),
+            gpu("AMD Radeon RX 9060 XT", Dx12, DiscreteGpu, AMD, 0x7590, "0000:03:00.0", "32.0.26010.1", "", 40),
+            gpu("Microsoft Basic Render Driver", Dx12, Cpu, 0x1414, 0x8c, "", "10.0.26100.9549", "", 36),
+        ]
+    }
+
+    #[test]
+    fn an_amd_window_draws_through_directx_12() {
+        for power in POWERS {
+            assert_eq!(choose(&rx_9060_xt(), power), Some(0), "off screen (export) keeps Vulkan");
+            assert_eq!(choose_for_window(&rx_9060_xt(), power), Some(1), "{power:?}");
+        }
+        // whatever the order
+        let mut dx12_first = rx_9060_xt();
+        dx12_first.swap(0, 1);
+        assert_eq!(choose_for_window(&dx12_first, HighPerformance), Some(0));
+        // no usable DirectX 12 entry: Vulkan is all there is
+        let vulkan_only: Vec<Candidate> = rx_9060_xt().into_iter().take(1).collect();
+        assert_eq!(choose_for_window(&vulkan_only, HighPerformance), Some(0));
+        let mut dx12_unusable = rx_9060_xt();
+        if let Some(c) = dx12_unusable.get_mut(1) {
+            c.usable = false;
+        }
+        assert_eq!(choose_for_window(&dx12_unusable, HighPerformance), Some(0));
+        // two versions of AMD's Vulkan driver: the window takes the GPU's DirectX 12 entry
+        assert_eq!(choose_for_window(&g513qy(), HighPerformance), Some(3));
+        // low power on that laptop: the integrated Radeon's DirectX 12 entry
+        assert_eq!(choose_for_window(&g513qy(), LowPower), Some(4));
+    }
+
+    #[test]
+    fn other_windows_keep_the_choice() {
+        // Intel and NVIDIA through Vulkan keep it, as does the Intel Gen 9 rule
+        assert_eq!(choose_for_window(&uhd_630(), HighPerformance), choose(&uhd_630(), HighPerformance));
+        let nvidia = vec![
+            gpu("NVIDIA GeForce RTX 4070", Vulkan, DiscreteGpu, 0x10de, 0x2786, "0000:01:00.0", "NVIDIA", "", 70),
+            gpu("NVIDIA GeForce RTX 4070", Dx12, DiscreteGpu, 0x10de, 0x2786, "0000:01:00.0", "32.0.15.6094", "", 40),
+        ];
+        assert_eq!(choose_for_window(&nvidia, HighPerformance), Some(0));
+        // an AMD GPU that only Vulkan lists beside another GPU's DirectX 12 entry keeps Vulkan
+        let mixed = vec![
+            gpu("AMD Radeon RX 9060 XT", Vulkan, DiscreteGpu, AMD, 0x7590, "", "AMD proprietary driver", "26.10.1", 70),
+            gpu("Intel(R) UHD Graphics 770", Dx12, IntegratedGpu, INTEL, 0x4680, "", "31.0.101.5186", "", 40),
+        ];
+        assert_eq!(choose_for_window(&mixed, HighPerformance), Some(0));
     }
 
     #[test]

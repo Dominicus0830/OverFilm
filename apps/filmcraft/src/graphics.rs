@@ -450,7 +450,8 @@ fn apply_for(options: &mut NativeOptions, mode: Mode, backend_override: Option<B
             create.instance_descriptor.backends = backend_override.unwrap_or(Backends::PRIMARY);
             // wgpu's own choice of adapter, except for a GPU that Windows lists through two
             // versions of one driver: the first entry can be a stale one that crashes inside the
-            // driver (`filmcraft_gpu::adapter`). A selector replaces `power_preference`
+            // driver, and for an AMD GPU, whose window draws through DirectX 12 (through Vulkan
+            // it flashed black during exports; `filmcraft_gpu::adapter`). A selector replaces `power_preference`
             // (`WGPU_POWER_PREF`), so it takes that along.
             let power = create.power_preference;
             create.native_adapter_selector =
