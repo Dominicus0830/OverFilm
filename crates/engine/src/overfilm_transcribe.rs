@@ -3,8 +3,8 @@
 //! speaker labels and in-game voice (hero lines, announcer) told apart.
 //!
 //! - `overfilm.captions.generate {items?, audioTrack?, mode="general"|"commentary", speakers=true,
-//!   numSpeakers?, extraTerms?, gpu=true, gameVoice="drop"|"label"|"keep", lineChars=16,
-//!   maxLines=2, leadMs=120, holdMs=400, readingCps=12, cleanFillers=true, wait=false}` recognises the media of the sequence's audio
+//!   numSpeakers?, extraTerms?, gpu=true, gameVoice="drop"|"label"|"keep", lineChars=25,
+//!   maxLines=1, leadMs=120, holdMs=400, readingCps=12, cleanFillers=true, wait=false}` recognises the media of the sequence's audio
 //!   clips (or `items`, or the Project panel selection) in a background job (feature
 //!   `overfilm-qwen`; models are downloaded on first use into the folder OverFilmSubs uses), stores
 //!   each item's transcript (Text panel ▸ Transcript; in-game voice is the speaker "게임 음성"),
@@ -56,7 +56,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "OverFilm Captions (Korean)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"items":[id]?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"skipSilence":bool?,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"wait":bool=false}"#,
+            params: r#"{"items":[id]?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"skipSilence":bool?,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=25,"maxLines":1|2=1,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"wait":bool=false}"#,
             enabled: can_generate,
             run: generate,
             journal: true,
@@ -103,8 +103,8 @@ fn caption_options(p: &Value, cmd: &str) -> Result<CaptionOptions> {
         Some(g) => GameVoice::parse(g).ok_or_else(|| bad(cmd, format!("gameVoice is drop, label or keep, not {g}")))?,
         None => GameVoice::Drop,
     };
-    let chars = u64_p(p, "lineChars").map(|n| n.clamp(4, 60) as u32).unwrap_or(16);
-    let lines = u64_p(p, "maxLines").map(|n| n.clamp(1, 2) as u32).unwrap_or(2);
+    let chars = u64_p(p, "lineChars").map(|n| n.clamp(4, 60) as u32).unwrap_or(25);
+    let lines = u64_p(p, "maxLines").map(|n| n.clamp(1, 2) as u32).unwrap_or(1);
     Ok(CaptionOptions {
         game,
         layout: Layout {

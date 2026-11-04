@@ -31,10 +31,10 @@ pub struct Options {
     #[serde(default)]
     pub glossary_dir: Option<PathBuf>,
     /// Characters per caption line (Hangul).
-    #[serde(default = "sixteen")]
+    #[serde(default = "line_chars")]
     pub line_chars: u32,
     /// Lines per caption (1 or 2).
-    #[serde(default = "two")]
+    #[serde(default = "max_lines")]
     pub max_lines: u32,
     /// Time a caption appears before its voice (ms).
     #[serde(default = "lead")]
@@ -85,11 +85,16 @@ pub struct Options {
 fn yes() -> bool {
     true
 }
-fn sixteen() -> u32 {
-    16
+/// Characters per caption line unless set otherwise (one line of up to 25).
+pub const LINE_CHARS: u32 = 25;
+/// Lines per caption unless set otherwise.
+pub const MAX_LINES: u32 = 1;
+
+fn line_chars() -> u32 {
+    LINE_CHARS
 }
-fn two() -> u32 {
-    2
+fn max_lines() -> u32 {
+    MAX_LINES
 }
 fn lead() -> i64 {
     Layout::default().lead_ms
@@ -111,8 +116,8 @@ impl Options {
             mask_profanity: true,
             digits: true,
             glossary_dir: None,
-            line_chars: 16,
-            max_lines: 2,
+            line_chars: LINE_CHARS,
+            max_lines: MAX_LINES,
             lead_ms: lead(),
             hold_ms: hold(),
             reading_cps: cps(),
@@ -452,7 +457,8 @@ mod tests {
         let o: Options = serde_json::from_str(r#"{"input":"v.mp4"}"#).unwrap();
         assert!(o.mask_profanity);
         assert_eq!(o.srt_path(), PathBuf::from("v.srt"));
-        assert_eq!(o.layout().max_line, 32);
+        assert_eq!(o.layout().max_line, 50);
+        assert_eq!(o.layout().max_lines, 1);
     }
 
     #[test]

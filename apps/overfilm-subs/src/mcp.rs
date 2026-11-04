@@ -511,7 +511,7 @@ impl Server {
             }
             "relayout_subtitles" => {
                 let p = path_arg(a)?;
-                let n = a.get("line_chars").and_then(Value::as_u64).unwrap_or(16).clamp(4, 60) as u32;
+                let n = a.get("line_chars").and_then(Value::as_u64).unwrap_or(u64::from(job::LINE_CHARS)).clamp(4, 60) as u32;
                 let caps: Vec<Caption> = job::read_srt(&p)?.iter().map(|c| relayout(c, n)).collect();
                 save(&p, &caps)?;
                 Ok(json!({"captions": caps.len()}))
