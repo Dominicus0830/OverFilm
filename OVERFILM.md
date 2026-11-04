@@ -745,7 +745,13 @@ panel and stays in the saved workspace. It runs the ticked steps one after anoth
    in-game voice), or laid out again from the transcript the sequence already has
    (`overfilm.captions.fromTranscript`: after the cuts, without a second recognition).
 6. **Claude Code on the captions** (`overfilm.review.captions`), when ticked.
-7. **Render** (`render`), when ticked: the finished sequence goes out with `file.exportMedia` in
+7. **Caption style** (`captionStyle`, the panel's "자막 스타일"): the finished captions get the
+   chosen style (`overfilm.captions.stylize`), so a render shows the styled captions. By default
+   ("keep") they get the style the sequence already has (its "OverFilm 자막 · <style>" track), so
+   new captions never leave the old styled words on screen; "none" takes the styled track away
+   and leaves plain captions. A style that does not exist is refused at the start; one that fails
+   is noted and the run goes on with plain captions.
+8. **Render** (`render`), when ticked: the finished sequence goes out with `file.exportMedia` in
    the chosen `renderFormat` (MP4 H.264/H.265/AV1, MOV ProRes/DNxHR, GIF, WAV, M4A), captions burnt
    in unless `burnCaptions` is off, or with `overfilm.premiere.export` (`renderFormat: "premiere"`:
    FCP XML + SRT for Premiere Pro). `renderPath` is a folder or a file; empty puts it beside the

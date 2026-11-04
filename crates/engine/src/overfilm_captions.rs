@@ -388,6 +388,40 @@ fn stylize(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"clips": clips, "styled": n, "preset": name}))
 }
 
+/// The caption style the active sequence's captions wear: the name of its styled-caption track
+/// ("OverFilm 자막 · <style>"), when it has one.
+pub(crate) fn current_style(s: &Session) -> Option<String> {
+    let q = s.active_sequence()?;
+    let head = format!("{TRACK_PREFIX} · ");
+    q.video_tracks.iter().rev().find_map(|t| t.name.strip_prefix(&head).map(str::to_string)).filter(|n| !n.trim().is_empty())
+}
+
+/// Whether a caption style of that name is there (built in or the user's).
+pub(crate) fn preset_exists(s: &Session, name: &str) -> bool {
+    all_presets(s, &json!({})).is_ok_and(|v| v.iter().any(|x| x.name == name))
+}
+
+/// Take the styled-caption tracks away and show the caption track again, in one undo step (the
+/// number of tracks taken away; 0 changes nothing).
+pub(crate) fn remove_styled(s: &mut Session) -> Result<usize> {
+    let seq_id = s.state.active_sequence.ok_or(EngineError::NoSequence)?;
+    let n = s.active_sequence().map_or(0, |q| q.video_tracks.iter().filter(|t| t.name.starts_with(TRACK_PREFIX)).count());
+    if n == 0 {
+        return Ok(0);
+    }
+    s.edit("OverFilm Plain Captions", move |pr, st| {
+        let q = pr.sequence_mut(seq_id).ok_or(EngineError::NoSequence)?;
+        q.video_tracks.retain(|t| !t.name.starts_with(TRACK_PREFIX));
+        if let Some(ct) = q.caption_tracks.first_mut() {
+            ct.enabled = true;
+        }
+        q.check().map_err(EngineError::Other)?;
+        st.selection.clear();
+        Ok(())
+    })?;
+    Ok(n)
+}
+
 /// File-name-safe version of a sequence name.
 fn safe_name(n: &str) -> String {
     let s: String = n.chars().map(|c| if c.is_control() || "/\\:*?\"<>|".contains(c) { '_' } else { c }).collect();

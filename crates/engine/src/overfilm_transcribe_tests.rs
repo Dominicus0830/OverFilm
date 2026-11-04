@@ -201,3 +201,63 @@ fn captions_of_a_chosen_track_leave_other_media_out() {
     o.only_items = Some(vec![s.project.resolve_media(item).map(|(r, _, _)| r).unwrap()]);
     assert!(place_captions(&mut s, &o).unwrap()["captions"].as_u64().unwrap() > 0);
 }
+
+/// The caption track's words and the styled-caption tracks' names.
+fn looks(s: &Session) -> (Vec<String>, Vec<String>, bool) {
+    let q = s.active_sequence().unwrap();
+    let ct = q.caption_tracks.iter().find(|t| t.name == CAPTION_TRACK).unwrap();
+    let styled = q.video_tracks.iter().filter(|t| t.name.starts_with(crate::overfilm_captions::TRACK_PREFIX)).map(|t| t.name.clone()).collect();
+    (ct.captions.iter().map(|c| c.text.clone()).collect(), styled, ct.enabled)
+}
+
+#[test]
+fn one_go_puts_the_chosen_caption_style_on_the_new_captions() {
+    let mut s = session();
+    let r = s.execute("overfilm.flow.run", json!({"autoCut": false, "kills": false, "captions": "reuse", "captionStyle": "예능 노랑", "wait": true})).unwrap();
+    assert_eq!(r["state"], "done", "{r}");
+    let steps: Vec<_> = r["steps"].as_array().unwrap().iter().map(|x| (x["step"].as_str().unwrap(), x["state"].as_str().unwrap())).collect();
+    assert_eq!(steps, vec![("captions", "done"), ("captionStyle", "done")], "{r}");
+    let (texts, styled, shown) = looks(&s);
+    assert_eq!(styled, vec!["OverFilm 자막 · 예능 노랑".to_string()]);
+    assert!(!shown, "the plain captions are not drawn under the styled ones");
+    let q = s.active_sequence().unwrap();
+    let t = q.video_tracks.iter().find(|t| t.name.starts_with(crate::overfilm_captions::TRACK_PREFIX)).unwrap();
+    assert_eq!(t.items.len(), texts.len(), "one styled clip per caption");
+}
+
+#[test]
+fn one_go_keeps_the_style_the_sequence_has_and_drops_it_on_none() {
+    let mut s = session();
+    s.execute("overfilm.captions.fromTranscript", json!({})).unwrap();
+    s.execute("overfilm.captions.stylize", json!({"preset": "박스"})).unwrap();
+    let old: Vec<u64> = s.active_sequence().unwrap().video_tracks.iter().flat_map(|t| t.items.iter().map(|i| i.id.0)).collect();
+    // new captions without a style named: the sequence's style goes on the new words, the old
+    // styled clips (the old words) are gone
+    let r = s.execute("overfilm.flow.run", json!({"autoCut": false, "kills": false, "captions": "reuse", "gameVoice": "label", "wait": true})).unwrap();
+    assert_eq!(r["state"], "done", "{r}");
+    let (texts, styled, shown) = looks(&s);
+    assert!(texts.iter().any(|t| t.contains("(게임)")), "{texts:?}");
+    assert_eq!(styled, vec!["OverFilm 자막 · 박스".to_string()]);
+    assert!(!shown);
+    let q = s.active_sequence().unwrap();
+    let t = q.video_tracks.iter().find(|t| t.name.starts_with(crate::overfilm_captions::TRACK_PREFIX)).unwrap();
+    assert_eq!(t.items.len(), texts.len());
+    assert!(t.items.iter().all(|i| !old.contains(&i.id.0)), "restyled, not the old clips");
+    // "none": plain captions, shown
+    let r = s.execute("overfilm.flow.run", json!({"autoCut": false, "kills": false, "captions": "reuse", "captionStyle": "none", "wait": true})).unwrap();
+    assert_eq!(r["state"], "done", "{r}");
+    let (_, styled, shown) = looks(&s);
+    assert!(styled.is_empty(), "{styled:?}");
+    assert!(shown);
+    // and a later run with nothing named stays plain
+    let r = s.execute("overfilm.flow.run", json!({"autoCut": false, "kills": false, "captions": "reuse", "wait": true})).unwrap();
+    assert_eq!(r["steps"].as_array().unwrap().len(), 1, "{r}");
+}
+
+#[test]
+fn one_go_refuses_an_unknown_caption_style_at_the_start() {
+    let mut s = session();
+    let e = s.execute("overfilm.flow.run", json!({"autoCut": false, "kills": false, "captions": "reuse", "captionStyle": "없는 스타일"})).unwrap_err();
+    assert!(e.to_string().contains("없는 스타일"), "{e}");
+    assert!(s.active_sequence().unwrap().caption_tracks.iter().all(|t| t.name != CAPTION_TRACK), "nothing done");
+}
