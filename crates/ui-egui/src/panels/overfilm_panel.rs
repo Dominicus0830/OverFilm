@@ -1,12 +1,12 @@
 //! The OverFilm panel (Window ▸ OverFilm, or Sequence ▸ OverFilm ▸ Cut and Caption in One Go):
 //! the whole edit in one go (`overfilm.flow.run`: Auto Cut, Claude Code on the unclear cuts if
 //! ticked, the cuts applied, the kill scan, OverFilm Captions, Claude Code on the captions if
-//! ticked, the render if ticked) with each step's progress, and buttons for the other OverFilm
+//! ticked, the chosen caption style, the render if ticked) with each step's progress, and buttons for the other OverFilm
 //! tools grouped in the order of the work. It docks like any panel.
 //!
 //! Automation ids: `overfilm.panel.<param>` for each control (`autoCut`, `templates`,
 //! `keepBefore`, `applyCuts`, `reviewCuts`, `captions`, `audioTrack`, `mode`, `who`, `gameVoice`,
-//! `maxLines`, `lineChars`, `reviewCaptions`, `kills`, `render`, `renderFormat`, `renderPath`,
+//! `maxLines`, `lineChars`, `captionStyle`, `reviewCaptions`, `kills`, `render`, `renderFormat`, `renderPath`,
 //! `renderSplit`, `burnCaptions`; with the caption review ticked `fixStutter` and `request`, kept
 //! with the review settings), `overfilm.panel.run`, `overfilm.panel.stop`,
 //! `overfilm.panel.step.<n>` for each step of the run, `overfilm.panel.reviewSettings`,
@@ -107,6 +107,7 @@ fn defaults(app: &mut FilmcraftApp) -> Value {
         "maxLines": 2,
         "lineChars": 16,
         "reviewCaptions": false,
+        "captionStyle": "keep",
         "kills": true,
         "render": false,
         "renderFormat": "h264",
@@ -199,6 +200,7 @@ fn run_params(p: &Value) -> Value {
         "maxLines": p["maxLines"],
         "lineChars": p["lineChars"],
         "reviewCaptions": p["reviewCaptions"].as_bool().unwrap_or(false),
+        "captionStyle": p["captionStyle"].as_str().filter(|v| !v.is_empty()).unwrap_or("keep"),
         "kills": p["kills"].as_bool().unwrap_or(true),
         "render": p["render"].as_bool().unwrap_or(false),
         "renderFormat": p["renderFormat"].as_str().unwrap_or("h264"),
@@ -212,6 +214,11 @@ fn run_params(p: &Value) -> Value {
         for k in ["renderFormat", "renderPath", "renderSplit", "burnCaptions"] {
             m.remove(k);
         }
+    }
+    if out["captions"] == "off"
+        && let Some(m) = out.as_object_mut()
+    {
+        m.remove("captionStyle");
     }
     if out["captions"] == "reuse" {
         // laid out from the transcript: nothing is recognised again
@@ -233,6 +240,7 @@ fn step_label(step: &str) -> &'static str {
         "kills" => tl!("Kills, ultimates and players"),
         "captions" => tl!("Captions"),
         "reviewCaptions" => tl!("Claude Code: captions"),
+        "captionStyle" => tl!("Caption style"),
         "render" => tl!("Render"),
         _ => "",
     }
@@ -262,6 +270,8 @@ struct Facts {
     kills: Value,
     /// `overfilm.heroes.list`: the teams, players and hero portraits read off the name plates.
     lineup: Value,
+    /// The caption styles to choose from (`overfilm.captions.presets`: built in and the user's).
+    styles: Vec<String>,
     /// What the editor asks of the caption review (`fixStutter`, `request`, from the review
     /// settings; the panel changes them there).
     wishes: Value,
@@ -277,6 +287,12 @@ fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
     let kills =
         if app.session.active_sequence().is_some() { app.session.execute("overfilm.killFeed.list", json!({})).unwrap_or_default() } else { Value::Null };
     let lineup = if app.session.active_sequence().is_some() { app.session.execute("overfilm.heroes.list", json!({})).unwrap_or_default() } else { Value::Null };
+    let styles = app
+        .session
+        .execute("overfilm.captions.presets", json!({}))
+        .ok()
+        .and_then(|v| v["presets"].as_array().map(|a| a.iter().filter_map(|p| p["name"].as_str().map(str::to_string)).collect()))
+        .unwrap_or_default();
     let s = &app.session;
     let st = filmcraft_engine::overfilm_review::settings(s);
     let f = Facts {
@@ -288,6 +304,7 @@ fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
         tools: tools().map(|(k, _)| (*k, s.is_enabled(k))).collect(),
         kills,
         lineup,
+        styles,
     };
     ctx.data_mut(|m| m.insert_temp(id, f.clone()));
     f
@@ -414,6 +431,10 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                     );
                     number(ui, &mut elems, format!("{PRE}.maxLines"), tl!("Lines per caption:"), &mut p["maxLines"], 1.0..=2.0, "");
                     number(ui, &mut elems, format!("{PRE}.lineChars"), tl!("Characters per line:"), &mut p["lineChars"], 8.0..=30.0, "");
+                    let mut looks: Vec<(&str, String)> =
+                        vec![("keep", tl!("The sequence's style (as styled before)").to_string()), ("none", tl!("Plain captions (no style)").to_string())];
+                    looks.extend(facts.styles.iter().map(|n| (n.as_str(), n.clone())));
+                    combo(ui, &mut elems, format!("{PRE}.captionStyle"), tl!("Caption style:"), &mut p["captionStyle"], &looks);
                 }
             });
             if p["captions"] != "off" {
@@ -845,18 +866,24 @@ mod tests {
         assert_eq!(
             run_params(&p),
             json!({"autoCut": true, "templates": "s.json", "keepBefore": 10.0, "applyCuts": false, "reviewCuts": true, "captions": "new",
-                   "audioTrack": 2, "mode": "commentary", "speakers": true, "numSpeakers": 1, "gameVoice": "drop", "reviewCaptions": false})
+                   "audioTrack": 2, "mode": "commentary", "speakers": true, "numSpeakers": 1, "gameVoice": "drop", "reviewCaptions": false,
+                   "captionStyle": "keep", "kills": true, "render": false})
         );
         // from the transcript: no recognition settings; an empty template file is left to the default
         let p = json!({"autoCut": false, "templates": "", "captions": "reuse", "audioTrack": "1", "who": "3", "gameVoice": "label"});
         assert_eq!(
             run_params(&p),
-            json!({"autoCut": false, "applyCuts": true, "reviewCuts": false, "captions": "reuse", "gameVoice": "label", "reviewCaptions": false})
+            json!({"autoCut": false, "applyCuts": true, "reviewCuts": false, "captions": "reuse", "gameVoice": "label", "reviewCaptions": false,
+                   "captionStyle": "keep", "kills": true, "render": false})
         );
         assert_eq!(run_params(&Value::Null)["captions"], "new");
         // the caption shape set in the panel goes to the run
         let p = json!({"captions": "reuse", "maxLines": 1.0, "lineChars": 20.4});
         let r = run_params(&p);
         assert_eq!((r["maxLines"].clone(), r["lineChars"].clone()), (json!(1), json!(20)));
+        // the caption style chosen in the panel goes to the run (the sequence's own by default)
+        assert_eq!(run_params(&json!({"captions": "new", "captionStyle": "박스"}))["captionStyle"], "박스");
+        assert_eq!(run_params(&json!({"captions": "new"}))["captionStyle"], "keep");
+        assert!(run_params(&json!({"captions": "off", "captionStyle": "박스"})).get("captionStyle").is_none());
     }
 }

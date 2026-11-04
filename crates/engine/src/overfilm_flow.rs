@@ -7,12 +7,17 @@
 //! - `overfilm.flow.run {autoCut=true, templates?, keepBefore=10, fps=2, frozenPauses=true,
 //!   reviewCuts=false, applyCuts=true, captions="new"|"reuse"|"off", audioTrack?, mode, speakers,
 //!   numSpeakers?, extraTerms?, gpu, gameVoice, lineChars=16, maxLines=2, cleanFillers,
-//!   reviewCaptions=false, kills=true, killFps=2, render=false, renderFormat="h264",
+//!   reviewCaptions=false, captionStyle?, kills=true, killFps=2, render=false, renderFormat="h264",
 //!   renderPath?, renderSplit="match"|"one", burnCaptions=true, captionSidecar?, wait=false}`: `captions` "new" recognises the speech
 //!   (`overfilm.captions.generate`), "reuse" lays the transcript the sequence already has out again
 //!   (`overfilm.captions.fromTranscript`, after the cuts: no second recognition). `applyCuts`
 //!   false leaves the cut markers for the user to check (the captions then follow the uncut
-//!   sequence). `kills` runs `overfilm.kills.scan` after the cuts and before the captions when the
+//!   sequence). `captionStyle` names a caption style (`overfilm.captions.presets`): after the
+//!   captions (and their review) it runs `overfilm.captions.stylize` with it, so the finished
+//!   captions get the look (and a render shows the styled captions). Left out (or "keep") it keeps
+//!   the style the sequence already has (its "OverFilm 자막 · <style>" track), so new captions never
+//!   leave an old styled track showing the old words; "none" (or "") takes that track away and
+//!   leaves plain captions. `kills` runs `overfilm.kills.scan` after the cuts and before the captions when the
 //!   screen templates have name plates or a kill feed (else the step is left out); it is optional,
 //!   so a failed scan is noted and the run goes on. `render` exports the finished sequence with
 //!   `file.exportMedia` (`renderFormat` is any of its formats, burnt-in captions by default), or
@@ -54,6 +59,7 @@ pub enum StepKind {
     Kills,
     Captions,
     ReviewCaptions,
+    Style,
     Render,
 }
 
@@ -66,13 +72,14 @@ impl StepKind {
             StepKind::Kills => "kills",
             StepKind::Captions => "captions",
             StepKind::ReviewCaptions => "reviewCaptions",
+            StepKind::Style => "captionStyle",
             StepKind::Render => "render",
         }
     }
-    /// Whether a failure only skips this step (the reviews and the kill scan are optional: the
-    /// captions are still made without the names).
+    /// Whether a failure only skips this step (the reviews, the kill scan and the caption style
+    /// are optional: the captions are still made without the names, or plain).
     fn optional(self) -> bool {
-        matches!(self, StepKind::ReviewCuts | StepKind::ReviewCaptions | StepKind::Kills)
+        matches!(self, StepKind::ReviewCuts | StepKind::ReviewCaptions | StepKind::Kills | StepKind::Style)
     }
 }
 
@@ -138,6 +145,8 @@ pub struct Flow {
     captions: Value,
     reuse: bool,
     review_captions: Value,
+    /// The caption style to put on the captions (`None`: take an earlier styled track away).
+    style: Option<String>,
     kills: Value,
     render: Value,
     /// The render step's exports still to start (one per match), and the files written.
@@ -160,7 +169,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Cut and Caption in One Go (OverFilm)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"autoCut":bool=true,"templates":path?,"keepBefore":seconds=10,"fps":0.5..8=2,"frozenPauses":bool=true,"reviewCuts":bool=false,"applyCuts":bool=true,"captions":"new"|"reuse"|"off"="new","audioTrack":n?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"reviewCaptions":bool=false,"kills":bool=true,"killFps":0.5..8=2,"render":bool=false,"renderFormat":"h264|hevc|av1|prores|dnxhr|mxf-op1a|gif|wav|aac|flac|premiere"="h264","renderPath":path?,"renderSplit":"match"|"one"="match","burnCaptions":bool=true,"captionSidecar":"srt|vtt"?,"wait":bool=false}"#,
+            params: r#"{"autoCut":bool=true,"templates":path?,"keepBefore":seconds=10,"fps":0.5..8=2,"frozenPauses":bool=true,"reviewCuts":bool=false,"applyCuts":bool=true,"captions":"new"|"reuse"|"off"="new","audioTrack":n?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"reviewCaptions":bool=false,"captionStyle":str?,"kills":bool=true,"killFps":0.5..8=2,"render":bool=false,"renderFormat":"h264|hevc|av1|prores|dnxhr|mxf-op1a|gif|wav|aac|flac|premiere"="h264","renderPath":path?,"renderSplit":"match"|"one"="match","burnCaptions":bool=true,"captionSidecar":"srt|vtt"?,"wait":bool=false}"#,
             enabled: can_run,
             run,
             journal: false,
@@ -271,6 +280,28 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
             kinds.push(StepKind::ReviewCaptions);
         }
     }
+    // the caption style: the one asked for, else the one the sequence has ("none": plain)
+    let style = match str_p(p, "captionStyle").map(str::trim) {
+        None | Some("keep") => crate::overfilm_captions::current_style(s),
+        Some("" | "none") => None,
+        Some(name) => {
+            if !crate::overfilm_captions::preset_exists(s, name) {
+                return Err(bad(CMD, format!("no caption style named {name}")));
+            }
+            Some(name.to_string())
+        }
+    };
+    let styled_now = crate::overfilm_captions::current_style(s).is_some();
+    // new captions get the style; a style asked for also goes on captions the sequence has
+    let has_captions = s.active_sequence().is_some_and(|q| q.caption_tracks.first().is_some_and(|t| !t.captions.is_empty()));
+    let restyle = if captions != "off" {
+        style.is_some() || styled_now
+    } else {
+        style.is_some() && str_p(p, "captionStyle").is_some_and(|v| !matches!(v.trim(), "keep")) && has_captions
+    };
+    if restyle {
+        kinds.push(StepKind::Style);
+    }
     if render {
         kinds.push(StepKind::Render);
     }
@@ -336,6 +367,7 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
         captions: cap_p,
         reuse: captions == "reuse",
         review_captions: rev_p,
+        style,
         kills: kill_p,
         render: render_p,
         render_queue: Vec::new(),
@@ -472,7 +504,7 @@ fn job_state(s: &Session, kind: StepKind, id: u64) -> JobState {
         StepKind::Captions => s.overfilm_caption_jobs.iter().any(|j| j.job == id),
         StepKind::ReviewCuts | StepKind::ReviewCaptions => s.overfilm_review.jobs.iter().any(|j| j.job == id),
         StepKind::Kills => s.overfilm_kill_jobs.iter().any(|j| j.job == id),
-        StepKind::ApplyCuts | StepKind::Render => false,
+        StepKind::ApplyCuts | StepKind::Style | StepKind::Render => false,
     };
     let Some(job) = s.jobs.iter().find(|j| j.id == id) else {
         return if pending { JobState::Running } else { JobState::Done(String::new()) };
@@ -569,7 +601,7 @@ fn start(s: &mut Session, i: usize, kind: StepKind) -> Result<()> {
     }
     let wait = f.wait;
     let (cut_p, cap_p, rev_p, reuse) = (f.auto_cut.clone(), f.captions.clone(), f.review_captions.clone(), f.reuse);
-    let (kill_p, render_p) = (f.kills.clone(), f.render.clone());
+    let (kill_p, render_p, style) = (f.kills.clone(), f.render.clone(), f.style.clone());
     if let Some(st) = s.overfilm_flow.as_mut().and_then(|f| f.steps.get_mut(i)) {
         st.state = StepState::Running;
         st.started = Some(web_time::Instant::now());
@@ -626,6 +658,19 @@ fn start(s: &mut Session, i: usize, kind: StepKind) -> Result<()> {
             return Ok(());
         }
         StepKind::Captions => s.execute("overfilm.captions.generate", with_wait(cap_p))?,
+        StepKind::Style => {
+            let r = match &style {
+                Some(name) => s
+                    .execute("overfilm.captions.stylize", json!({"preset": name}))
+                    .map(|v| format!("\"{name}\" 스타일로 자막 {}개", v["styled"].as_u64().unwrap_or(0))),
+                None => crate::overfilm_captions::remove_styled(s).map(|n| if n > 0 { "스타일 없이 기본 자막으로".to_string() } else { String::new() }),
+            };
+            match r {
+                Ok(m) => set(s, i, StepState::Done, m),
+                Err(e) => set(s, i, StepState::Failed, e.to_string()),
+            }
+            return Ok(());
+        }
         StepKind::ReviewCaptions => {
             if command_ready(s, "overfilm.review.captions").is_err() {
                 set(s, i, StepState::Skipped, "검토할 자막이 없습니다".into());
