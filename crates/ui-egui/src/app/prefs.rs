@@ -136,6 +136,10 @@ impl FilmcraftApp {
             if let Some(w) = dock::find(&self.workspaces, &self.workspaces.current) {
                 self.set_workspace(&w);
             }
+            // the OverFilm panel opens with the editor unless the user turned that off in it
+            if !self.ui.dock.contains(&dock::PanelKind::OverFilm) && crate::panels::overfilm_panel::open_at_start(self) {
+                self.show_panel(dock::PanelKind::OverFilm);
+            }
         }
         self.applied_prefs = Some(p);
     }

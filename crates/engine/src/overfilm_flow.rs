@@ -27,6 +27,11 @@
 //! - `overfilm.flow.status` returns the steps, each `pending`, `running` (with the job's progress
 //!   and status), `done`, `skipped` or `failed` with a message.
 //! - `overfilm.flow.stop` stops the running job and the steps after it.
+//! - `overfilm.panel.settings {settings?, reset=false, file?}`: the OverFilm panel's saved choices
+//!   (`overfilm-panel.json` in the OverFilm data folder), so the panel opens with them next time.
+//!   `settings` (an object) is saved, merged over what is there; `reset` forgets them all. It
+//!   answers `{settings, openAtStart}` (`openAtStart`: open the panel when the editor starts,
+//!   on unless the user turned it off).
 //!
 //! While a run is going, the reviews that Claude Code review's "on its own" setting would start
 //! after Auto Cut and OverFilm Captions are left to the run (it asks only when the user ticked
@@ -168,6 +173,16 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             params: "{}",
             enabled: crate::commands::always,
             run: status_cmd,
+            journal: false,
+        },
+        CommandSpec {
+            id: "overfilm.panel.settings",
+            label: "OverFilm Panel Settings",
+            menu: &[],
+            shortcut: None,
+            params: r#"{"settings":{key:value}?,"reset":bool=false,"file":path?}"#,
+            enabled: crate::commands::always,
+            run: panel_settings_cmd,
             journal: false,
         },
         CommandSpec {
@@ -338,6 +353,54 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn status_cmd(s: &mut Session, _: &Value) -> Result<Value> {
     Ok(status(s))
+}
+
+/// The OverFilm panel's settings file.
+const PANEL_FILE: &str = "overfilm-panel.json";
+/// A settings file bigger than this is not read (it is a few hundred bytes).
+const PANEL_FILE_MAX: u64 = 256 * 1024;
+/// Keys not kept: the names being typed (saved on their own when the user presses Save).
+const PANEL_TRANSIENT: &[&str] = &["names"];
+
+/// The saved panel settings (an empty object when there are none or the file is unreadable).
+fn panel_load(path: &std::path::Path) -> serde_json::Map<String, Value> {
+    let small = std::fs::metadata(path).is_ok_and(|m| m.len() <= PANEL_FILE_MAX);
+    let text = if small { std::fs::read_to_string(path).unwrap_or_default() } else { String::new() };
+    match serde_json::from_str::<Value>(&text) {
+        Ok(Value::Object(m)) => m,
+        _ => serde_json::Map::new(),
+    }
+}
+
+fn panel_settings_cmd(_s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "overfilm.panel.settings";
+    let path = match str_p(p, "file").filter(|f| !f.trim().is_empty()) {
+        Some(f) => std::path::PathBuf::from(f),
+        None => std::path::PathBuf::from(crate::overfilm_autocut::user_file(PANEL_FILE)),
+    };
+    let reset = bool_p(p, "reset").unwrap_or(false);
+    let mut saved = if reset { serde_json::Map::new() } else { panel_load(&path) };
+    let given = match p.get("settings") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(m)) => Some(m),
+        Some(_) => return Err(bad(CMD, "settings must be an object")),
+    };
+    if let Some(m) = given {
+        for (k, v) in m {
+            if !PANEL_TRANSIENT.contains(&k.as_str()) {
+                saved.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    if reset || given.is_some() {
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir).map_err(|e| EngineError::Other(format!("{}: {e}", dir.display())))?;
+        }
+        let text = serde_json::to_string_pretty(&Value::Object(saved.clone())).map_err(|e| EngineError::Other(e.to_string()))?;
+        std::fs::write(&path, text).map_err(|e| EngineError::Other(format!("{}: {e}", path.display())))?;
+    }
+    let open = saved.get("openAtStart").and_then(Value::as_bool).unwrap_or(true);
+    Ok(json!({"settings": saved, "openAtStart": open}))
 }
 
 fn stop_cmd(s: &mut Session, _: &Value) -> Result<Value> {
