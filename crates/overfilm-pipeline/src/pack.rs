@@ -161,6 +161,18 @@ mod tests {
     }
 
     #[test]
+    fn compete_is_not_economy() {
+        // the recognizer writes 경쟁하는 as 경제하는; 경제하다 is not a word, so the verb is fixed
+        let g = glossary(None, true).unwrap();
+        let c = corrector(&g);
+        assert_eq!(c.apply("영상 꼭 보고 경제하는 걸 추천할 정도예요").text, "영상 꼭 보고 경쟁하는 걸 추천할 정도예요");
+        assert_eq!(c.apply("경제할 때 경제해서 경제했어요").text, "경쟁할 때 경쟁해서 경쟁했어요");
+        // the noun 경제 and 경제하고 (경제 and …) may really be about the economy
+        assert_eq!(c.apply("경제 이야기 경제하고 정치").text, "경제 이야기 경제하고 정치");
+        assert_eq!(c.apply("세계경제하는").text, "세계경제하는");
+    }
+
+    #[test]
     fn community_slang() {
         let g = glossary(None, true).unwrap();
         let c = corrector(&g);

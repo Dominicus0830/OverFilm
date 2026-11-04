@@ -71,3 +71,18 @@ three_kings	3황				삼황	noeval
 # 사용자 지정(2026-11-03): 예스러운 접속어는 자막에서 요즘 말로
 however_old	그러나				허나	noeval
 but_old	근데				헌데	noeval
+# 경쟁하다 (경쟁전을 하다): 인식기가 '경제하는'으로 쓰기 쉬움. '경제하다'는 없는 말이라 동사 꼴만 바로 고침 (명사 '경제'와 '경제하고'는 경제 이야기일 수 있어 Claude 검토에만 알림)
+compete_haneun	경쟁하는				경제하는	noeval
+compete_hamyeon	경쟁하면				경제하면	noeval
+compete_hada	경쟁하다				경제하다	noeval
+compete_hareo	경쟁하러				경제하러	noeval
+compete_hagi	경쟁하기				경제하기	noeval
+compete_haji	경쟁하지				경제하지	noeval
+compete_hadeon	경쟁하던				경제하던	noeval
+compete_haja	경쟁하자				경제하자	noeval
+compete_hasi	경쟁하시				경제하시	noeval
+compete_hase	경쟁하세				경제하세	noeval
+compete_hal	경쟁할				경제할	noeval
+compete_hae	경쟁해				경제해	noeval
+compete_haet	경쟁했				경제했	noeval
+compete_hap	경쟁합				경제합	noeval
