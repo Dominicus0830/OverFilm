@@ -457,7 +457,8 @@ mod tests {
         let o: Options = serde_json::from_str(r#"{"input":"v.mp4"}"#).unwrap();
         assert!(o.mask_profanity);
         assert_eq!(o.srt_path(), PathBuf::from("v.srt"));
-        assert_eq!(o.layout().max_line, 32);
+        assert_eq!(o.layout().max_line, 50);
+        assert_eq!(o.layout().max_lines, 1);
     }
 
     #[test]
