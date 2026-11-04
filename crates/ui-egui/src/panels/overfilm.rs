@@ -96,7 +96,7 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
                 .unwrap_or_default();
             (
                 json!({"audioTrack": "", "mode": "general", "who": "auto", "gameVoice": "drop", "lineChars": 25, "maxLines": 1,
-                       "leadMs": 120, "holdMs": 400, "readingCps": 12, "cleanFillers": true, "gpu": true, "extraTerms": "", "silence": "auto"}),
+                       "leadMs": 120, "holdMs": 400, "readingCps": 12, "periods": true, "cleanFillers": true, "gpu": true, "extraTerms": "", "silence": "auto"}),
                 json!({"tracks": tracks}),
             )
         }
@@ -528,6 +528,7 @@ pub fn show(app: &mut FilmcraftApp, ctx: &egui::Context) {
                         }
                     }
                     let p = &mut d.params;
+                    check(ui, &mut elems, format!("{pre}.periods"), tl!("End sentences with a period"), &mut p["periods"]);
                     check(ui, &mut elems, format!("{pre}.cleanFillers"), tl!("Leave out fillers and stutters (어, 음…)"), &mut p["cleanFillers"]);
                     check(ui, &mut elems, format!("{pre}.gpu"), tl!("Use the GPU"), &mut p["gpu"]);
                     ui.weak(tl!("Runs in the background. The models (about 6 GB) are downloaded the first time, into the folder OverFilmSubs uses."));

@@ -45,6 +45,9 @@ pub struct Options {
     /// Reading speed captions stay up for when there is room (letters per second; 0: off).
     #[serde(default = "cps")]
     pub reading_cps: u32,
+    /// End sentences with a period (`?` and `!` always stay).
+    #[serde(default = "yes")]
+    pub periods: bool,
     /// Use the GPU when there is one (Vulkan/DX12; falls back to the CPU).
     #[serde(default = "yes")]
     pub gpu: bool,
@@ -121,6 +124,7 @@ impl Options {
             lead_ms: lead(),
             hold_ms: hold(),
             reading_cps: cps(),
+            periods: true,
             gpu: true,
             speakers: true,
             num_speakers: None,
@@ -146,6 +150,7 @@ impl Options {
             lead_ms: self.lead_ms.clamp(0, 1000),
             hold_ms: self.hold_ms.clamp(0, 3000),
             reading_cps: self.reading_cps.min(40),
+            periods: self.periods,
             ..Layout::default()
         }
     }
@@ -457,7 +462,7 @@ mod tests {
         let o: Options = serde_json::from_str(r#"{"input":"v.mp4"}"#).unwrap();
         assert!(o.mask_profanity);
         assert_eq!(o.srt_path(), PathBuf::from("v.srt"));
-        assert_eq!(o.layout().max_line, 32);
+        assert_eq!(o.layout().max_line, 50, "25 Hangul a line");
     }
 
     #[test]

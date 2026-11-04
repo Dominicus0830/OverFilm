@@ -6,7 +6,7 @@
 //!
 //! Automation ids: `overfilm.panel.<param>` for each control (`autoCut`, `templates`,
 //! `keepBefore`, `applyCuts`, `reviewCuts`, `captions`, `audioTrack`, `mode`, `who`, `gameVoice`,
-//! `maxLines`, `lineChars`, `reviewCaptions`, `kills`, `render`, `renderFormat`, `renderPath`,
+//! `maxLines`, `lineChars`, `periods`, `reviewCaptions`, `kills`, `render`, `renderFormat`, `renderPath`,
 //! `renderSplit`, `burnCaptions`; with the caption review ticked `fixStutter` and `request`, kept
 //! with the review settings), `overfilm.panel.run`, `overfilm.panel.stop`,
 //! `overfilm.panel.step.<n>` for each step of the run, `overfilm.panel.reviewSettings`,
@@ -106,6 +106,7 @@ fn defaults(app: &mut FilmcraftApp) -> Value {
         "gameVoice": "drop",
         "maxLines": 1,
         "lineChars": 25,
+        "periods": true,
         "captionShape": CAPTION_SHAPE,
         "reviewCaptions": false,
         "kills": true,
@@ -220,6 +221,7 @@ fn run_params(p: &Value) -> Value {
         "gameVoice": p["gameVoice"],
         "maxLines": p["maxLines"],
         "lineChars": p["lineChars"],
+        "periods": p["periods"].as_bool().unwrap_or(true),
         "reviewCaptions": p["reviewCaptions"].as_bool().unwrap_or(false),
         "kills": p["kills"].as_bool().unwrap_or(true),
         "render": p["render"].as_bool().unwrap_or(false),
@@ -436,6 +438,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                     );
                     number(ui, &mut elems, format!("{PRE}.maxLines"), tl!("Lines per caption:"), &mut p["maxLines"], 1.0..=2.0, "");
                     number(ui, &mut elems, format!("{PRE}.lineChars"), tl!("Characters per line:"), &mut p["lineChars"], 8.0..=30.0, "");
+                    check(ui, &mut elems, format!("{PRE}.periods"), tl!("End sentences with a period"), &mut p["periods"]);
                 }
             });
             if p["captions"] != "off" {
@@ -883,13 +886,15 @@ mod tests {
         assert_eq!(
             run_params(&p),
             json!({"autoCut": true, "templates": "s.json", "keepBefore": 10.0, "applyCuts": false, "reviewCuts": true, "captions": "new",
-                   "audioTrack": 2, "mode": "commentary", "speakers": true, "numSpeakers": 1, "gameVoice": "drop", "reviewCaptions": false})
+                   "audioTrack": 2, "mode": "commentary", "speakers": true, "numSpeakers": 1, "gameVoice": "drop", "reviewCaptions": false,
+                   "kills": true, "render": false, "periods": true})
         );
         // from the transcript: no recognition settings; an empty template file is left to the default
         let p = json!({"autoCut": false, "templates": "", "captions": "reuse", "audioTrack": "1", "who": "3", "gameVoice": "label"});
         assert_eq!(
             run_params(&p),
-            json!({"autoCut": false, "applyCuts": true, "reviewCuts": false, "captions": "reuse", "gameVoice": "label", "reviewCaptions": false})
+            json!({"autoCut": false, "applyCuts": true, "reviewCuts": false, "captions": "reuse", "gameVoice": "label", "reviewCaptions": false,
+                   "kills": true, "render": false, "periods": true})
         );
         assert_eq!(run_params(&Value::Null)["captions"], "new");
         // the caption shape set in the panel goes to the run
