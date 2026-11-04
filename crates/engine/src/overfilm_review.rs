@@ -4,7 +4,7 @@
 //! markers and captions, in one undo step per review.
 //!
 //! - `overfilm.review.settings {enabled?, auto?, cliPath?, model?, timeoutSeconds?, batch?,
-//!   maxItems?}` reads and changes the settings (`claude-review.json` in the OverFilm data folder,
+//!   maxItems?, request?, fixStutter?}` reads and changes the settings (`claude-review.json` in the OverFilm data folder,
 //!   shared with OverFilmSubs). `auto`: review on its own after Auto Cut / Suggestions mark cuts
 //!   and after OverFilm Captions places captions.
 //! - `overfilm.review.status {cliPath?}` finds `claude` (at `cliPath` when given, not saved), its
@@ -26,7 +26,11 @@
 //!   correction, words the recogniser was not quite sure of, awkward breaks) with the pure
 //!   recognition, the corrected text and the captions around them, plus the kind of video
 //!   (`mode`), the match info markers ("OverFilm 경기/선수/영웅 선택/영웅 교체") and the glossary
-//!   terms the batch mentions; fixes and splits are applied, keeps left alone.
+//!   terms the batch mentions; fixes and splits are applied, keeps left alone. What the editor
+//!   asked for comes from the settings (`request`: their own words, `fixStutter`: stutters written
+//!   as the sentence meant unless said on purpose, on by default), or from the same parameters for
+//!   this run. A request asks about every caption (again too, up to [`REQUEST_MAX`]) and may drop
+//!   captions.
 //!
 //! Reviews run as background jobs (Jobs panel; stop cancels the running `claude`). A marker or
 //! caption changed while its review ran is left as it is. The pure recognition is kept in memory
@@ -93,7 +97,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Claude Code Review Settings (OverFilm)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"enabled":bool?,"auto":bool?,"cliPath":str?,"model":str?,"timeoutSeconds":10..1800?,"batch":1..20?,"maxItems":1..500?}"#,
+            params: r#"{"enabled":bool?,"auto":bool?,"cliPath":str?,"model":str?,"timeoutSeconds":10..1800?,"batch":1..20?,"maxItems":1..500?,"request":str?,"fixStutter":bool?}"#,
             enabled: crate::commands::always,
             run: settings_cmd,
             journal: false,
@@ -153,7 +157,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Ask Claude Code About Unclear Captions (OverFilm)",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"track":id?,"captions":[id]?,"all":bool=false,"again":bool=false,"mode":"general"|"commentary"?,"lineChars":n=16,"maxLines":1|2=2,"wait":bool=false}"#,
+            params: r#"{"track":id?,"captions":[id]?,"all":bool=false,"again":bool=false,"mode":"general"|"commentary"?,"lineChars":n=16,"maxLines":1|2=2,"request":str?,"fixStutter":bool?,"wait":bool=false}"#,
             enabled: can_review_captions,
             run: review_captions,
             journal: true,
@@ -233,6 +237,12 @@ fn settings_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     }
     if let Some(n) = u64_p(p, "maxItems") {
         st.max_items = usize::try_from(n).unwrap_or(usize::MAX);
+    }
+    if let Some(t) = str_p(p, "request") {
+        st.request = t.to_string();
+    }
+    if let Some(b) = bool_p(p, "fixStutter") {
+        st.fix_stutter = b;
     }
     let st = st.clamped();
     if st != before {
@@ -587,7 +597,25 @@ fn caption_track(s: &Session, p: &Value) -> Result<TrackId> {
 
 type CaptionCases = (Vec<CaptionQuestion>, BTreeMap<String, Vec<CapWord>>, BTreeMap<String, String>);
 
-fn caption_questions(s: &Session, p: &Value, track: TrackId, lim: &Limits, max: usize) -> Result<CaptionCases> {
+/// Longest request the editor can type (letters).
+pub const MAX_REQUEST: usize = caps::MAX_REQUEST;
+
+/// Most captions one review with a request asks about (a request is for the whole video).
+pub const REQUEST_MAX: usize = 1000;
+
+/// What the editor asked for: the settings, or `request` / `fixStutter` given for this run.
+fn wishes(st: &Settings, p: &Value) -> caps::Wishes {
+    let mut w = st.wishes();
+    if let Some(t) = str_p(p, "request") {
+        w.request = t.chars().take(caps::MAX_REQUEST).collect();
+    }
+    if let Some(b) = bool_p(p, "fixStutter") {
+        w.fix_stutter = b;
+    }
+    w
+}
+
+fn caption_questions(s: &Session, p: &Value, track: TrackId, lim: &Limits, max: usize, w: &caps::Wishes) -> Result<CaptionCases> {
     let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
     let t = q.caption_tracks.iter().find(|t| t.id == track).ok_or(EngineError::NoSequence)?;
     let chosen = ids_p(p, "captions");
@@ -595,13 +623,15 @@ fn caption_questions(s: &Session, p: &Value, track: TrackId, lim: &Limits, max: 
     let words = crate::transcript::sequence_words(s);
     let terms = review_terms();
     let infos: Vec<caps::CaptionIn> = t.captions.iter().map(|c| caption_info(s, &words, &terms, c)).collect();
-    let again = bool_p(p, "again").unwrap_or(false) || chosen.is_some();
+    // a request is new work on every caption, reviewed before or not
+    let again = bool_p(p, "again").unwrap_or(false) || chosen.is_some() || w.has_request();
+    let max = if w.has_request() { max.max(REQUEST_MAX) } else { max };
     let skip = |info: &caps::CaptionIn| {
         chosen.as_ref().is_some_and(|c| !c.iter().any(|id| id.to_string() == info.q.id))
             || (!again && info.q.id.parse::<u64>().is_ok_and(|id| s.overfilm_review.reviewed.contains(&id)))
     };
     let (mut cases, mut wmap, mut texts) = (Vec::new(), BTreeMap::new(), BTreeMap::new());
-    for (i, c) in caps::select(&infos, lim, all_flag, skip, max) {
+    for (i, c) in caps::select_with(&infos, lim, all_flag, skip, max, w) {
         wmap.insert(c.id.clone(), infos.get(i).map(|x| x.words.clone()).unwrap_or_default());
         texts.insert(c.id.clone(), c.text.clone());
         cases.push(c);
@@ -656,7 +686,7 @@ fn review_terms() -> Vec<caps::Term> {
 
 /// What the reviewer should know for one batch: the kind of video (`mode`, else commentary when
 /// match info is on the markers), the match info so far and the glossary terms the batch mentions.
-fn backgrounds(s: &Session, p: &Value, batches: &[Vec<CaptionQuestion>]) -> Vec<caps::Background> {
+fn backgrounds(s: &Session, p: &Value, batches: &[Vec<CaptionQuestion>], w: &caps::Wishes) -> Vec<caps::Background> {
     let markers: &[Marker] = s.active_sequence().map(|q| q.markers.as_slice()).unwrap_or_default();
     let has_match = markers.iter().any(|m| MATCH_INFO.iter().any(|p| m.name.starts_with(p)));
     let video = match str_p(p, "mode").and_then(overfilm_pipeline::pack::Mode::parse) {
@@ -684,6 +714,7 @@ fn backgrounds(s: &Session, p: &Value, batches: &[Vec<CaptionQuestion>]) -> Vec<
                 on_screen: on_screen(markers, until),
                 terms: caps::relevant_terms(&terms, &texts, MAX_TERMS),
                 roster: roster.clone(),
+                wishes: w.clone(),
             }
         })
         .collect()
@@ -695,13 +726,14 @@ fn review_captions(s: &mut Session, p: &Value) -> Result<Value> {
     load_raw(s);
     let track = caption_track(s, p)?;
     let lim = limits_p(p);
-    let (cases, words, texts) = caption_questions(s, p, track, &lim, st.max_items)?;
+    let w = wishes(&st, p);
+    let (cases, words, texts) = caption_questions(s, p, track, &lim, st.max_items, &w)?;
     if cases.is_empty() {
         return Ok(json!({"asked": 0, "message": "판단이 필요한 자막이 없습니다 (all=true로 전부 물어볼 수 있습니다)"}));
     }
     let n = cases.len();
     let batches: Vec<Vec<CaptionQuestion>> = cases.chunks(st.batch.max(1)).map(<[CaptionQuestion]>::to_vec).collect();
-    let bgs = backgrounds(s, p, &batches);
+    let bgs = backgrounds(s, p, &batches, &w);
     let work = move |stop: &std::sync::atomic::AtomicBool, step: &mut dyn FnMut(usize)| {
         let mut answers = Vec::new();
         let mut errors = Vec::new();
@@ -709,7 +741,7 @@ fn review_captions(s: &mut Session, p: &Value) -> Result<Value> {
             step(i);
             let bg = bgs.get(i).cloned().unwrap_or_default();
             match r.ask(&caps::question_with(b, &lim, &bg), stop) {
-                Ok(v) => answers.extend(caps::parse(&v, b, &lim)),
+                Ok(v) => answers.extend(caps::parse_with(&v, b, &lim, &w)),
                 Err(e) => {
                     let stop_all = !matches!(e, ReviewError::BadAnswer(_) | ReviewError::Failed(_) | ReviewError::Timeout(_));
                     errors.push(e.to_string());
@@ -759,6 +791,9 @@ fn apply_captions(s: &mut Session, track: TrackId, asked: &Asked, answers: Vec<C
             report.push(json!({"caption": c.id.0, "decision": a.decision, "before": c.text, "text": a.text, "parts": a.parts, "reason": a.reason}));
             match a.decision {
                 CaptionDecision::Keep => {}
+                CaptionDecision::Drop => {
+                    t.captions.remove(i);
+                }
                 CaptionDecision::Fix => {
                     if let Some(cc) = t.captions.get_mut(i) {
                         cc.text = with_label(&c.text, &a.text);

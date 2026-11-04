@@ -4,13 +4,16 @@
 //!   `overfilm.review.settings` without parameters): the on/off switch, review on its own, the
 //!   model picked from the list the installed Claude Code offers (or typed), the `claude` path,
 //!   time limit, the sign-in state with a Sign In button.
+//! - What the editor asks of the caption review (also in the OverFilm panel, [`wishes_ui`]):
+//!   "Fix stutters" (on by default; Claude leaves a word said again on purpose) and a request in
+//!   their own words, kept with the review settings.
 //! - Asking for a review (`overfilm.review.cuts`, `overfilm.review.captions`, `overfilm.flow.run`
 //!   with a review step) checks first: Claude Code not installed opens the install guide; review
 //!   off, not signed in or signed in with an API key opens the settings with what to do. A good
 //!   check is remembered for ten minutes.
 //!
 //! Automation ids: `overfilm.review.<param>` for each control, `overfilm.review.modelPick`,
-//! `overfilm.review.check`, `overfilm.review.login`, `overfilm.review.ok`,
+//! `overfilm.review.fixStutter`, `overfilm.review.request`, `overfilm.review.check`, `overfilm.review.login`, `overfilm.review.ok`,
 //! `overfilm.review.cancel`; install guide `overfilm.review.install.copy<N>`,
 //! `overfilm.review.install.docs`, `overfilm.review.install.recheck`,
 //! `overfilm.review.install.close`.
@@ -210,6 +213,37 @@ fn model_row(ui: &mut egui::Ui, elems: &mut Elems, d: &mut Draft) {
     ui.end_row();
 }
 
+/// "Fix stutters" and the request for the caption review; `w` holds `fixStutter` and `request`
+/// as the review settings name them. Automation ids `<prefix>.fixStutter`, `<prefix>.request`.
+pub(crate) fn wishes_ui(ui: &mut egui::Ui, elems: &mut Elems, prefix: &str, w: &mut Value) {
+    let mut b = w["fixStutter"].as_bool().unwrap_or(true);
+    let r = ui
+        .checkbox(&mut b, tl!("Fix stutters into the sentence meant"))
+        .on_hover_text(tl!("Claude decides whether a word said again was a real stutter or said on purpose (excited, for effect) and leaves the latter."));
+    w["fixStutter"] = json!(b);
+    elems.push((format!("{prefix}.fixStutter"), r.rect, tl!("Fix stutters into the sentence meant").to_string()));
+    let name = ui.label(tl!("What else should Claude do with the captions? (optional)")).id;
+    let mut t = w["request"].as_str().unwrap_or_default().to_string();
+    let r = ui
+        .add(
+            egui::TextEdit::multiline(&mut t)
+                .hint_text(tl!("e.g. Remove the parts where they talk about nothing useful"))
+                .desired_rows(2)
+                .desired_width(f32::INFINITY)
+                .char_limit(filmcraft_engine::overfilm_review::MAX_REQUEST),
+        )
+        .labelled_by(name);
+    w["request"] = json!(t);
+    elems.push((format!("{prefix}.request"), r.rect, t));
+    if w["request"].as_str().is_some_and(|t| !t.trim().is_empty()) {
+        ui.label(
+            egui::RichText::new(tl!("With a request every caption is checked, and captions it says to remove are removed (one undo brings them back)."))
+                .weak()
+                .size(11.0),
+        );
+    }
+}
+
 /// The settings command's parameters from the dialog.
 fn run_params(p: &Value) -> Value {
     json!({
@@ -220,6 +254,8 @@ fn run_params(p: &Value) -> Value {
         "timeoutSeconds": p["timeoutSecs"].as_u64().unwrap_or(180),
         "batch": p["batch"].as_u64().unwrap_or(6),
         "maxItems": p["maxItems"].as_u64().unwrap_or(60),
+        "request": p["request"].as_str().unwrap_or_default(),
+        "fixStutter": p["fixStutter"].as_bool().unwrap_or(true),
     })
 }
 
@@ -255,6 +291,9 @@ fn settings_body(ui: &mut egui::Ui, elems: &mut Elems, d: &mut Draft, c: &mut Cl
         number(ui, elems, "batch", tl!("Items per question:"), &mut p["batch"], 1.0..=20.0, "");
         number(ui, elems, "maxItems", tl!("Most items per review:"), &mut p["maxItems"], 1.0..=500.0, "");
     });
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new(tl!("Caption review")).strong());
+    wishes_ui(ui, elems, "overfilm.review", &mut d.params);
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
         let r = ui.button(tl!("Check Claude Code"));
@@ -413,8 +452,12 @@ mod tests {
         let p = json!({"enabled": true, "auto": false, "cliPath": "C:\\claude.exe", "model": "", "timeoutSecs": 120, "batch": 4, "maxItems": 30});
         assert_eq!(
             run_params(&p),
-            json!({"enabled": true, "auto": false, "cliPath": "C:\\claude.exe", "model": "", "timeoutSeconds": 120, "batch": 4, "maxItems": 30})
+            json!({"enabled": true, "auto": false, "cliPath": "C:\\claude.exe", "model": "", "timeoutSeconds": 120, "batch": 4, "maxItems": 30,
+                   "request": "", "fixStutter": true})
         );
         assert_eq!(run_params(&Value::Null)["enabled"], false);
+        let p = json!({"request": "쓸데없는 말 지워줘", "fixStutter": false});
+        assert_eq!(run_params(&p)["request"], "쓸데없는 말 지워줘");
+        assert_eq!(run_params(&p)["fixStutter"], false);
     }
 }

@@ -6,6 +6,11 @@
 //! captions before and after with their own pure recognition ([`question`]). It answers keep, a
 //! corrected text (line break included), or a split into several captions ([`parse`]); the
 //! split's times come from the word times ([`split_times`]).
+//!
+//! The editor can ask for more ([`Wishes`]): stutters written out as the sentence meant (on by
+//! default; Claude tells a real stutter from one said on purpose), and a request in their own words
+//! ("쓸데없는 말 하는 부분 지워줘"). With a request every caption is asked about and a caption may
+//! be dropped.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -81,6 +86,59 @@ pub enum CaptionDecision {
     Fix,
     /// Make several captions (`parts`).
     Split,
+    /// Remove the caption (only when the editor's request asks for it).
+    Drop,
+}
+
+/// Longest request the editor can type (letters).
+pub const MAX_REQUEST: usize = 2000;
+
+/// What the editor asks of the review besides the rules.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Wishes {
+    /// The editor's own words ("쓸데없는 말 하는 부분 지워줘"); empty: none.
+    pub request: String,
+    /// Stutters written as the sentence meant, unless said on purpose.
+    pub fix_stutter: bool,
+}
+
+impl Wishes {
+    /// The request, trimmed and bounded.
+    pub fn request(&self) -> String {
+        cap(self.request.trim(), MAX_REQUEST)
+    }
+
+    pub fn has_request(&self) -> bool {
+        !self.request.trim().is_empty()
+    }
+}
+
+/// Words said again right after themselves or cut off and started again (`그 그러니까`,
+/// `저, 저희가`, `가요 가요`), as `그 그러니까`; whether it was on purpose is the reviewer's call.
+pub fn stutters(text: &str) -> Vec<String> {
+    let toks: Vec<&str> = text.split_whitespace().collect();
+    let mut out: Vec<String> = Vec::new();
+    for pair in toks.windows(2) {
+        let (Some(a), Some(b)) = (pair.first(), pair.get(1)) else { continue };
+        let (x, y) = (bare(a), bare(b));
+        let n = x.chars().count();
+        if n == 0 || y.is_empty() {
+            continue;
+        }
+        // the same word again, or a short start (one or two letters) the next word begins with
+        let again = x == y || (n <= 2 && y.chars().count() > n && y.starts_with(&x));
+        if again {
+            let s = format!("{a} {b}");
+            if !out.contains(&s) {
+                out.push(s);
+            }
+        }
+        if out.len() >= 10 {
+            break;
+        }
+    }
+    out
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -253,6 +311,20 @@ pub fn suspects(terms: &[Term], text: &str) -> Vec<String> {
 /// The captions of a track worth asking about (all of them with `all`), in order, each with
 /// its doubts and the two captions on either side; `skip` leaves some out (already reviewed).
 pub fn select(infos: &[CaptionIn], lim: &Limits, all: bool, skip: impl Fn(&CaptionIn) -> bool, max: usize) -> Vec<(usize, CaptionQuestion)> {
+    select_with(infos, lim, all, skip, max, &Wishes::default())
+}
+
+/// [`select`] with what the editor asked for: stutters are a reason to ask, and a request asks
+/// about every caption.
+pub fn select_with(
+    infos: &[CaptionIn],
+    lim: &Limits,
+    all: bool,
+    skip: impl Fn(&CaptionIn) -> bool,
+    max: usize,
+    wishes: &Wishes,
+) -> Vec<(usize, CaptionQuestion)> {
+    let all = all || wishes.has_request();
     let neighbor = |i: usize| {
         infos.get(i).map(|x| Neighbor {
             start_ms: x.q.start_ms,
@@ -270,6 +342,12 @@ pub fn select(infos: &[CaptionIn], lim: &Limits, all: bool, skip: impl Fn(&Capti
         let (mut doubts, unsure) = doubts(&info.q.text, &info.words, info.q.raw.as_deref(), &info.q.corrected, next, lim);
         if !info.suspects.is_empty() {
             doubts.push(format!("실제 낱말이지만 오버워치 영상에선 오인식이 잦은 단어: {}", info.suspects.join(", ")));
+        }
+        if wishes.fix_stutter {
+            let st = stutters(&info.q.text);
+            if !st.is_empty() {
+                doubts.push(format!("말을 더듬은 듯함: {} (실제로 더듬은 것이면 바른 문장으로, 일부러 되풀이한 것이면 그대로)", st.join(", ")));
+            }
         }
         if doubts.is_empty() && !all {
             continue;
@@ -289,6 +367,46 @@ pub fn select(infos: &[CaptionIn], lim: &Limits, all: bool, skip: impl Fn(&Capti
 
 /// The system prompt.
 pub fn system(lim: &Limits) -> String {
+    system_with(lim, &Wishes::default())
+}
+
+/// The rules for stutters and for the editor's request.
+fn wish_rules(w: &Wishes) -> String {
+    let mut p = String::new();
+    if w.fix_stutter {
+        p.push_str(
+            "\n말 더듬기: 화자가 실제로 말을 더듬은 곳(같은 소리·낱말을 되풀이하거나 말을 꺼내다 끊고 다시 시작함: \
+'그 그 그러니까'→'그러니까', '저, 저희가'→'저희가', '이 이게 이게 왜'→'이게 왜')은 fix로 화자가 하려던 바른 문장으로 고친다. \
+되풀이를 지우고 끊긴 말을 이어 붙일 뿐, 뜻을 바꾸거나 다른 말을 보태지 않는다. \
+일부러 되풀이한 것은 그대로 둔다: 강조·흥분·감탄('가요 가요 가요!', '와 와 와', '잡았어요 잡았어요!', 중계에서 외치는 말), \
+말장난·흉내, 대답을 거듭하는 말('네 네', '아니 아니'), 그 사람의 말버릇. 실제 더듬기인지 일부러인지 앞뒤 문맥과 말투로 판단하고, \
+판단이 서지 않으면 그대로 둔다.",
+        );
+    } else {
+        p.push_str("\n말 더듬기: 화자가 더듬은 말(같은 낱말 되풀이 등)은 들린 그대로 둔다.");
+    }
+    if w.has_request() {
+        p.push_str(
+            "\n편집자 요구사항: 프롬프트 맨 앞의 '편집자 요구사항'을 모든 자막에 적용한다. 요구사항이 위 규칙과 부딪치면 요구사항을 따르되, \
+고친 글자는 들린 말에서 지우거나 다듬는 데 그치고 들리지 않은 내용을 지어내지 않는다. \
+요구사항에 따라 자막 전체를 없애야 하면 drop을 고른다(쓸데없는 말, 혼잣말, 군말만 있는 자막 등). \
+자막 일부만 해당하면 fix로 그 부분을 지운 글을 쓴다. 요구사항과 상관없는 자막은 위 규칙대로 판단한다.",
+        );
+    }
+    p
+}
+
+/// The system prompt with what the editor asked for.
+pub fn system_with(lim: &Limits, w: &Wishes) -> String {
+    let mut s = system_base(lim);
+    s.push_str(&wish_rules(w));
+    if w.has_request() {
+        s.push_str("\n- drop: 편집자 요구사항에 따라 이 자막을 통째로 지운다 (text 없이 reason만).");
+    }
+    s
+}
+
+fn system_base(lim: &Limits) -> String {
     format!(
         "당신은 오버워치 영상의 한국어 자막을 검토하는 사람입니다. 음성 인식(STT)이 만든 자막을 보냅니다. \
 각 자막마다 '순수 인식'(단어집 교정 전), '교정본'(오버워치 단어집으로 영웅·스킬·맵·선수 이름을 고친 것), 현재 자막, \
@@ -438,6 +556,8 @@ pub struct Background {
     pub terms: Vec<String>,
     /// Every hero with their role ([`roster`]).
     pub roster: Vec<String>,
+    /// What the editor asked for.
+    pub wishes: Wishes,
 }
 
 impl Background {
@@ -479,7 +599,11 @@ pub fn question(cases: &[CaptionQuestion], lim: &Limits) -> Question {
 
 /// The question for a batch of captions, with what is known about the video.
 pub fn question_with(cases: &[CaptionQuestion], lim: &Limits, bg: &Background) -> Question {
-    let mut p = bg.text();
+    let mut p = String::new();
+    if bg.wishes.has_request() {
+        p.push_str(&format!("편집자 요구사항 (모든 자막에 적용):\n{}\n\n", bg.wishes.request()));
+    }
+    p.push_str(&bg.text());
     p.push_str("다음 자막들을 검토해 주세요.\n\n");
     for c in cases {
         p.push_str(&format!("### 자막 id={} [{}–{}]\n", c.id, clock(c.start_ms), clock(c.end_ms)));
@@ -502,7 +626,7 @@ pub fn question_with(cases: &[CaptionQuestion], lim: &Limits, bg: &Background) -
         p.push_str(&neighbor_lines(&c.after));
         p.push('\n');
     }
-    Question { system: system(lim), prompt: p, schema: schema() }
+    Question { system: system_with(lim, &bg.wishes), prompt: p, schema: schema() }
 }
 
 pub fn schema() -> Value {
@@ -515,7 +639,7 @@ pub fn schema() -> Value {
                     "type": "object",
                     "properties": {
                         "id": {"type": "string"},
-                        "decision": {"type": "string", "enum": ["keep", "fix", "split"]},
+                        "decision": {"type": "string", "enum": ["keep", "fix", "split", "drop"]},
                         "text": {"type": "string"},
                         "parts": {"type": "array", "items": {"type": "string"}},
                         "reason": {"type": "string"}
@@ -553,11 +677,15 @@ fn distance(a: &str, b: &str) -> usize {
 
 /// A rewrite stays close to what was heard: within 40 % of the letters (at least 4) of the
 /// caption or of the pure recognition.
-fn plausible(new: &str, c: &CaptionQuestion) -> bool {
+fn plausible(new: &str, c: &CaptionQuestion, cuts: bool) -> bool {
     let n = bare(new);
+    let nl = n.chars().count();
     let near = |old: &str| {
         let o = bare(old);
-        distance(&n, &o) <= (o.chars().count() * 2 / 5).max(4)
+        let ol = o.chars().count();
+        let d = distance(&n, &o);
+        // with a request, words may go: the letters left are what was heard, little changed
+        d <= (ol * 2 / 5).max(4) || (cuts && nl > 0 && nl < ol && d.saturating_sub(ol - nl) <= (nl * 2 / 5).max(4))
     };
     near(&c.text) || c.raw.as_deref().is_some_and(near)
 }
@@ -565,6 +693,13 @@ fn plausible(new: &str, c: &CaptionQuestion) -> bool {
 /// The answers in `v` for `cases`, checked: unknown ids dropped; a fix or split that breaks the
 /// line rules, is empty, or strays far from what was heard is dropped (the caption stays).
 pub fn parse(v: &Value, cases: &[CaptionQuestion], lim: &Limits) -> Vec<CaptionAnswer> {
+    parse_with(v, cases, lim, &Wishes::default())
+}
+
+/// [`parse`] with what the editor asked for: a request allows dropping a caption and fixes that
+/// leave words out.
+pub fn parse_with(v: &Value, cases: &[CaptionQuestion], lim: &Limits, w: &Wishes) -> Vec<CaptionAnswer> {
+    let cuts = w.has_request();
     let mut out: Vec<CaptionAnswer> = Vec::new();
     for a in v["answers"].as_array().map(Vec::as_slice).unwrap_or(&[]).iter().take(cases.len().saturating_mul(2)) {
         let Some(id) = a["id"].as_str() else { continue };
@@ -577,9 +712,14 @@ pub fn parse(v: &Value, cases: &[CaptionQuestion], lim: &Limits) -> Vec<CaptionA
         let mut ans = CaptionAnswer { id: id.into(), decision, text: String::new(), parts: Vec::new(), reason };
         match decision {
             CaptionDecision::Keep => {}
+            CaptionDecision::Drop => {
+                if !cuts {
+                    continue;
+                }
+            }
             CaptionDecision::Fix => {
                 let Some(t) = a["text"].as_str().and_then(|t| tidy(t, lim)) else { continue };
-                if !plausible(&t, c) {
+                if !plausible(&t, c, cuts) {
                     continue;
                 }
                 if t == c.text {
@@ -592,7 +732,7 @@ pub fn parse(v: &Value, cases: &[CaptionQuestion], lim: &Limits) -> Vec<CaptionA
                 let parts: Option<Vec<String>> =
                     a["parts"].as_array().map(|p| p.iter().take(5).map(|x| x.as_str().and_then(|t| tidy(t, lim))).collect()).unwrap_or(None);
                 let Some(parts) = parts.filter(|p| (2..=4).contains(&p.len())) else { continue };
-                if !plausible(&parts.join(" "), c) {
+                if !plausible(&parts.join(" "), c, cuts) {
                     continue;
                 }
                 ans.parts = parts;
@@ -751,6 +891,7 @@ mod tests {
             on_screen: vec!["OverFilm 선수 — 로제: 태종".into()],
             terms: vec!["둠피스트 (돌격)".into()],
             roster: Vec::new(),
+            wishes: Wishes::default(),
         };
         let q = question_with(std::slice::from_ref(&c), &lim, &bg);
         let (v, s, t, case) = (q.prompt.find("영상 종류"), q.prompt.find("로제: 태종"), q.prompt.find("둠피스트 (돌격)"), q.prompt.find("### 자막 id=7"));
@@ -812,6 +953,56 @@ mod tests {
         assert!(parse(&one, &[case()], &lim).is_empty());
         let same = json!({"answers": [{"id": "5", "decision": "fix", "text": "자 겐지가 들어가고 트레이서\n따라갑니다", "reason": ""}]});
         assert_eq!(parse(&same, &[case()], &lim)[0].decision, CaptionDecision::Keep);
+    }
+
+    #[test]
+    fn stutters_found() {
+        assert_eq!(stutters("그 그러니까 이게 이게 왜"), ["그 그러니까", "이게 이게"]);
+        assert_eq!(stutters("저, 저희가 갑니다"), ["저, 저희가"]);
+        assert!(stutters("겐지가 들어가고 트레이서 따라갑니다").is_empty());
+        assert!(stutters("").is_empty());
+        let lim = Limits::default();
+        let i = info("1", "그 그러니까 겐지가 간다.", "그 그러니까 겐지가 간다", 1.0);
+        assert!(select(std::slice::from_ref(&i), &lim, false, |_| false, 5).is_empty(), "off: not a reason");
+        let w = Wishes { fix_stutter: true, ..Wishes::default() };
+        let got = select_with(std::slice::from_ref(&i), &lim, false, |_| false, 5, &w);
+        assert!(got[0].1.doubts.iter().any(|d| d.contains("더듬은 듯함: 그 그러니까")), "{:?}", got[0].1.doubts);
+        // a request asks about every caption
+        let r = Wishes { request: "쓸데없는 말 지워줘".into(), fix_stutter: false };
+        let plain = info("2", "좋습니다.", "좋습니다", 1.0);
+        assert_eq!(select_with(&[plain], &lim, false, |_| false, 5, &r).len(), 1);
+    }
+
+    #[test]
+    fn wishes_in_the_prompt() {
+        let lim = Limits::default();
+        let c = case();
+        let q = question(std::slice::from_ref(&c), &lim);
+        assert!(!q.prompt.contains("편집자 요구사항") && q.system.contains("들린 그대로 둔다") && !q.system.contains("- drop"));
+        let bg = Background { wishes: Wishes { request: "  쓸데없는 말 하는 부분 지워줘 ".into(), fix_stutter: true }, ..Background::default() };
+        let q = question_with(std::slice::from_ref(&c), &lim, &bg);
+        assert!(q.prompt.starts_with("편집자 요구사항 (모든 자막에 적용):\n쓸데없는 말 하는 부분 지워줘\n"), "{}", q.prompt);
+        assert!(q.system.contains("일부러 되풀이한 것은 그대로") && q.system.contains("- drop"), "{}", q.system);
+    }
+
+    #[test]
+    fn drop_and_cuts_only_with_a_request() {
+        let lim = Limits::default();
+        let c = CaptionQuestion {
+            id: "5".into(),
+            text: "아 근데 오늘 점심 뭐 먹지 아무튼 겐지가 들어갑니다".into(),
+            raw: Some("아 근데 오늘 점심 뭐 먹지 아무튼 겐지가 들어갑니다".into()),
+            ..Default::default()
+        };
+        let drop = json!({"answers": [{"id": "5", "decision": "drop", "reason": "쓸데없는 말"}]});
+        let cut = json!({"answers": [{"id": "5", "decision": "fix", "text": "겐지가 들어갑니다", "reason": "쓸데없는 말 지움"}]});
+        let made_up = json!({"answers": [{"id": "5", "decision": "fix", "text": "트레이서가 따라갑니다", "reason": ""}]});
+        assert!(parse(&drop, std::slice::from_ref(&c), &lim).is_empty());
+        assert!(parse(&cut, std::slice::from_ref(&c), &lim).is_empty(), "too far without a request");
+        let w = Wishes { request: "쓸데없는 말 지워줘".into(), fix_stutter: true };
+        assert_eq!(parse_with(&drop, std::slice::from_ref(&c), &lim, &w)[0].decision, CaptionDecision::Drop);
+        assert_eq!(parse_with(&cut, std::slice::from_ref(&c), &lim, &w)[0].text, "겐지가 들어갑니다");
+        assert!(parse_with(&made_up, std::slice::from_ref(&c), &lim, &w).is_empty(), "words not heard stay out");
     }
 
     #[test]

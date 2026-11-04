@@ -30,11 +30,26 @@ pub struct Settings {
     pub batch: usize,
     /// Most items one review run asks about.
     pub max_items: usize,
+    /// Caption review: what the editor asks of Claude in their own words ("쓸데없는 말 하는 부분
+    /// 지워줘"); empty: nothing beyond the rules.
+    pub request: String,
+    /// Caption review: write stutters as the sentence meant, unless said on purpose (on by default).
+    pub fix_stutter: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { enabled: false, auto: false, cli_path: String::new(), model: String::new(), timeout_secs: 180, batch: 6, max_items: 60 }
+        Self {
+            enabled: false,
+            auto: false,
+            cli_path: String::new(),
+            model: String::new(),
+            timeout_secs: 180,
+            batch: 6,
+            max_items: 60,
+            request: String::new(),
+            fix_stutter: true,
+        }
     }
 }
 
@@ -53,12 +68,19 @@ impl Settings {
         std::fs::write(path, text)
     }
 
+    /// What the editor asked of the caption review.
+    pub fn wishes(&self) -> crate::captions::Wishes {
+        crate::captions::Wishes { request: self.request.clone(), fix_stutter: self.fix_stutter }
+    }
+
     /// Values kept in range (hand-edited files are hostile too).
     pub fn clamped(mut self) -> Self {
         self.timeout_secs = self.timeout_secs.clamp(10, MAX_TIMEOUT);
         self.batch = self.batch.clamp(1, 20);
         self.max_items = self.max_items.clamp(1, 500);
         self.cli_path = self.cli_path.trim().chars().take(1024).collect();
+        // not trimmed: the editor may be typing a space at the end (trimmed when used)
+        self.request = self.request.chars().take(crate::captions::MAX_REQUEST).collect();
         self.model = self.model.trim().chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '[' | ']')).take(80).collect();
         self
     }
@@ -90,6 +112,14 @@ mod tests {
         assert_eq!(Settings::load(&path), Settings::default());
         std::fs::write(&path, "{\"enabled\": true}").unwrap();
         assert!(Settings::load(&path).enabled);
+        // older files: the stutter fix is on, no request
+        let old = Settings::load(&path);
+        assert!(old.fix_stutter && old.request.is_empty());
+        let s = Settings { request: "가".repeat(3000), fix_stutter: false, ..Settings::default() };
+        s.save(&path).unwrap();
+        let back = Settings::load(&path);
+        assert!(!back.fix_stutter);
+        assert!(back.request.chars().count() == crate::captions::MAX_REQUEST && back.request.starts_with('가'));
         let _ = std::fs::remove_dir_all(dir);
     }
 }
