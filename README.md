@@ -1,490 +1,377 @@
-<p align="center">
-  <a href="https://getartcraft.com/">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/brand/artcraft-logo-white.svg">
-      <img alt="ArtCraft" src="docs/brand/artcraft-logo.svg" width="200">
-    </picture>
-  </a>
-</p>
+<div align="center">
 
+# OverFilm
 
-<p align="center">
-  <img src="assets/app-icon/hicolor/256x256/apps/ai.storyteller.filmcraft.png" width="128" height="128" alt="FilmCraft icon: an engraved owl on a purple tile">
-</p>
+**오버워치 대회 영상을 자동으로 분석하고, 컷 편집·자막 생성·경기별 렌더링까지 처리하는 영상 편집 도구**
 
-<h1 align="center">FilmCraft</h1>
+AI는 음성과 화면의 일부를 읽고, 나머지 작업은 규칙과 알고리즘으로 처리합니다.
 
-<p align="center">
-  <b>Video editing, color and sound; an open-source, professional non-linear video editor, built in pure Rust.</b>
-</p>
+</div>
 
-<p align="center">
-  An open-source, modern non-linear video editing workflow: native on macOS, Windows and Linux, and in the browser via WebAssembly.<br>
-  By the ArtCraft team.
-</p>
+---
 
-<p align="center">
-  <a href="#license-and-credits"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-8b5cf6?style=flat-square"></a>
-  <img alt="Written in pure Rust" src="https://img.shields.io/badge/pure-Rust-6a3fd6?style=flat-square&logo=rust&logoColor=white">
-  <img alt="Runs on macOS, Windows and Linux" src="https://img.shields.io/badge/runs%20on-macOS%20%7C%20Windows%20%7C%20Linux-8b5cf6?style=flat-square">
-  <a href="#status"><img alt="Status: young and moving fast" src="https://img.shields.io/badge/status-young%20and%20moving%20fast-6a3fd6?style=flat-square"></a>
-  <br>
-  <a href="https://sonarcloud.io/project/overview?id=storytold_filmcraft"><img alt="Scanned by SonarCloud" src="https://img.shields.io/badge/Scanned_by-SonarCloud-4b9fd5?style=flat-square&logo=sonarqubecloud&logoColor=white"></a>
-  <a href="https://coderabbit.ai"><img alt="Reviewed by CodeRabbit" src="https://img.shields.io/coderabbit/prs/github/storytold/filmcraft?style=flat-square&label=Reviewed%20by%20CodeRabbit&logo=coderabbit"></a>
-</p>
+## 소개
 
-<p align="center">
-  <a href="https://discord.gg/artcraft"><img alt="Join the ArtCraft community on Discord" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
-</p>
+OverFilm은 오버워치 경기 영상 편집을 자동화하기 위한 도구입니다. 대회 방송 영상에서 대기·준비 화면을 구분해 컷 후보를 만들고, 처치와 궁극기 사용 장면을 표시하며, 해설 음성을 자막으로 변환합니다. 여러 경기가 한 영상에 이어져 있으면 팀 이름 변화를 기준으로 경계를 찾아 경기별 파일로 내보낼 수 있습니다.
 
-<p align="center">
-  <a href="https://getartcraft.com/apps/filmcraft"><b>FilmCraft on getartcraft.com</b></a> ·
-  <a href="https://getartcraft.com/">ArtCraft</a> ·
-  <a href="https://getartcraft.com/apps">All Crafting Apps</a>
-</p>
+기반 편집기는 오픈 소스 비선형 영상 편집기인 **FilmCraft**입니다. FilmCraft의 타임라인, 효과, 렌더링, 내보내기 기능을 유지하면서 OverFilm 전용 모듈을 추가하는 구조입니다. 원본 편집기의 업데이트도 계속 반영하는 방향으로 설계되어 있습니다.
 
-<br>
+자막만 따로 만들고 싶은 경우에는 별도 앱인 **OverFilmSubs**를 사용할 수 있습니다.
 
-<p align="center">
-  <img src="docs/images/filmcraft-hero.png" alt="FilmCraft in the Color workspace, mid-way through an Apollo 11 documentary cut from NASA footage: the Program monitor on the Saturn V clearing the launch tower with a Launch Complex 39A lower third and an air-to-ground subtitle, Effect Controls with color grading and Scale keyframes on the shot, the color grading panel, bins of NASA selects, and a timeline with 49 picture cuts, B-roll, titles, a caption track, mission audio, a ducked music bed, named markers, a rendered section and live loudness meters" width="100%">
-</p>
+> **기준 시점:** 2026-11-03. 설명은 당시 `main`(#27)과 리뷰 대기 중인 PR #25, #26, #28, #29를 합친 발표 자료를 기준으로 작성했습니다. PR에 해당하는 기능은 병합 전 상태일 수 있으며, 실제 방송 영상에 대한 검증이 완료되지 않은 항목도 아래에 별도로 표시합니다.
 
-<p align="center"><sub><i>Apollo 11 - Tranquility</i>: a three-minute documentary edit of NASA's 1969 launch, landing and moonwalk film, with subtitles from the mission transcript. Every frame in these screenshots comes from public-domain footage, decoded, composited and graded by FilmCraft's own code.</sub></p>
+## 주요 기능
 
-> [!NOTE]
-> **ArtCraft is a community of artists from all walks of life.** Digital, generative, music,
-> games &mdash; if you make things, you're one of us. **[Come say hi on Discord](https://discord.gg/artcraft).**
+- **자동 컷 감지:** 방송 견본 화면과 프레임을 비교해 대기·준비·퍼즈 화면 등을 감지하고 컷 마커를 생성합니다.
+- **경기 분석:** 화면에서 처치, 교전, 궁극기 사용 이벤트를 찾아 타임라인 마커로 표시합니다.
+- **팀·선수 인식:** OCR로 이름판의 팀과 선수 이름을 읽고, 경기 문맥과 선수 명단을 이용해 인식 결과를 보정합니다.
+- **자동 자막:** 해설 음성을 인식하고 단어 시간, 화자 정보, 오버워치 용어집 및 표기 규칙을 적용해 자막을 만듭니다.
+- **경기별 분할:** 한 방송에 여러 경기가 포함된 경우 팀 구성이 바뀌는 지점을 찾아 경기별 결과물을 만듭니다.
+- **일괄 처리:** 선택한 단계를 한 번에 실행하고, 진행 상황 확인·중지·단계별 실행 취소를 지원하는 흐름을 제공합니다.
+- **다양한 출력:** MP4, MOV, GIF, WAV/M4A 및 Premiere에서 이어 편집할 수 있는 XML/SRT 출력을 지원하는 것을 목표로 합니다.
 
-<p align="center">
-  <a href="#edit">Edit</a> ·
-  <a href="#color">Color</a> ·
-  <a href="#effects-and-motion">Effects</a> ·
-  <a href="#audio">Audio</a> ·
-  <a href="#titles-and-captions">Titles</a> ·
-  <a href="#formats-and-codecs">Formats</a> ·
-  <a href="#export">Export</a> ·
-  <a href="#interchange">Interchange</a> ·
-  <a href="#built-for-agents">Agents</a> ·
-  <a href="#get-started">Get started</a> ·
-  <a href="#downloads">Downloads</a> ·
-  <a href="#documentation">Docs</a> ·
-  <a href="#status">Status</a>
-</p>
+## 작동 구조
 
-<br>
+OverFilm은 FilmCraft 위에 오버워치 전용 기능을 모듈 형태로 얹습니다.
 
-FilmCraft is a professional non-linear editor: familiar panels, workspaces, tools and shortcuts, so your hands already know where everything is. Underneath, it is new from the bitstream up. The H.264, HEVC, ProRes and AAC codecs are our own, written in Rust from the public specifications. A GPU compositor works in linear light. Frame math runs on exact integer time, so edits never drift. And every action in the app is a command that an AI agent can drive as precisely as you can.
-
-<br>
-
-## Edit
-
-<p align="center">
-  <img src="docs/images/filmcraft-assembly.png" alt="Assembly workspace: bins of film thumbnails, Carnival of Souls in the Source monitor, a Night of the Living Dead cemetery shot in the Program monitor, and the trailer on a three-track timeline with a Chopin score on A2 and loudness meters" width="100%">
-</p>
-
-<p align="center"><sub>The Assembly workspace, cutting a trailer for <i>Night of the Living Dead</i> (1968) with an insert from <i>Carnival of Souls</i> (1962).</sub></p>
-
-**A timeline you already know.** Source and Program monitors, bins with thumbnails, a multi-track timeline with patch and target buttons, sync locks and linked selection. The Editing, Assembly, Color, Effects and Audio workspaces are all there, and every panel docks wherever you want it.
-
-- **Three-point editing.** Mark In and Out in the Source monitor, then insert (`,`) or overwrite (`.`) onto the patched tracks. Lift (`;`) and extract (`'`) take ranges back out.
-- **Every trim.** Ripple, roll, slip, slide, rate stretch and razor tools. Trim mode selects edit points as ripple, roll or trim, nudges them a frame at a time (`⌥←` `⌥→`, ×5 with `⇧`), toggles the trim type with `⌃T` and extends them to the playhead with `E`. `Q` and `W` ripple-trim to the playhead. The **Trim Monitor** shows both sides of the edit, and **dynamic trimming** trims live while it plays: `L` forward, `J` back, `K` to stop and commit as one undo step.
-- **Exact time.** Every edit is computed on integer ticks: 254,016,000,000 per second, which divides evenly by every common frame rate and sample rate. 23.976, 29.97 drop-frame and 59.94 are exact, not approximate.
-- **The details pros rely on.** Markers with colours, names and durations; export sequence review notes with **Markers ▸ Export Markers as CSV…**; add edit (`⌘K`) on one or all tracks; nesting; copy, paste and paste insert; ripple delete and close gap; snapping; unlimited undo with a History panel.
-- **Your keys.** A Keyboard Shortcuts editor (`⌥⌘K`) with a drawn keyboard, panel-specific shortcuts, conflict warnings and presets for FilmCraft and standard NLE key layouts.
-- **Never lose work.** Saves are atomic, auto-save keeps a rolling set of versions, and a crash-recovery journal written about a second after each edit brings back unsaved changes after a crash or power cut.
-
-<p align="center">
-  <img src="docs/images/filmcraft-timeline.png" alt="Timeline close-up: Night of the Living Dead shots with dissolves on V1, a Carnival of Souls insert on V2, the Chopin nocturne as a green waveform on A2, coloured markers along the ruler, and the loudness meter reading momentary, short-term, integrated and true-peak values" width="100%">
-</p>
-
-<p align="center"><sub>Up close: dissolves, an insert on V2, the score on A2, coloured markers, and the loudness meters on the right.</sub></p>
-
-<br>
-
-## Color
-
-<p align="center">
-  <img src="docs/images/filmcraft-color.png" alt="Color workspace on Charade (1963): Cary Grant and Audrey Hepburn in the Program monitor, the waveform and vectorscope on the left, and the trailer bins and timeline below" width="100%">
-</p>
-
-<p align="center"><sub>The Color workspace on <i>Charade</i> (1963), with live scopes beside the Program monitor.</sub></p>
-
-**A complete color grading panel**, in the order a colourist works:
-
-- **Basic Correction:** temperature and tint, exposure, contrast, highlights, shadows, whites, blacks, saturation.
-- **Creative:** eight built-in looks with an intensity control, plus faded film, sharpen and vibrance. The looks are colour transforms written in code, not LUT files.
-- **Curves:** an RGB curve editor with monotone-cubic interpolation (no overshoot), and hue vs saturation, hue vs hue, hue vs luma, luma vs saturation and saturation vs saturation.
-- **Color Wheels:** shadow, midtone and highlight wheels, each with its own lightness control.
-- **HSL Secondary:** key a colour by hue, saturation and luma, view the key as a matte, and correct only what you selected.
-- **Vignette:** amount, midpoint, roundness and feather.
-
-<table>
-  <tr>
-    <td width="34%" valign="top" align="center">
-      <img src="docs/images/filmcraft-color-panel.png" alt="The color grading panel on Charade (1963): Basic Correction sliders with coloured temperature and tint tracks, collapsed Creative and Curves sections, shadow, midtone and highlight colour wheels, and HSL Secondary and Vignette toggles"><br>
-      <sub><b>The color grading panel.</b> Basic Correction, Color Wheels and every other section, each with its own on/off switch.</sub>
-    </td>
-    <td width="66%" valign="top" align="center">
-      <img src="docs/images/filmcraft-scopes.png" alt="The video scopes: a green luma waveform and a vectorscope of a Charade (1963) frame"><br>
-      <sub><b>Scopes that tell the truth.</b> The waveform and vectorscope are computed from the graded frame. All grading happens in linear light, in 32-bit float.</sub>
-    </td>
-  </tr>
-</table>
-
-<br>
-
-## Effects and motion
-
-<p align="center">
-  <img src="docs/images/filmcraft-effects.png" alt="Effects workspace: Effect Controls with Motion, Opacity, Time Remapping and a colour grade, NASA's Earth Views from the ISS in the Program monitor, and the Effects browser open on the Dissolve transitions" width="100%">
-</p>
-
-<p align="center"><sub>NASA's <i>Earth Views from the ISS</i> with a look applied, and the Effects browser open on the dissolves.</sub></p>
-
-- **A comprehensive Video Effects bin (over 90 effects across 16 categories), legacy effects, plus around 30 transitions.** Blurs (Bokeh, Focus, Compound), keys (Ultra Key, Track Matte), distortions (Corner Pin, Turbulent Displace, Warp Stabilizer), Lights & Glows, Immersive Video (VR) effects on equirectangular footage, Posterize Time, Echo and more. Cross dissolve, dip to black or white, film dissolve, wipes, irises, pushes, slides, zooms, page peel, cube spin and more.
-- **Motion and opacity on every clip:** position, scale, rotation, anchor point and anti-flicker, plus 26 blend modes.
-- **Advanced keyframing:** linear, Bezier, auto and continuous Bezier, hold, ease in and ease out. Effect Controls shows a keyframe lane for every parameter under a time ruler with the playhead's handle, and each animated parameter opens into **value and velocity graphs** with draggable influence handles. Effect Controls and the Properties panel share the keyframe navigator (◀ ◆ ▶): add or remove the keyframe at the playhead, step to the previous or next one.
-- **A GPU compositor** built on wgpu (Metal, Vulkan, DirectX 12, WebGPU). It samples YUV straight from the decoder with footprint supersampling and blends in linear light. A CPU path renders the same frames, and the two are tested against each other.
-
-<p align="center">
-  <img src="docs/images/filmcraft-keyframes.png" alt="Effect Controls with the value and velocity graphs of an eased Scale push-in on the Night of the Living Dead title card, the Program monitor showing the title over a country road, and the Properties panel with Transform and Crop" width="100%">
-</p>
-
-<p align="center"><sub>An eased push-in on the title card: the value graph, the velocity graph and the Bezier influence handle.</sub></p>
-
-<br>
-
-## Audio
-
-- **Loudness meters to broadcast standards.** Momentary, short-term and integrated loudness and true peak to ITU-R BS.1770 and EBU R128, alongside the peak meters. Our integrated reading matches ffmpeg's `ebur128` filter to the tenth of a LU.
-- **Clip effects on our own DSP library:** parametric EQ, high-pass, low-pass and band-pass filters, dynamics, a true-peak limiter, delay, reverb, DeNoise, DeHummer, invert and pitch shift. Parameters can be keyframed. Effects stay continuous across scrubbing, playback and export, with latency compensated.
-- **Audio Track Mixer and Audio Clip Mixer:** faders, pan, mute, solo, five insert slots per track (pre- or post-fader), sends, submixes and a Mix track, all sample-accurate and latency-compensated. 24 tracks with three effects each mix about six times faster than real time on one core.
-- **Automation like a console:** Read, Latch, Touch and Write modes recorded live from the mixer during playback, shown and edited as track keyframes on the timeline. Plus the Audio Gain dialog (set, adjust, normalize) and constant-power crossfades.
-- **Audio-clock playback.** The sound card is the master clock, so picture follows sound and never the other way round.
-
-<br>
-
-## Titles and captions
-
-- **A real text engine:** OpenType shaping with kerning and ligatures, bidirectional text, line breaking, tracking and leading, drawn in linear light and sharp at any scale or rotation.
-- **Type, Shape and Pen tools** on the Program monitor: click to type, edit with a caret and selection, drag out rectangles, ellipses and paths. Graphic clips hold text and shape layers with fill, strokes, background and shadow, all keyframable, and edited in the Properties panel.
-- **Captions:** caption tracks in Subtitle, CEA-608, CEA-708 and Teletext formats; import and export SRT, WebVTT and SCC with frame-exact timing; edit captions in the Text panel and burn them into exports.
-<br>
-
-## Formats and codecs
-
-No FFmpeg inside. The video codecs, AAC, Opus and the containers are our own Rust code, implemented from the public ITU-T, ISO and IETF specifications and tested frame by frame against ffmpeg as an external oracle.
-
-| | Decode | Encode | Notes |
-|---|:---:|:---:|---|
-| **H.264 / AVC** | ✓ | ✓ | Decoder bit-exact on 37+ streams, 500–600 fps at 1080p. Encoder: High, Main and Baseline profiles, CABAC, B-frames, CRF/CBR/VBR/2-pass |
-| **HEVC / H.265** | ✓ | | Main and Main 10, bit-exact on 41 streams (tiles, WPP, PCM, long-term references), about 225 fps at 1080p |
-| **Apple ProRes** | ✓ | ✓ | Decodes 422 Proxy to 4444 XQ; export writes 422 HQ |
-| **AAC-LC** | ✓ | ✓ | |
-| **VP8** | ✓ | | Every coding tool, bitstream versions 0–3, hidden altref frames, alpha layer of transparent WebM; bit-exact with libvpx on its published VP8 test vectors; in WebM/Matroska and MP4 |
-| **VP9** | ✓ | | Profiles 0–3, 8/10/12-bit, 4:2:0 to 4:4:4, tiles and superframes; bit-exact on 50+ streams; in WebM/Matroska and MP4 |
-| **Opus** | ✓ | | SILK, CELT, hybrid and multistream surround; range-exact on every RFC 8251 conformance vector; in WebM/Matroska and MP4 |
-| **AV1** | ✓ | | Main profile, 8/10-bit 4:2:0 and monochrome, every coding tool incl. film grain, superres and spatial layers; bit-exact with libdav1d on the libaom vectors tested; in MP4 and WebM/Matroska |
-| **DNxHD / DNxHR** | ✓ | ✓ | All SMPTE ST 2019-1 CIDs (LB to 444, 8/10/12-bit); export writes DNxHR in MOV |
-| **MJPEG, PCM** | ✓ | ✓ | |
-| **MP3, FLAC, ALAC, Vorbis** | ✓ | | Via the [symphonia](https://github.com/pdeljanov/Symphonia) crate (MPL-2.0) for now, to be replaced by our own |
-| **MP4 / MOV** | ✓ | ✓ | Fragmented MP4, edit lists, timecode tracks |
-| **Matroska / WebM** | ✓ | | Lacing, Cues, header stripping, HDR colour metadata |
-| **AVI** | ✓ | | AVI 1.0 and OpenDML (files past 1 GB); Motion JPEG, H.264, HEVC and uncompressed RGB / YUV with PCM, MP3, MP2 or AC-3. DivX / Xvid and DV not yet |
-| **Stills** | ✓ | ✓ | Import PNG, JPEG, GIF, WebP, TIFF and BMP (animated GIF, APNG and WebP as clips, with transparency); export PNG sequences and animated GIF |
-
-Also imported: MPEG-2 / MPEG-1 video, AC-3, MP2, MXF (OP1a / OP-Atom), MPEG transport and program streams (AVCHD, broadcast, DVD), Ogg and image sequences. Not yet: AV1 export, camera RAW, E-AC-3. Hardware decoding works on macOS (VideoToolbox), Windows (Media Foundation) and, for H.264 and HEVC, Linux (VA-API); H.264 export can use NVIDIA's encoder on Windows and Linux (opt-in), and H.265 (HEVC Main, 8-bit) export works through it (NVENC on Windows, VideoToolbox on macOS) ([#30](https://github.com/storytold/filmcraft/issues/30)).
-
-<br>
-
-## Export
-
-<p align="center">
-  <img src="docs/images/filmcraft-export.png" alt="Export mode: destinations for Media File, YouTube, Vimeo, TikTok, Instagram and FTP on the left, a Night of the Living Dead frame in the preview, and H.264 settings on the right (1440x1080 at 23.976 fps, 48000 Hz stereo, entire sequence)" width="100%">
-</p>
-
-<p align="center"><sub>Export mode, set to write the trailer as H.264 MP4.</sub></p>
-
-- **H.264 MP4 with AAC, using our own encoders.** A 6-second 960×540 render takes 1.3 seconds and decodes in ffmpeg without a single warning, with strict error detection on.
-- **Also:** Apple ProRes 422 HQ and Motion JPEG in QuickTime, MXF OP1a and standard OP-Atom (DNxHR, ProRes or H.264 with PCM and start timecode), PNG sequences, animated GIF and WAV.
-- **Background jobs** with progress and cancel, so you keep editing while it renders.
-- **Render previews:** the render bar marks segments green, yellow or red; rendered previews are cached by content, so an edit only invalidates what it touches and undo brings the green back.
-
-<br>
-
-## Interchange
-
-Move timelines between FilmCraft and every other editor:
-
-- **FCP 7 XML (xmeml):** industry-standard timeline interchange format. It carries nested sequences, transitions, generators, Motion, Opacity, Time Remap and audio levels, with keyframes.
-- **FCPXML 1.9–1.11:** the spine, connected clips as lanes, transitions, retiming and compound clips.
-- **OpenTimelineIO:** the open interchange format of the film industry, round-tripping every FilmCraft detail through `metadata.filmcraft`.
-- **CMX 3600 EDL:** the oldest format still in use, with drop-frame timecode, dissolves, wipes, speed changes (`M2`) and one EDL per track.
-- **AAF (Edit Protocol):** standard timeline and audio interchange format. Video and audio tracks, dissolves and dips, clip volume with keyframes, markers and source timecode; audio embedded or as separate WAV / AIFF files, trimmed with handles, with clip effects rendered in and broken out to mono, plus an optional video mixdown. Import reads AAF back, extracting embedded audio.
-- **OMF 2.0:** the audio-post handoff: the audio tracks with crossfades and gain, sample-accurate, with the audio encapsulated or alongside.
-
-Import merges the document's bins, media and sequences into your project as one undoable step, and links each media file it finds on disk.
-
-<br>
-
-## Built for agents
-
-Every menu item, button, slider and drag in FilmCraft is a **command** with an id, typed parameters and an enabled state. There are more than 650 engine commands (`filmcraft-cli commands` lists them), with more commands continuously added. The UI, the CLI, a JSON control channel and an **MCP server** all dispatch the same commands, so Claude or any agent can cut, trim, grade, mix and export exactly the way a person does. The UI can also be driven at the level of mouse and keyboard: every widget has an automation id, and agents can click, drag, type and take screenshots.
-
-```jsonc
-// over the control channel (JSON lines on TCP) or as MCP tool calls
-{"method": "engine.execute", "params": {"command": "timeline.place",
-  "params": {"item": 1, "track": "V1", "seconds": 0, "sourceIn": 284298240000000, "duration": 1270080000000}}}
-{"method": "engine.execute", "params": {"command": "effects.setParam",
-  "params": {"clip": 87, "effect": "lumetri", "param": "curve_luma", "value": [[0,0],[0.25,0.21],[0.75,0.82],[1,1]]}}}
-{"method": "ui.screenshot", "params": {"path": "frame.png"}}
+```text
+┌──────────────────────────────────────────────┐
+│                  OverFilm                    │
+│                                              │
+│  자동 컷 · 경기 분석 · 선수 인식 · 자막 생성  │
+│  경기 분할 · 검토 · 렌더링                    │
+├──────────────────────────────────────────────┤
+│              OverFilm 전용 모듈               │
+│                                              │
+│  asr · glossary · pipeline · captions        │
+│  vision · review · eval                      │
+├──────────────────────────────────────────────┤
+│                  FilmCraft                   │
+│  타임라인 · 효과 · 렌더링 · 내보내기          │
+└──────────────────────────────────────────────┘
 ```
 
-The trailer and the grades in these screenshots were built exactly this way, by an agent driving the running app.
+OverFilm의 기능은 역할에 따라 다음과 같이 나뉩니다.
 
-<br>
-
-## Everywhere
-
-- **Native** on macOS, Windows and Linux, with a native macOS menu bar.
-- **The web:** the same engine and UI run in the browser via WebAssembly (`apps/filmcraft-web`, see [docs/web.md](docs/web.md)); every release ships it as `filmcraft-web-<version>.zip`.
-- **Swappable UI.** The interface is one crate (`ui-egui`) over the engine, so a different front end can replace it without touching editing logic.
-
-<br>
-
-## Get started
-
-```sh
-cargo run --release -p filmcraft                           # the desktop app, with a demo project
-cargo run --release -p filmcraft -- --control 9876         # plus the JSON-lines control server
-cargo run --release -p filmcraft-cli -- commands           # list every engine command
-cargo run --release -p filmcraft-cli -- mcp                # MCP server (headless)
-```
-
-Japanese text in the interface and in titles comes from [craft-fonts](https://github.com/storytold/craft-fonts), an optional build input (release builds always include it; without it FilmCraft uses its own and the system's fonts):
-
-```sh
-git clone https://github.com/storytold/craft-fonts ../craft-fonts
-CRAFT_FONTS_DIR="$PWD/../craft-fonts" cargo run --release -p filmcraft
-```
-
-The control protocol is documented in [docs/control-protocol.md](docs/control-protocol.md). Stuck, or want to show what you made? Ask in [Discord](https://discord.gg/artcraft).
-
-## Documentation
-
-| | |
+| 모듈 | 역할 |
 |---|---|
-| [CONTRIBUTING.md](CONTRIBUTING.md) · [docs/contributing.md](docs/contributing.md) | Setup, quality gates, commit conventions, how to add commands, effects, codecs, panels and assets |
-| [AGENTS.md](AGENTS.md) | The rules every contributor must follow: assets, clean room, licences |
-| [docs/architecture.md](docs/architecture.md) | Layers, data model, time base, command system, render and export pipeline |
-| [docs/testing.md](docs/testing.md) | Unit, property and ffmpeg-oracle tests, accuracy criteria, benchmarks |
-| [docs/agents.md](docs/agents.md) | Driving FilmCraft over MCP and the control channel; how agents develop it |
-| [docs/control-protocol.md](docs/control-protocol.md) | Control-channel and MCP reference |
-| [docs/project-files.md](docs/project-files.md) | `.fcproj` format, schema migrations, auto-save and crash recovery |
-| [docs/graphics.md](docs/graphics.md) · [docs/captions.md](docs/captions.md) | Text engine, graphic clips and tools; caption tracks and formats |
-| [ROADMAP.md](ROADMAP.md) | Stage, parity numbers, languages, what's next and the progress log |
-| [docs/target-app-parity.md](docs/target-app-parity.md) · [docs/gaps.md](docs/gaps.md) · [docs/roadmap.md](docs/roadmap.md) | Parity assessment, the ranked list of shortfalls, milestones and current focus |
-| [docs/codec-parity.md](docs/codec-parity.md) · [docs/file-format-parity.md](docs/file-format-parity.md) · [docs/hardware-parity.md](docs/hardware-parity.md) · [docs/ui-parity.md](docs/ui-parity.md) · [docs/localization-parity.md](docs/localization-parity.md) | Parity checklists by dimension |
+| `asr` | 음성 인식 및 단어 단위 시간 정보 처리 |
+| `glossary` | 오버워치 영웅·스킬·맵·팀·선수·용어 사전 |
+| `pipeline` | 컷, 경기 분석, 자막, 렌더링 단계를 연결 |
+| `captions` | 자막 데이터와 표시 형식 처리 |
+| `vision` | 영상 프레임 분석, 화면 요소 및 이벤트 감지 |
+| `review` | 애매한 인식 결과를 Claude Code로 선택 검토 |
+| `eval` | 자막 정확도와 처리 결과 평가 |
 
-## Status
+`overfilm-ai`라는 이름의 구성 요소도 있지만, 발표 자료 기준으로 이 구성 요소가 수행하는 소리 크기 측정은 AI 모델이 아니라 규칙 기반 처리입니다.
 
-FilmCraft is young and moving fast. Editing, trimming, multicam, colour, keyframes, effects, titles, captions, mixing, codecs and export work today.
+## 전체 처리 흐름
 
-FilmCraft is in **alpha**. We track two numbers ([docs/target-app-parity.md](docs/target-app-parity.md), re-measured 2026-10-10):
+OverFilm 패널에서 실행할 단계를 선택하면 다음 순서로 처리합니다.
 
-- **Feature breadth: ~86%.** Professional NLE menu items, effects, transitions, panels and formats that exist in FilmCraft (menus 92% and effects 100% measured).
-- **Ready for real work: ~56%.** Our honest estimate of how close FilmCraft is to handling full production work on real projects.
-
-The biggest gaps today:
-
-- **Speed on big footage.** Hardware decoding works on macOS and Windows, and for H.264 and HEVC on Linux (VA-API, or NVDEC with NVIDIA's driver; VP9 and AV1 decode in software there). Blend modes and the most common effects run on the GPU, but color grading, keys and export rendering still run on the CPU; H.264 encoding can use the hardware encoder on macOS and on Windows and Linux with an NVIDIA GPU (opt-in, Export ▸ Hardware encoding), and H.265 export is hardware-only on both (HDR sequences export Main 10 PQ / HLG with NVENC; VideoToolbox writes 8-bit SDR) ([#30](https://github.com/storytold/filmcraft/issues/30)).
-- **Native `.prproj` project import.** `.prproj` files can't be opened yet; bring sequences over as FCP7 XML, AAF or OTIO.
-- **No plugins.** No VST3 / Audio Units or OpenFX hosting.
-- **Delivery codecs.** H.264 is our only software delivery-codec export; H.265 exports only through a hardware encoder (NVIDIA on Windows: Main 8-bit SDR and Main 10 HDR PQ / HLG; VideoToolbox on macOS: 8-bit Main, SDR); no AV1 export yet.
-- **Real-world media and platforms.** Our decoders are bit-exact on conformance streams, but camera and phone files in the wild are less tested. Windows and Linux get far less testing than macOS.
-- **AI features.** Few so far; speech to text is optional and off by default.
-
-Bug reports with real footage are the most useful thing you can send us: [open an issue](https://github.com/storytold/filmcraft/issues) or tell us in [Discord](https://discord.gg/artcraft).
-
-## Architecture
-
-A layered Cargo workspace:
-
-| Layer | Crates |
-|---|---|
-| Codecs and containers | `h264`, `h264enc`, `hevc`, `vp9`, `prores`, `aac`, `opus`, `isobmff`, `matroska`, `avi`, `bitstream` |
-| Foundations | `time`, `geom`, `color`, `frame`, `media`, `text`, `project`, `audio-dsp` |
-| Editing and interchange | `edit`, `codecs`, `captions`, `format` (project files), `interchange` |
-| Rendering and output | `render`, `gpu`, `export` |
-| Engine | `engine`: command registry, session, undo, jobs |
-| Front ends | `ui-egui`, `automation` (MCP), `apps/filmcraft`, `apps/filmcraft-cli` |
-| Test support | `testkit` (ffmpeg oracles, fixtures), `golden` (golden-image tests) |
-
-Nothing below the front ends depends on a UI toolkit or OS API. `cargo xtask ci` checks formatting, lints, tests, the layering rules, asset attribution and the wasm build.
-
-## Downloads
-
-**New to FilmCraft?** Download it from the [FilmCraft page on getartcraft.com](https://getartcraft.com/apps/filmcraft). That's the easiest way to install it.
-
-**Want a specific build or format?** On GitHub, the [latest release](https://github.com/storytold/filmcraft/releases/latest) has every build listed below, and [all releases](https://github.com/storytold/filmcraft/releases) has earlier versions and their notes. `<ver>` in the file names is the version number, and `SHA256SUMS.txt` lists a checksum for every file.
-
-### Windows
-
-| Build | Installer | Portable |
-|---|---|---|
-| x64 (64-bit Intel/AMD) | `filmcraft-<ver>-windows-x64.msi` | `filmcraft-<ver>-windows-x64-portable.zip` |
-| arm64 (Snapdragon and other ARM PCs) | `filmcraft-<ver>-windows-arm64.msi` | `filmcraft-<ver>-windows-arm64-portable.zip` |
-| x86 (32-bit) | `filmcraft-<ver>-windows-x86.msi` | `filmcraft-<ver>-windows-x86-portable.zip` |
-
-Installers and executables are code-signed.
-
-**If the app doesn't open on Windows:** the desktop app initializes only Vulkan and DirectX 12 by
-default, not OpenGL. Letting wgpu also create an OpenGL instance can crash some graphics drivers (AMD's
-`atio6axx.dll`) before the window appears, so the app would flash in Task Manager and quit.
-`WGPU_BACKEND` overrides the default for troubleshooting (for example `dx12` or `vulkan`). In
-PowerShell, from the folder containing the executable:
-
-```powershell
-$env:WGPU_BACKEND = "vulkan"
-& .\filmcraft.exe
-Remove-Item Env:WGPU_BACKEND                     # restore the default for later launches
+```text
+입력 영상
+   │
+   ▼
+자동 컷 후보 감지
+   │
+   ├── 선택적 Claude 검토
+   │
+   ▼
+컷 적용
+   │
+   ▼
+경기 분석
+   ├── 팀·선수 이름 OCR
+   ├── 처치 및 교전 마커
+   └── 궁극기 사용 마커
+   │
+   ▼
+자막 생성
+   ├── 음성 인식
+   ├── 용어집 교정
+   ├── 단어 시간 정렬
+   ├── 화자 구별 및 겹친 말 처리
+   └── 선택적 Claude 검토
+   │
+   ▼
+경기별 렌더링 및 내보내기
 ```
 
-An explicit `gl` override can bring the driver crash back on affected systems. The macOS, Linux
-and web backend defaults are unchanged.
+경기 분석에서 읽은 팀과 선수 이름은 자막 인식의 문맥 정보로 전달됩니다. 따라서 경기 분석을 자막 생성보다 먼저 수행합니다. 선택한 단계에서 실패하면 이후 단계로 진행하지 않는 흐름입니다.
 
-A PC whose GPUs were installed from different driver packages of one vendor (a laptop with an
-integrated and a discrete AMD GPU, for example) can list one GPU twice, once through each installed
-version of the Vulkan driver, and a window drawn through the stale one crashes inside the driver
-(`amdvlk64.dll`, exit code `0xc0000005`). FilmCraft draws with the newer one and says so in
-`%APPDATA%\FilmCraft\Logs\filmcraft.log`; installing one driver package for every GPU removes the
-duplicate. With one driver per GPU the adapter is the one wgpu picks, as before.
+### 사용 순서
 
-### macOS
+1. 편집기에서 영상을 불러옵니다.
+2. 오른쪽 OverFilm 패널에서 실행할 단계를 선택합니다.
+3. 자동 컷, 경기 읽기, 자막, 렌더링 순서로 실행합니다.
+4. 필요하면 단계별 결과를 검토하고 수정합니다.
+5. 출력 형식과 자막 포함 여부를 선택해 경기별 파일을 내보냅니다.
 
-| Build | File | Notes |
-|---|---|---|
-| App, universal (Apple silicon + Intel) | `filmcraft-<ver>-macos-universal.dmg` | Signed and notarized |
-| Command-line tool, universal | `filmcraft-cli-<ver>-macos-universal.zip` | Signed and notarized |
+각 기능을 개별적으로 실행할 수도 있습니다. 도구는 준비, 잘라내기, 경기 읽기, 자막, 내보내기의 다섯 묶음으로 구성됩니다.
 
-### Linux
+## 자동 컷 및 경기 분석
 
-| Format | x86_64 | aarch64 (ARM64) | Notes |
-|---|---|---|---|
-| AppImage | `filmcraft-<ver>-linux-x86_64.AppImage` | `filmcraft-<ver>-linux-aarch64.AppImage` | Runs anywhere; updates itself with [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) (`.zsync` files) |
-| Flatpak | `filmcraft-<ver>-linux-x86_64.flatpak` | `filmcraft-<ver>-linux-aarch64.flatpak` | Sandboxed; `flatpak install --user <file>` |
-| Debian/Ubuntu | `filmcraft-<ver>-linux-x86_64.deb` | `filmcraft-<ver>-linux-aarch64.deb` | |
-| Fedora/RHEL/openSUSE | `filmcraft-<ver>-linux-x86_64.rpm` | `filmcraft-<ver>-linux-aarch64.rpm` | |
-| Tarball | `filmcraft-<ver>-linux-x86_64.tar.gz` | `filmcraft-<ver>-linux-aarch64.tar.gz` | Unpack and run `./install.sh` |
+### 자동 컷
 
-RISC-V (riscv64): `filmcraft-<ver>-linux-riscv64.tar.gz` (tarball only; needs glibc 2.39+, e.g. Ubuntu 24.04
-or Debian 13).
+영상 프레임을 초당 2장씩 확인하고, 방송 견본과 흑백 격자 상관도를 비교합니다. 대기·준비·퍼즈 화면 등 미리 정한 화면 패턴을 감지해 컷 마커를 만듭니다.
 
-The tarball installer places FilmCraft, its command-line tool and desktop integration in
-`~/.local`, without administrator permissions. For all users, run
-`sudo ./install.sh --prefix /usr/local` instead. Running the installer again updates the installation.
+컷 마커는 영상 끝 10초 전까지만 생성합니다. 필요하면 사용자가 마커 위치를 직접 조정할 수 있습니다.
 
-**Gentoo (community-maintained):** the [::snakebyte overlay](https://github.com/switch87/snakebyte-overlay)
-packages the Linux release as `media-video/filmcraft-bin`. It is maintained by the community, not by the
-FilmCraft team, so report packaging problems to the overlay:
+### 처치·교전·궁극기 감지
 
-```sh
-eselect repository add snakebyte git https://github.com/switch87/snakebyte-overlay.git
-emaint sync -r snakebyte
-echo 'media-video/filmcraft-bin ~amd64' >> /etc/portage/package.accept_keywords/filmcraft
-emerge --ask media-video/filmcraft-bin
-```
+화면의 시각적 변화를 규칙으로 감지합니다.
 
-### FreeBSD
+- **처치:** 이름판이 일정 비율 이상 검게 변하는 현상을 이용합니다.
+- **궁극기 사용:** 궁극기 아이콘의 사라짐을 감지합니다.
+- **킬피드:** 새 줄이나 모양의 격자 비교를 이용해 이벤트 후보를 찾습니다.
+- **OCR:** 팀·선수 이름판의 글자를 읽습니다.
 
-| Build | File |
+화면 분석의 대부분은 AI가 아니라 픽셀 비율, 아이콘 상태, 화면 패턴 비교 등의 규칙 기반 처리입니다. 글자를 읽는 OCR 단계에 AI 모델을 사용합니다.
+
+### 선수 이름 자동 연결
+
+킬피드의 선수 번호와 이름판에서 읽은 선수 이름을 시간 정보로 연결합니다.
+
+1. 킬피드에서 처치 이벤트와 선수 번호를 찾습니다.
+2. 처치 시점 전후 2.5초 안에서 사망한 선수의 이름판을 찾습니다.
+3. 해당 팀의 선수 이름판을 OCR로 읽습니다.
+4. 같은 이름이 3회 이상 확인되고 일치 비율이 80%를 넘으면 자동으로 이름을 연결합니다.
+5. 기준을 충족하지 못하면 선수 번호를 유지합니다.
+
+사용자가 직접 지정한 선수 이름은 자동 인식 결과가 덮어쓰지 않습니다. 수동으로 이름을 지정할 때는 미리보기 기능으로 해당 장면을 확인할 수 있습니다.
+
+### 여러 경기가 들어 있는 영상 분할
+
+한 영상 안에 여러 경기가 이어지는 경우, 라운드·맵·세트가 아니라 **팀 구성이 바뀌는 시점**을 기준으로 분할합니다.
+
+- 구간마다 OCR로 팀 이름을 읽습니다.
+- 현재 경기의 두 팀과 다른 팀 이름이 2회 이상 확인되면 새 경기로 판단합니다.
+- 한 번만 잘못 읽힌 결과는 무시합니다.
+- 대기·리플레이 등 경기 사이 구간은 앞뒤 경기 영상에 붙여 보존합니다.
+- 맵에 따라 진영이 바뀌더라도 구간별 팀 정보를 다시 판단합니다.
+- 경기 경계 마커는 사용자가 직접 이동해 수정할 수 있습니다.
+
+경기별 파일명은 `날짜-팀1vs팀2.mp4` 형식을 사용합니다. 팀 이름을 읽지 못하면 `날짜-경기N` 형식으로 저장합니다.
+
+> **검증 상태:** 발표 자료 기준으로 경기 분할 기능(PR #25)은 단위 테스트를 통과했지만, 실제 2~3경기가 이어진 방송 영상으로는 아직 검증하지 않았습니다.
+
+## 자막 생성
+
+자막은 **AI 모델이 음성을 인식하고, 규칙과 사전이 결과를 다듬는 구조**입니다.
+
+### 처리 단계
+
+1. 영상에서 오디오를 추출해 16 kHz 모노로 변환합니다.
+2. 오디오를 최대 60초 단위로 나눕니다.
+3. Qwen3-ASR 1.7B로 음성을 텍스트로 변환합니다.
+4. 오버워치 용어집과 현재 경기의 팀·선수 정보를 이용해 인식 결과를 교정합니다.
+5. Forced Aligner로 단어별 시작·종료 시간을 계산합니다.
+6. 화자가 2명 이상이면 WeSpeaker로 화자를 구별합니다.
+7. pyannote로 겹쳐 말하는 구간을 찾습니다.
+8. 게임 음성 등 자막 대상이 아닌 음성을 규칙으로 걸러냅니다.
+9. 자막 길이와 표시 비용을 계산해 줄을 나눕니다.
+
+자막은 최대 두 줄로 배치하며, 발표 자료 기준으로 음성보다 0.12초 먼저 표시하는 규칙을 사용합니다. 화자가 한 명뿐이면 화자 구별 단계는 생략합니다.
+
+### 용어집과 표기 규칙
+
+용어집은 12개 표, 약 1,500줄로 구성되어 있습니다.
+
+| 분류 | 포함 내용 |
 |---|---|
-| x86_64 | `filmcraft-<ver>-freebsd-x86_64.tar.gz` |
+| 영웅·스킬 | 영웅 50여 명, 스킬 500여 개 |
+| 맵 | 신규 맵 16개, 쟁탈 구역, 줄임말 등 |
+| 팀·선수 | OWCS 팀, 선수 약 190명 |
+| 용어·은어 | 오버워치 용어 및 커뮤니티 표현 |
+| 욕설·맞춤법 | 초성 변환 및 표기 규칙 |
 
-### Web (WebAssembly)
+일반적인 사전 교정에는 사전과 자모 거리를 사용합니다. 예를 들어 `로도그`를 `로드호그`로 교정합니다. 문맥이 필요한 이름은 경기 정보와 팀·선수 명단을 참고합니다.
 
-| Build | File | Notes |
+발표 자료에 제시된 표기 규칙 예시는 다음과 같습니다.
+
+- 비율 표현은 `-율` / `-률` 규칙에 맞춥니다.
+- 역할 조합은 `투 서브 딜러`처럼 띄어 씁니다.
+- 티어·점수·순위 표현을 정해진 형태로 통일합니다.
+- 예스러운 접속어를 일반적인 표현으로 바꿉니다.
+- 줄인 표현은 문맥에 맞게 풀어 씁니다.
+- 단어집에 등록된 띄어쓰기를 우선합니다.
+
+### 겹쳐 말하는 화자 처리
+
+음성 인식 결과에서 화자가 바뀌는 지점의 앞뒤 1~3개 단어가 잘못된 화자에게 배정될 수 있습니다. OverFilm은 단어별 화자 정보를 바탕으로 화자 전환을 가장 가까운 문장 끝으로 이동시킵니다.
+
+- 글자 자체는 변경하지 않습니다.
+- 화자 전환 지점만 조정합니다.
+- 맞장구나 제3의 화자 발언은 그대로 둡니다.
+- 화자 구분이 필요한 경우에만 처리합니다.
+
+발표 자료의 합성 대화 테스트에서는 겹친 말 12개 구간의 사람별 글자 오류율이 19.2%에서 16.4%로, 겹침이 없는 6개 구간은 6.8%에서 5.5%로 감소했습니다. 해당 개선은 PR #29로 소개되었습니다.
+
+## AI 사용 범위와 개인정보
+
+OverFilm은 가능한 처리를 로컬 컴퓨터에서 수행합니다. 발표 자료 기준으로 음성·영상 데이터와 로컬 모델 처리는 외부로 전송하지 않습니다.
+
+| 작업 | 처리 방식 |
+|---|---|
+| 음성 인식 | 로컬 AI 모델 |
+| 단어 시간 정렬 | 로컬 AI 모델 |
+| 화자 특징 추출 | 로컬 AI 모델 |
+| 겹친 말 감지 | 로컬 AI 모델 |
+| 화면 속 팀·선수 글자 읽기 | 로컬 OCR 모델 |
+| 자동 컷·처치·궁극기 감지 | 규칙·알고리즘 |
+| 용어집 교정 | 사전·자모 거리 |
+| 경기 분할·선수 이름 연결 | 팀 투표·시간 정보 규칙 |
+| 자막 줄 나누기·무음 감지 | 규칙·계산 |
+| 애매한 결과 검토 | 선택적으로 Claude Code 사용 |
+
+로컬 모델 파일은 처음 사용할 때 내려받으며 SHA-256으로 확인합니다. 모델을 내려받는 경우와 Claude 검토를 활성화한 경우를 제외하면 인터넷 연결 없이 작업할 수 있도록 설계되어 있습니다.
+
+### Claude 검토
+
+Claude Code 검토는 선택 기능입니다. 활성화하면 확신이 낮거나 교정이 필요한 자막·컷 후보만 골라 외부 검토를 요청합니다.
+
+- 후보를 6개씩 묶어 앞뒤 문맥과 함께 전달합니다.
+- 응답 형식이 올바르지 않으면 결과를 적용하지 않습니다.
+- 원문에서 40% 넘게 변경된 결과는 폐기합니다.
+- 변경 사항은 한 번의 실행 취소로 되돌릴 수 있습니다.
+- 검토 기능을 끄더라도 나머지 로컬 처리 기능은 동작합니다.
+
+Claude 검토를 사용할 경우 선택된 텍스트와 문맥이 외부 서비스로 전달될 수 있습니다. 원본 소리와 영상은 로컬에 남는다는 설계 설명과, 검토를 위해 텍스트가 전송된다는 점을 구분해야 합니다.
+
+## OverFilmSubs
+
+**OverFilmSubs**는 FilmCraft 편집 기능 없이 자막 생성에 집중하는 별도 앱입니다. 여러 영상의 자막을 대기열에 넣고 순서대로 처리할 수 있습니다.
+
+- 처리 중에도 대기열에 파일을 추가할 수 있습니다.
+- 음성 인식 중 생성된 텍스트를 실시간에 가깝게 확인할 수 있습니다.
+- 아직 인식 중인 텍스트와 교정이 끝난 텍스트를 구분해 표시합니다.
+- 자신 없는 단어, 교정된 단어, 길이 초과 구간을 모아 검토할 수 있습니다.
+- 문제가 있는 구간만 다시 인식할 수 있습니다.
+
+영상 전체 처리가 끝날 때까지 기다리지 않고 초반 인식 결과를 확인할 수 있어, 잘못된 오디오 트랙이나 입력 파일을 일찍 발견하는 데 목적이 있습니다.
+
+## 성능 및 정확도
+
+아래 수치는 2026-11-03 발표 자료에 기재된 실측값입니다. 테스트 영상과 하드웨어 조건이 함께 제시된 경우 해당 조건을 병기했습니다.
+
+### 자막 생성 시간
+
+12분 45초 영상 기준, CPU 4코어 환경에서 측정했습니다. GPU는 사용하지 않았습니다.
+
+| 개선 단계 | 처리 시간 |
+|---|---:|
+| 최초 구현 | 38분 |
+| 1차 개선 | 24분 |
+| 2차 개선 | 19분 |
+| 3차 개선 | 약 18분 |
+
+같은 발표 자료에서 자막 오류율은 6.56%에서 5.97%로 개선된 것으로 제시됩니다. Radeon RX 9060을 이용한 실측은 당시 아직 진행되지 않았습니다.
+
+### 주요 최적화
+
+가장 큰 병목은 모델 계산 자체보다 토큰을 생성할 때마다 모델 데이터를 반복해서 읽는 일이었습니다. 이를 줄이기 위해 여러 오디오 조각을 묶어 처리했습니다.
+
+| 최적화 | 적용 내용 및 발표 자료의 효과 |
+|---|---|
+| 배치 처리 | 8개 조각을 함께 처리해 토큰 생성 시간 0.30초 → 0.075초 |
+| 오디오 조각 길이 | 30초에서 60초로 변경하고 조용한 구간을 기준으로 분할 |
+| KV 캐시 | 16비트로 줄여 메모리 사용량 절감, 정확도 영향 없음으로 보고 |
+| 모델 양자화·AVX2 | 8비트 모델과 AVX2 계산 경로 적용 |
+| 모델 캐시 | 변환 결과를 파일로 저장해 로딩 시간 22초 → 4초 |
+| 멀티코어 | 한 코어에 집중되던 작업을 여러 코어로 분산 |
+| 불필요한 작업 생략 | 2초가 넘는 무음 구간과 단일 화자 구간의 불필요한 처리 생략 |
+| GPU 보강 | CPU 결과와 일치할 때만 GPU 경로를 사용하고, 불일치하면 CPU로 처리 |
+
+### 화면 분석 성능
+
+84분 OWCS 대회 영상의 자동 컷 처리 시간은 1,373초에서 769초로 감소했다고 발표 자료에 기록되어 있습니다. 영상 디코딩을 4개 작업으로 나누어 2분 단위로 병렬 처리한 뒤 결과를 순서대로 합치는 방식입니다.
+
+- 84분 영상에서 경기 장면이 잘린 사례: 0건
+- 자동 컷으로 잘린 구간: 21분 40초
+- 720p 영상의 처치·킬피드 분석: 2분당 약 14초
+
+선수 이름 연결은 OWCS 20분 영상에서 처치 45개 중 24개를 연결했고, 선수 4명의 이름을 자동으로 지정한 결과가 제시되었습니다.
+
+### 자막 정확도
+
+아이치 영상 테스트 결과입니다.
+
+| 단계 | CER | 용어 정확도 |
+|---|---:|---:|
+| 검토 전(교정까지) | 5.97% | 96.4% |
+| 이전 검토 지시문 | 5.83% | 98.2% |
+| 표기 규칙 보완 | 5.68% | 99.1% |
+| 영웅 역할·순위·설정 창 정보 추가 | 5.41% | — |
+| 표기 규칙 추가 | **5.39%** | **100%** |
+
+발표 자료는 최종 CER 5.39% 중 약 3.6%p가 정답 자막에 누락된 말에서 비롯되며, 실제로 잘못 인식된 글자는 2% 안팎이라고 설명합니다. 이 수치는 해당 테스트 영상과 평가 방식에 한정된 결과입니다.
+
+### 효과가 없어 제외한 시도
+
+성능이나 정확도가 개선될 것으로 예상했지만 실측 후 제외한 방법도 있습니다.
+
+| 시도 | 측정 결과 |
+|---|---|
+| 프롬프트 단계까지 8비트 적용 | 34초 → 49초로 느려짐 |
+| 추측 디코딩 | 실측 이득 없음 |
+| 배경음 분리 후 음성 인식 | 오류율 6.14% → 6.41%로 악화 |
+| 2분 단위 오디오 조각 | 정확도 개선 없음, GPU 메모리에도 맞지 않음 |
+| 겹친 말을 음성 분리 후 인식 | 영상 길이의 약 3배가 걸리고 오류율도 악화 |
+
+최적화 적용 여부는 `overfilm-eval`의 측정 결과를 기준으로 결정한다는 것이 발표 자료의 원칙입니다.
+
+## 내보내기
+
+출력 형식을 선택하면 경기마다 별도 파일을 생성합니다.
+
+| 형식 | 코덱·구성 | 용도 |
 |---|---|---|
-| Static site | `filmcraft-web-<ver>.zip` | Runs in a modern browser; host it on any static server |
+| MP4 | H.264 · H.265 · AV1 | 유튜브 업로드 및 보관 |
+| MOV | ProRes · DNxHR | 다른 편집기로 전달 |
+| GIF | 애니메이션 GIF | 하이라이트 공유 |
+| WAV · M4A | 오디오 | 오디오 후처리 및 공유 |
+| Premiere XML | FCP XML + SRT | Premiere에서 후속 편집 |
 
-## The Crafting Apps
+경기 경계는 팀 변경 기준으로 판단하며 라운드·맵·세트별로 나누지 않습니다. 경기 사이의 해설과 인터뷰가 빠지지 않도록 앞 경기 파일에 포함합니다.
 
-FilmCraft is one of the **Crafting Apps**: free, open-source creative tools from the
-[ArtCraft](https://getartcraft.com/) team, each written from scratch in Rust and each able to
-stand on its own.
+> 위 표는 발표 자료에 제시된 출력 형식입니다. 실제 빌드에서 사용 가능한 코덱과 내보내기 옵션은 설치된 FilmCraft 버전 및 연결된 기능에 따라 확인해야 합니다.
 
-| | App | What it's for | Code | Learn more |
-|:-:|---|---|---|---|
-| <img src="https://raw.githubusercontent.com/storytold/photocraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.photocraft.png" alt="" width="32" height="32"> | **PhotoCraft** | Image editing: layers, masks, type and real PSD files | [GitHub](https://github.com/storytold/photocraft) | [Website](https://getartcraft.com/apps/photocraft) |
-| <img src="https://raw.githubusercontent.com/storytold/vectorcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.vectorcraft.png" alt="" width="32" height="32"> | **VectorCraft** | Vector illustration | [GitHub](https://github.com/storytold/vectorcraft) | [Website](https://getartcraft.com/apps/vectorcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/filmcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.filmcraft.png" alt="" width="32" height="32"> | **FilmCraft** | Video editing, color and sound | [GitHub](https://github.com/storytold/filmcraft) | [Website](https://getartcraft.com/apps/filmcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/lightcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.lightcraft.png" alt="" width="32" height="32"> | **LightCraft** | Photo library and raw development | [GitHub](https://github.com/storytold/lightcraft) | [Website](https://getartcraft.com/apps/lightcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/pdfcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.pdfcraft.png" alt="" width="32" height="32"> | **PdfCraft** | Reading, organizing and protecting PDFs | [GitHub](https://github.com/storytold/pdfcraft) | [Website](https://getartcraft.com/apps/pdfcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/effectcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.effectcraft.png" alt="" width="32" height="32"> | **EffectCraft** | Motion graphics and visual effects | [GitHub](https://github.com/storytold/effectcraft) | [Website](https://getartcraft.com/apps/effectcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/designcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.designcraft.png" alt="" width="32" height="32"> | **DesignCraft** | Page layout and publishing | [GitHub](https://github.com/storytold/designcraft) | [Website](https://getartcraft.com/apps/designcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/figcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.figcraft.png" alt="" width="32" height="32"> | **FigCraft** | Interface design and prototyping | [GitHub](https://github.com/storytold/figcraft) | [Website](https://getartcraft.com/apps/figcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/wordcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.wordcraft.png" alt="" width="32" height="32"> | **WordCraft** | Word processing and documents | [GitHub](https://github.com/storytold/wordcraft) | [Website](https://getartcraft.com/apps/wordcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/soundcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.soundcraft.png" alt="" width="32" height="32"> | **SoundCraft** | Audio recording and editing | [GitHub](https://github.com/storytold/soundcraft) | [Website](https://getartcraft.com/apps/soundcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/deckcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.deckcraft.png" alt="" width="32" height="32"> | **DeckCraft** | Presentations and slide decks | [GitHub](https://github.com/storytold/deckcraft) | [Website](https://getartcraft.com/apps/deckcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/cadcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.cadcraft.png" alt="" width="32" height="32"> | **CADCraft** | Computer-aided design | [GitHub](https://github.com/storytold/cadcraft) | [Website](https://getartcraft.com/apps/cadcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/gridcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.gridcraft.png" alt="" width="32" height="32"> | **GridCraft** | Spreadsheets and data | [GitHub](https://github.com/storytold/gridcraft) | [Website](https://getartcraft.com/apps/gridcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/texturecraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.texturecraft.png" alt="" width="32" height="32"> | **TextureCraft** | 3D texture painting | [GitHub](https://github.com/storytold/texturecraft) | [Website](https://getartcraft.com/apps/texturecraft) |
-| <img src="https://raw.githubusercontent.com/storytold/craft-anything/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.craft-anything.png" alt="" width="32" height="32"> | **Craft Anything** | See how any software works, then build your own | [GitHub](https://github.com/storytold/craft-anything) | [Website](https://getartcraft.com/apps/craft-anything) |
-| <img src="https://raw.githubusercontent.com/tangency-labs/solidcraft/main/assets/icons/app/linux/exports/hicolor/64x64/apps/io.tangencylabs.solidcraft.png" alt="" width="32" height="32"> | **SolidCraft** | Parametric 3D CAD by Tangency Labs (community app) | [GitHub](https://github.com/tangency-labs/solidcraft) | |
+## 현재 상태와 검증 범위
 
-And [**ArtCraft**](https://getartcraft.com/) itself, our AI image and video studio for artists who want real control.
+이 문서는 2026-11-03 발표 자료를 바탕으로 작성되었습니다. 발표 자료에서 기능별로 언급한 PR 상태와 테스트 한계는 다음과 같습니다.
 
-<br>
+| 항목 | 발표 자료 기준 상태 |
+|---|---|
+| 기본 통합 | `main` #27 기준 |
+| 경기 분할 | PR #25, 단위 테스트 통과. 실제 2~3경기 방송 테스트는 미실시 |
+| OverFilmSubs 대기열·실시간 텍스트 | PR #26 |
+| 킬피드와 이름판을 이용한 선수 이름 연결 | PR #28 |
+| 겹친 말의 화자 전환 보정 | PR #29 |
+| Radeon RX 9060 성능 | CPU 기준 실측만 제시되었으며 GPU 실측은 미완료 |
 
-<p align="center">
-  <a href="https://discord.gg/artcraft"><img alt="Join the ArtCraft community on Discord" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
-</p>
+PR 번호는 발표 자료 작성 당시의 상태를 뜻합니다. 현재 저장소에서 병합되었는지, 기능이 변경되었는지는 별도로 확인해야 합니다.
 
-<h3 align="center">Come make things with us</h3>
+## 기반 프로젝트
 
-<p align="center">
-  Our Discord is where artists of every kind hang out: people who paint, shoot, draw, cut film,
-  set type, and people still figuring out what they like to make. Share what you're working on,
-  ask for help, tell us what's broken, or tell us what you wish these tools could do.
-  Whatever your medium and however long you've been at it, you're welcome here.
-</p>
+OverFilm은 오픈 소스 비선형 편집기 **FilmCraft**를 기반으로 합니다.
 
-<p align="center">
-  <a href="https://discord.gg/artcraft"><b>discord.gg/artcraft</b></a> ·
-  <a href="https://getartcraft.com/">getartcraft.com</a> ·
-  <a href="https://getartcraft.com/apps">The Crafting Apps</a> ·
-  <a href="https://getartcraft.com/apps/filmcraft">FilmCraft</a>
-</p>
+- 프로젝트: [storytold/filmcraft](https://github.com/storytold/filmcraft)
+- 웹사이트: [FilmCraft](https://getartcraft.com/apps/filmcraft)
 
-<br>
+FilmCraft는 타임라인 편집, 효과, 색 보정, 오디오, 자막, 렌더링 및 다양한 미디어 포맷을 담당합니다. OverFilm은 이 편집 기능을 새로 구현하기보다 오버워치 영상 분석과 자동화 기능을 별도 모듈로 추가하는 방향입니다.
 
-## License and credits
+## 참고
 
-FilmCraft is dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
-Copyright (c) 2026 ArtCraft Team and the FilmCraft contributors. Required notices are in [NOTICE](NOTICE).
+- `overfilm-eval`: 자막 정확도 및 성능 평가에 사용되는 평가 도구
+- SHA-256: 내려받은 모델 파일의 무결성 확인
+- Claude Code: 선택적 텍스트 검토 기능
+- Qwen3-ASR 1.7B: 음성 인식
+- Qwen3-ForcedAligner: 단어별 시간 정렬
+- WeSpeaker: 화자 특징 추출
+- pyannote 3.0: 겹친 말 감지
+- ocrs: 화면 속 팀·선수 이름 OCR
 
-Bundled fonts, icons, images and other assets keep their own open licenses; each one is listed
-with its author, source and license in [ATTRIBUTION.md](ATTRIBUTION.md). Builds made with
-[craft-fonts](https://github.com/storytold/craft-fonts) (all official releases) also embed its fonts
-(OFL-1.1), listed in its [ATTRIBUTION.md](https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md).
+---
 
-**Footage and music in the screenshots:** NASA's Apollo 11 film and television footage from [images.nasa.gov](https://images.nasa.gov) (launch, Launch Control Center, lunar surface and recovery) and the Apollo 11 air-to-ground voice transcript, all US Government works in the public domain (NASA does not endorse this project); *Night of the Living Dead* (1968), *Carnival of Souls* (1962) and *Charade* (1963), all in the US public domain; *Earth Views from the ISS* by NASA; Chopin's Nocturne Op. 48 No. 1 and Ballade No. 1, performed for Musopen and released under CC0. The media itself is not in this repository. Sources and details for every asset are in [ATTRIBUTION.md](ATTRIBUTION.md).
-
-FilmCraft is an independent implementation. It contains no proprietary code, icons, images, presets or LUTs, and no GPL or LGPL code; every icon is drawn in code and every asset is openly licensed and attributed ([AGENTS.md](AGENTS.md)), apart from the ArtCraft name and logos, which are trademarks of the ArtCraft Team used under [`docs/brand/LICENSE-brand.txt`](docs/brand/LICENSE-brand.txt). ffmpeg is used only as an external test oracle.
-
-The ArtCraft name, wordmark and logos in [`docs/brand/`](docs/brand/) are trademarks of the
-ArtCraft Team and are not covered by this license. They may be used only unmodified, and only as
-part of this repository and FilmCraft, under [`docs/brand/LICENSE-brand.txt`](docs/brand/LICENSE-brand.txt).
-Forks and modified versions must remove them.
-
-<br>
-
-<p align="center">
-  <a href="https://getartcraft.com/"><img alt="ArtCraft" src="docs/brand/artcraft-mark.svg" width="28"></a><br>
-  <sub>Made by the <a href="https://getartcraft.com/">ArtCraft</a> team and community.</sub>
-</p>
-
-## Star history
-
-[![Star History Chart](https://api.star-history.com/svg?repos=storytold/filmcraft&type=Date&legend=top-left)](https://www.star-history.com/?repos=storytold%2Ffilmcraft&type=date&legend=top-left)
+*기능 및 수치는 2026-11-03 발표 자료를 기준으로 정리했습니다. 이후 코드 변경이나 PR 병합에 따라 실제 동작과 차이가 있을 수 있습니다.*
