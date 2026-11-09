@@ -361,6 +361,9 @@ pub fn invoke_command(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, mut
     if let Some(r) = crate::panels::overfilm_review::route(app, ctx, id, &params) {
         return r;
     }
+    if let Some(r) = crate::panels::overfilm_glossary::route(app, ctx, id, &params) {
+        return r;
+    }
     if let Some(r) = crate::panels::menu_dialogs::route(app, ctx, id, &params) {
         if let Err(e) = &r {
             app.ui.status = e.clone();

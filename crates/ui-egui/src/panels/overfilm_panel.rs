@@ -42,6 +42,7 @@ const TOOL_GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("overfilm.captions.generate", "Captions…"),
             ("overfilm.review.captions", "Ask Claude Code About Captions"),
             ("overfilm.captions.stylize", "Styled Captions…"),
+            ("overfilm.glossary", "Glossary…"),
         ],
     ),
     ("Export", &[("file.exportMedia", "Export Media…"), ("overfilm.premiere.export", "Export for Premiere Pro…")]),

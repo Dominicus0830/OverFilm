@@ -40,6 +40,7 @@ pub mod overfilm_assist;
 pub mod overfilm_autocut;
 pub mod overfilm_captions;
 pub mod overfilm_flow;
+pub mod overfilm_glossary;
 pub mod overfilm_kills;
 pub mod overfilm_lineup;
 pub mod overfilm_reel;

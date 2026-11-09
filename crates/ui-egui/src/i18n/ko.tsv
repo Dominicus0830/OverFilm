@@ -3944,3 +3944,58 @@
 	Each hero is numbered where it first appears (see the hero markers). Name it once: OverFilm knows the portrait again in later videos, and captions prefer the heroes in play.	영웅은 처음 나온 순서로 번호가 붙어요(영웅 마커 참고). 한 번 이름을 붙이면 다음 영상부터 같은 그림을 알아보고, 자막은 지금 쓰는 영웅 이름을 우선해요.
 	List Heroes on the Name Plates (OverFilm)	이름판 영웅 목록(OverFilm)
 	Name Hero (OverFilm)	영웅 이름 붙이기(OverFilm)
+	Glossary (OverFilm)…	단어집(OverFilm)…
+	Add to Glossary (OverFilm)	단어집에 더하기(OverFilm)
+	Remove from Glossary (OverFilm)	단어집에서 지우기(OverFilm)
+	Glossary…	단어집…
+	Glossary (OverFilm)	단어집 (OverFilm)
+	Hero	영웅
+	Ability	기술
+	Map	맵
+	Player	선수
+	Team	팀
+	Game term	게임 용어
+	Slang	커뮤 용어
+	Profanity	욕설
+	Spelling	맞춤법
+	Word	단어
+	Change a word ({id})	단어 고치기 ({id})
+	Add a word	새 단어 더하기
+	Right spelling:	맞는 표기:
+	what the captions should show, e.g. 정커퀸	자막에 나와야 하는 글자, 예: 정커퀸
+	Wrong spellings:	틀린 표기:
+	what recognition writes instead, e.g. 전국퀸, 정커 킹	인식이 잘못 적는 글자, 예: 전국퀸, 정커 킹
+	Also right:	이것도 맞음:
+	short forms kept as they are, e.g. 정퀸	그대로 두는 줄임말, 예: 정퀸
+	Former names:	예전 이름:
+	old names still heard, e.g. 맥크리	아직 들리는 옛 이름, 예: 맥크리
+	English name:	영어 이름:
+	optional; a player's handle as written	선택, 선수는 닉네임 그대로
+	Note:	메모:
+	optional, for you	선택, 알아보기 쉽게
+	Profanity: show the initial consonants	욕설: 초성으로 가리기
+	Also inside longer words	긴 낱말 안에서도 바꾸기
+	Several spellings in one box: separate them with commas.	한 칸에 여러 개를 쓸 때는 쉼표(,)로 나눕니다.
+	Save Changes	고친 내용 저장
+	Cancel Change	고치기 취소
+	My words ({n})	내 단어 ({n}개)
+	None yet. Words added here or in OverFilmSubs show here.	아직 없습니다. 여기나 OverFilmSubs에서 더한 단어가 보입니다.
+	Right spelling	맞는 표기
+	Wrong spellings	틀린 표기
+	Also right	이것도 맞음
+	Note	메모
+	Change	고치기
+	Built into the program ({n})	프로그램에 든 단어 ({n}개)
+	a spelling, right or wrong	맞는 표기나 틀린 표기
+	first {shown} of {matches}	{matches}개 중 앞 {shown}개
+	{matches} found	{matches}개
+	A built-in word that comes out wrong: Use as New Word, then fill in the wrong spelling.	프로그램에 든 단어가 자막에서 틀리게 나오면 '새 단어로 쓰기'를 누르고 틀린 표기를 채우세요.
+	Kind	종류
+	Use as New Word	새 단어로 쓰기
+	Captions change a wrong spelling into the right one. Your words are added to the built-in ones and used from the next OverFilm Captions and Claude Code review on. OverFilmSubs uses the same words.	자막에서 틀린 표기를 맞는 표기로 고칩니다. 내 단어는 프로그램에 든 단어에 더해지고, 다음 자막 만들기와 Claude Code 검토부터 쓰입니다. OverFilmSubs와 같은 단어집입니다.
+	Saved in {file}	저장 위치: {file}
+	Saved '{ko}'.	'{ko}'을(를) 저장했습니다.
+	Added '{ko}'.	'{ko}'을(를) 더했습니다.
+	Fill in the wrong spelling, then Add.	틀린 표기를 채우고 '더하기'를 누르세요.
+	Removed.	지웠습니다.
+	Clear the Form	비우기

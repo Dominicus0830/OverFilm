@@ -34,6 +34,7 @@ pub mod motion_path;
 pub mod multicam;
 pub mod notes;
 pub mod overfilm;
+pub mod overfilm_glossary;
 pub mod overfilm_panel;
 pub mod overfilm_review;
 pub mod panel_state;
