@@ -4,7 +4,12 @@ fn roster() -> Roster {
     let team = |id: &str, name: &str, reads: &[&str]| RosterTeam { id: id.into(), name: name.into(), reads: reads.iter().map(|s| s.to_string()).collect() };
     let p = |id: &str, name: &str, handle: &str, team: &str| RosterPlayer { id: id.into(), name: name.into(), handle: handle.into(), team: Some(team.into()) };
     Roster {
-        teams: vec![team("rode", "로제", &["RØDE ZANSIDE GAMING", "ROZE"]), team("o2", "오투 블래스트", &["O2 Blast", "O2"]), team("t1", "티원", &["T1"])],
+        teams: vec![
+            team("rode", "로제", &["RØDE ZANSIDE GAMING", "ROZE"]),
+            team("o2", "오투 블래스트", &["O2 Blast", "O2"]),
+            team("t1", "티원", &["T1"]),
+            team("cr", "크레이지 라쿤", &["CRAZY RACCOON", "CR"]),
+        ],
         players: vec![
             p("taejong", "태종", "Taejong", "rode"),
             p("kilo", "킬로", "Kilo", "rode"),
@@ -18,6 +23,8 @@ fn roster() -> Roster {
             p("faith", "페이스", "Faith", "o2"),
             p("perr", "페르", "perr", "o2"),
             p("faker", "페이커", "Faker", "t1"),
+            p("fielder", "필더", "Fielder", "cr"),
+            p("checkmate", "체크메이트", "CHECKMATE", "cr"),
         ],
     }
 }
@@ -102,6 +109,76 @@ fn teams_players_and_substitutes_per_stretch() {
     assert_eq!(info.players().len(), 11);
 }
 
+/// One stretch of play: `k` samples reading the team names and the first plates' names.
+fn stretch(l: &mut LineupReader, at: &mut i64, k: usize, team1: &str, team2: &str, names1: &[&str], names2: &[&str]) {
+    for _ in 0..k {
+        l.sample(*at, true);
+        if !team1.is_empty() {
+            l.team(*at, 1, team1);
+        }
+        if !team2.is_empty() {
+            l.team(*at, 2, team2);
+        }
+        for (p, n) in names1.iter().enumerate() {
+            l.name(*at, 1, p as u8, n);
+        }
+        for (p, n) in names2.iter().enumerate() {
+            l.name(*at, 2, p as u8, n);
+        }
+        *at += 500;
+    }
+    for _ in 0..6 {
+        l.sample(*at, false);
+        *at += 500;
+    }
+}
+
+#[test]
+fn a_broadcast_with_two_games() {
+    let r = roster();
+    let mut l = LineupReader::new(&bars());
+    let mut at = 0;
+    // game 1: 로제 vs 오투; the teams change sides for the second map; a stretch with nothing read
+    stretch(&mut l, &mut at, 6, "RODE ZANSIDE GAMING", "O2 BLAST", &["TAEJONG"], &["WUTIAN"]);
+    stretch(&mut l, &mut at, 6, "", "", &[], &[]);
+    stretch(&mut l, &mut at, 6, "O2 BLAST", "ROZE", &["WUTIAN"], &["TAEJONG"]);
+    let game2 = at;
+    // game 2: 티원 vs 크레이지 라쿤, one side read only on its second stretch
+    stretch(&mut l, &mut at, 6, "T1", "", &["FAKER"], &["FIELDER"]);
+    stretch(&mut l, &mut at, 6, "T1", "CRAZY RACCOON", &["FAKER"], &["CHECKMATE"]);
+    let info = l.finish(&r);
+    assert_eq!(info.stretches.len(), 5);
+    assert_eq!(info.games.len(), 2, "{:?}", info.games);
+    assert_eq!(info.games[0].teams, [Some(0), Some(1)]);
+    assert_eq!(info.games[1].teams, [Some(2), Some(3)]);
+    assert_eq!(info.games[1].start, game2);
+    assert_eq!(info.teams, [Some(0), Some(1)], "the first game's");
+    let teams: Vec<[Option<usize>; 2]> = info.stretches.iter().map(|s| s.teams).collect();
+    assert_eq!(teams, [[Some(0), Some(1)], [Some(0), Some(1)], [Some(1), Some(0)], [Some(2), Some(3)], [Some(2), Some(3)]]);
+    let name = |s: usize, side: u8| info.stretches[s].player(side, 1).map(|i| r.players[i].id.as_str());
+    assert_eq!(name(0, 1), Some("taejong"));
+    assert_eq!(name(2, 1), Some("wutian"), "sides swapped: plate 1 of team 1 is O2's");
+    assert_eq!(name(2, 2), Some("taejong"));
+    assert_eq!(name(3, 2), Some("fielder"), "the team read later in the game");
+    assert_eq!(name(4, 2), Some("checkmate"));
+    assert_eq!(info.game_at(game2 + 1).map(|g| g.teams), Some([Some(2), Some(3)]));
+    assert_eq!(info.game_at(-5).map(|g| g.teams), Some([Some(0), Some(1)]));
+}
+
+#[test]
+fn a_stray_misreading_starts_no_game() {
+    let r = roster();
+    let mut l = LineupReader::new(&bars());
+    let mut at = 0;
+    stretch(&mut l, &mut at, 6, "RODE ZANSIDE GAMING", "O2 BLAST", &[], &[]);
+    // one bad reading of another team among good ones
+    l.sample(at, true);
+    l.team(at, 2, "T1");
+    stretch(&mut l, &mut at, 6, "RODE ZANSIDE GAMING", "O2 BLAST", &[], &[]);
+    let info = l.finish(&r);
+    assert_eq!(info.games.len(), 1, "{:?}", info.games);
+}
+
 #[test]
 fn one_unread_plate_is_the_one_left_over() {
     let r = roster();
@@ -157,4 +234,6 @@ fn hostile_input() {
     let info = l.finish(&Roster::default());
     assert_eq!(info.teams, [None, None]);
     assert!(!l.settled(0));
+    assert_eq!(info.games.len(), 1);
+    assert!(LineupReader::default().finish(&Roster::default()).games.is_empty());
 }

@@ -626,7 +626,15 @@ for team, player and hero names.
   players are matched per plate per stretch against that team only, each player on one plate, so
   substitutes and plates reordered between rounds are followed. One unread plate whose team is
   otherwise unchanged is the player left over.
-- Markers (replaced by every scan): "OverFilm 경기: 로제 vs 오투 블래스트"; "OverFilm 선수" where the
+- **More than one match in a video** (a broadcast day holds two or three): the team names are
+  voted per stretch too, and a stretch whose name readings clearly show a team that is not one of
+  the current match's two (each side's strongest reading, at least two good ones, so one stray
+  misreading does not count) starts the next match. Stretches that read no team stay in the match
+  around them. Each match's two teams are the ones its stretches read best overall, and every
+  stretch has its own side → team, since teams change sides between maps; players are matched
+  against the team on that side in that stretch, and a new match is no substitution.
+- Markers (replaced by every scan): "OverFilm 경기: 로제 vs 오투 블래스트" over the whole match, or
+  with several matches "OverFilm 경기 1: …", "OverFilm 경기 2: …" (comment "3경기 중 2번째"); "OverFilm 선수" where the
   plates change (comment: "로제: 태종, 킬로, …" per team; "OverFilm 선수 교체: 로제 A → B" for a
   substitute); "OverFilm 영웅 선택" at each stretch's picks (comment "태종: 트레이서" per line, only
   plates whose hero changed); "OverFilm 영웅 교체: 우톈 트레이서 → 겐지" at each swap.
@@ -638,7 +646,12 @@ for team, player and hero names.
   names and allow one more jamo edit at three syllables or more. Nothing else changes: a hero
   nobody plays is corrected as before, since commentators talk about other heroes too. A
   two-syllable player still needs `선수` after it to be corrected.
-- `overfilm.heroes.list {}`: the last scan's teams, players and heroes (number, name, first pick).
+  With several matches, each match runs from its "OverFilm 경기 N" marker to the next one (move a
+  marker to fix a boundary); the context names every match ("이 영상의 경기: A 대 B, C 대 D.") and
+  each piece of sound prefers only the teams and players of the match it is in (all of them for
+  a piece between matches or across a boundary).
+- `overfilm.heroes.list {}`: the last scan's teams, players and heroes (number, name, first pick),
+  and `games` (number, from, to, teams, players), one per match.
 
 Measured on the OWCS broadcast (720p, built-in template file, 2 fps, the 84 minutes there are):
 both teams right (RØDE ZANSIDE GAMING, O2 Blast), all ten players on every plate of all six

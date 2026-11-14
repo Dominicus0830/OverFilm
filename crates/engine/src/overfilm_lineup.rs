@@ -14,7 +14,9 @@
 //!
 //! The markers, replaced by every scan:
 //!
-//! - "OverFilm 경기: 로제 vs 오투 블래스트" at the first stretch;
+//! - "OverFilm 경기: 로제 vs 오투 블래스트" over the whole match. A broadcast day may hold two or
+//!   three matches (games): then one marker per game, "OverFilm 경기 1: …", "OverFilm 경기 2:
+//!   …", and the captions of each game prefer that game's teams and players;
 //! - "OverFilm 선수" (or "OverFilm 선수 교체: 로제 아이러니 → 오프너") where the players on the
 //!   plates change, comment "로제: 태종, 킬로, …" per line (`?` for a plate not read);
 //! - "OverFilm 영웅 선택" at each stretch's picks (only the plates whose hero is not the one they
@@ -24,13 +26,14 @@
 //! [`prior_for`] reads them back (so the user can correct a marker by hand) into the
 //! [`overfilm_pipeline::game::MatchPrior`] of one media item, on the item's own clock.
 //!
-//! - `overfilm.heroes.list {}`: the heroes of the last scan, with their numbers and names.
+//! - `overfilm.heroes.list {}`: the heroes of the last scan, with their numbers and names, and
+//!   the games (`games`: number, from, to, teams, players).
 //! - `overfilm.heroes.name {id, name, templates?}`: name hero `id`; the markers are written again.
 
 use filmcraft_project::{ItemId, Label, Marker, MarkerId, MarkerKind};
 use filmcraft_time::{TICKS_PER_SECOND, Tick};
-use overfilm_pipeline::game::MatchPrior;
-use overfilm_vision::{HeroScan, MatchInfo, PlayerHero, Roster, lineup};
+use overfilm_pipeline::game::{GamePrior, MatchPrior};
+use overfilm_vision::{Game, HeroScan, MatchInfo, PlayerHero, Roster, lineup};
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, bad, has_seq, str_p, u64_p};
@@ -85,7 +88,16 @@ impl LineupState {
     }
 
     fn team(&self, side: u8) -> Option<&str> {
-        self.info.teams.get(usize::from(side.saturating_sub(1))).copied().flatten().and_then(|t| self.roster.teams.get(t)).map(|t| t.name.as_str())
+        self.team_of(&self.info.teams, side)
+    }
+
+    /// `side`'s team among `teams` (a stretch's or a game's).
+    fn team_of(&self, teams: &[Option<usize>; 2], side: u8) -> Option<&str> {
+        teams.get(usize::from(side.saturating_sub(1))).copied().flatten().and_then(|t| self.roster.teams.get(t)).map(|t| t.name.as_str())
+    }
+
+    fn team_name(&self, t: usize) -> Option<&str> {
+        self.roster.teams.get(t).map(|t| t.name.as_str())
     }
 
     /// "태종", or the plate ("1팀 2번") when nobody was read on it.
@@ -117,7 +129,18 @@ fn list(s: &mut Session, _: &Value) -> Result<Value> {
         .collect();
     let teams: Vec<Value> = (1..=2u8).map(|t| json!(st.team(t))).collect();
     let players: Vec<Value> = st.info.players().into_iter().filter_map(|p| st.roster.players.get(p)).map(|p| json!(p.name)).collect();
-    Ok(json!({"heroes": heroes, "teams": teams, "players": players}))
+    let clock = |ms: i64| overfilm_vision::plan::clock(Tick(ms.saturating_mul(TICKS_PER_MS)));
+    let games: Vec<Value> = st
+        .info
+        .games
+        .iter()
+        .enumerate()
+        .map(|(i, g)| {
+            let players: Vec<&str> = game_players(&st.info, g).into_iter().filter_map(|p| st.roster.players.get(p)).map(|p| p.name.as_str()).collect();
+            json!({"n": i + 1, "from": clock(g.start), "to": clock(g.end), "teams": [st.team_of(&g.teams, 1), st.team_of(&g.teams, 2)], "players": players})
+        })
+        .collect();
+    Ok(json!({"heroes": heroes, "teams": teams, "players": players, "games": games}))
 }
 
 fn name(s: &mut Session, p: &Value) -> Result<Value> {
@@ -141,6 +164,19 @@ fn name(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"templates": path, "id": id, "name": name, "markers": n}))
 }
 
+/// Every player seen in game `g`, in order of first appearance.
+fn game_players(info: &MatchInfo, g: &Game) -> Vec<usize> {
+    let mut out = Vec::new();
+    for s in info.stretches.iter().filter(|s| s.start >= g.start && s.end <= g.end) {
+        for p in s.plates.iter().flatten().flatten() {
+            if !out.contains(p) {
+                out.push(*p);
+            }
+        }
+    }
+    out
+}
+
 /// Who played on each side's plates: "로제: 태종, 킬로, ?, …" per side.
 fn lineup_lines(st: &LineupState, stretch: &lineup::Stretch) -> Vec<String> {
     (1..=2u8)
@@ -150,7 +186,7 @@ fn lineup_lines(st: &LineupState, stretch: &lineup::Stretch) -> Vec<String> {
                 return None;
             }
             let names: Vec<&str> = plates.iter().map(|p| st.player(*p).unwrap_or("?")).collect();
-            Some(format!("{}: {}", st.team(side).map(String::from).unwrap_or_else(|| format!("{side}팀")), names.join(", ")))
+            Some(format!("{}: {}", st.team_of(&stretch.teams, side).map(String::from).unwrap_or_else(|| format!("{side}팀")), names.join(", ")))
         })
         .collect()
 }
@@ -160,16 +196,35 @@ fn lineup_lines(st: &LineupState, stretch: &lineup::Stretch) -> Vec<String> {
 pub fn mark(s: &mut Session, st: &LineupState) -> Result<usize> {
     let end = s.active_sequence().ok_or(EngineError::NoSequence)?.duration();
     let t = |ms: i64| Tick(ms.saturating_mul(TICKS_PER_MS)).clamp(Tick::ZERO, end);
-    let mut marks: Vec<(Tick, String, String, Label)> = Vec::new();
-    if let (Some(a), Some(b)) = (st.team(1), st.team(2))
-        && let Some(first) = st.info.stretches.first()
-    {
-        marks.push((t(first.start), format!("{MARK_MATCH}: {a} vs {b}"), "화면의 팀 이름에서 읽음".into(), Label::Lavender));
+    // (start, duration, name, comment, colour)
+    let mut marks: Vec<(Tick, Tick, String, String, Label)> = Vec::new();
+    // one marker per game, over the whole game ("OverFilm 경기 2: …" when there are several)
+    let many = st.info.games.len() > 1;
+    for (i, g) in st.info.games.iter().enumerate() {
+        let names: Vec<&str> = g.teams.iter().map(|t| t.and_then(|t| st.team_name(t)).unwrap_or("?")).collect();
+        if names.iter().all(|n| *n == "?") {
+            continue;
+        }
+        let head = if many { format!("{MARK_MATCH} {}", i + 1) } else { MARK_MATCH.to_string() };
+        let (a, b) = (t(g.start), t(g.end));
+        let note = if many {
+            format!("{}경기 중 {}번째 · 화면의 팀 이름에서 읽음", st.info.games.len(), i + 1)
+        } else {
+            "화면의 팀 이름에서 읽음".into()
+        };
+        marks.push((a, Tick(b.0.saturating_sub(a.0).max(0)), format!("{head}: {}", names.join(" vs ")), note, Label::Lavender));
     }
-    // players, where they change
+    // players, where they change (within a game; teams change sides between maps)
     let mut last: Option<Vec<String>> = None;
-    let mut last_sets: [Vec<usize>; 2] = Default::default();
+    let mut last_sets: Vec<(usize, Vec<usize>)> = Vec::new();
+    let mut game: Option<usize> = None;
     for stretch in &st.info.stretches {
+        let g = st.info.games.iter().position(|g| stretch.start >= g.start && stretch.start <= g.end);
+        if g != game {
+            game = g;
+            last = None;
+            last_sets.clear();
+        }
         let lines = lineup_lines(st, stretch);
         if lines.is_empty() || last.as_ref() == Some(&lines) {
             continue;
@@ -177,23 +232,25 @@ pub fn mark(s: &mut Session, st: &LineupState) -> Result<usize> {
         let mut changes = Vec::new();
         for side in 0..2usize {
             let now: Vec<usize> = stretch.plates.get(side).map(|p| p.iter().flatten().copied().collect()).unwrap_or_default();
-            let before = last_sets.get(side).cloned().unwrap_or_default();
+            let Some(team) = stretch.teams.get(side).copied().flatten() else { continue };
+            let before = last_sets.iter().find(|(t, _)| *t == team).map(|(_, p)| p.clone()).unwrap_or_default();
             if !before.is_empty() && now.len() >= before.len() {
                 let out: Vec<&str> = before.iter().filter(|p| !now.contains(p)).filter_map(|p| st.player(Some(*p))).collect();
                 let inn: Vec<&str> = now.iter().filter(|p| !before.contains(p)).filter_map(|p| st.player(Some(*p))).collect();
                 if !out.is_empty() && !inn.is_empty() {
-                    let team = st.team(side as u8 + 1).map(String::from).unwrap_or_else(|| format!("{}팀", side + 1));
-                    changes.push(format!("{team} {} → {}", out.join(", "), inn.join(", ")));
+                    let name = st.team_name(team).map(String::from).unwrap_or_else(|| format!("{}팀", side + 1));
+                    changes.push(format!("{name} {} → {}", out.join(", "), inn.join(", ")));
                 }
             }
-            if let Some(x) = last_sets.get_mut(side)
-                && !now.is_empty()
-            {
-                *x = now;
+            if !now.is_empty() {
+                match last_sets.iter_mut().find(|(t, _)| *t == team) {
+                    Some(e) => e.1 = now,
+                    None => last_sets.push((team, now)),
+                }
             }
         }
         let name = if changes.is_empty() { MARK_LINEUP.to_string() } else { format!("{MARK_LINEUP} 교체: {}", changes.join(" / ")) };
-        marks.push((t(stretch.start), name, lines.join("\n"), Label::Lavender));
+        marks.push((t(stretch.start), Tick::ZERO, name, lines.join("\n"), Label::Lavender));
         last = Some(lines);
     }
     // heroes
@@ -213,12 +270,18 @@ pub fn mark(s: &mut Session, st: &LineupState) -> Result<usize> {
             }
             Some(f) => {
                 let w = st.who(ph);
-                marks.push((t(e.at), format!("{MARK_SWAP}: {w} {} → {}", line(f), line(e.to)), format!("{w}: {} → {}", line(f), line(e.to)), Label::Iris));
+                marks.push((
+                    t(e.at),
+                    Tick::ZERO,
+                    format!("{MARK_SWAP}: {w} {} → {}", line(f), line(e.to)),
+                    format!("{w}: {} → {}", line(f), line(e.to)),
+                    Label::Iris,
+                ));
             }
         }
     }
     for (at, lines) in picks {
-        marks.push((t(at), MARK_PICKS.to_string(), lines.join("\n"), Label::Iris));
+        marks.push((t(at), Tick::ZERO, MARK_PICKS.to_string(), lines.join("\n"), Label::Iris));
     }
     marks.truncate(MAX_MARKS * 4);
     let n = marks.len();
@@ -227,11 +290,11 @@ pub fn mark(s: &mut Session, st: &LineupState) -> Result<usize> {
         let ids: Vec<u64> = (0..marks.len()).map(|_| pr.alloc_id()).collect();
         let q = pr.sequence_mut(seq).ok_or(EngineError::NoSequence)?;
         q.markers.retain(|m| !is_lineup_marker(&m.name));
-        for ((start, name, comment, color), id) in marks.into_iter().zip(ids) {
+        for ((start, duration, name, comment, color), id) in marks.into_iter().zip(ids) {
             q.markers.push(Marker {
                 id: MarkerId(id),
                 start,
-                duration: Tick::ZERO,
+                duration,
                 name,
                 comment,
                 kind: MarkerKind::Comment,
@@ -262,6 +325,8 @@ pub fn prior_on_sequence(markers: &[Marker], end_ms: i64) -> MatchPrior {
     let mut p = MatchPrior::default();
     let mut ms: Vec<&Marker> = markers.iter().filter(|m| is_lineup_marker(&m.name)).collect();
     ms.sort_by_key(|m| m.start);
+    // games: each "OverFilm 경기" marker with teams starts one, up to the next
+    let mut games = matches_on_sequence(markers, end_ms);
     let mut state: Vec<(String, String)> = Vec::new();
     let mut since: Option<i64> = None;
     let push_heroes = |p: &mut MatchPrior, state: &[(String, String)], from: Option<i64>, to: i64| {
@@ -280,18 +345,25 @@ pub fn prior_on_sequence(markers: &[Marker], end_ms: i64) -> MatchPrior {
     };
     for m in ms {
         let at = m.start.0 / TICKS_PER_MS;
-        if let Some(rest) = m.name.strip_prefix(MARK_MATCH).and_then(|r| r.strip_prefix(": ")) {
-            for t in rest.split(" vs ").map(str::trim).filter(|t| !t.is_empty()) {
-                if !p.teams.iter().any(|x| x == t) {
-                    p.teams.push(t.to_string());
+        if m.name.starts_with(MARK_MATCH) {
+            for t in match_teams(&m.name).unwrap_or_default() {
+                if !p.teams.contains(&t) {
+                    p.teams.push(t);
                 }
             }
         } else if m.name.starts_with(MARK_LINEUP) {
+            // the game it is in (the first, for players before every game marker)
+            let gi = games.iter().rposition(|g| g.start <= at).unwrap_or(0);
             for line in m.comment.lines() {
                 let Some((_, names)) = line.split_once(": ") else { continue };
                 for n in names.split(", ").map(str::trim).filter(|n| !n.is_empty() && *n != "?") {
                     if !p.players.iter().any(|x| x == n) {
                         p.players.push(n.to_string());
+                    }
+                    if let Some(g) = games.get_mut(gi)
+                        && !g.players.iter().any(|x| x == n)
+                    {
+                        g.players.push(n.to_string());
                     }
                 }
             }
@@ -319,7 +391,42 @@ pub fn prior_on_sequence(markers: &[Marker], end_ms: i64) -> MatchPrior {
         }
     }
     push_heroes(&mut p, &state, since, end_ms);
+    // one game is the whole match: nothing to tell apart
+    if games.len() > 1 {
+        p.games = games;
+    }
     p
+}
+
+/// The matches on the sequence, from the "OverFilm 경기" markers (ms on the sequence's clock):
+/// each from its marker to the next one (the last to `end_ms`), with its teams (players left
+/// empty). One entry for a video with one match, none when no marker names a team. For exporting
+/// each match on its own ("날짜-팀1vs팀2.mp4").
+pub fn matches_on_sequence(markers: &[Marker], end_ms: i64) -> Vec<GamePrior> {
+    let mut ms: Vec<&Marker> = markers.iter().filter(|m| m.name.starts_with(MARK_MATCH)).collect();
+    ms.sort_by_key(|m| m.start);
+    let mut games: Vec<GamePrior> = Vec::new();
+    for m in ms {
+        let Some(teams) = match_teams(&m.name) else { continue };
+        let at = m.start.0 / TICKS_PER_MS;
+        if let Some(g) = games.last_mut() {
+            g.end = at;
+        }
+        games.push(GamePrior { start: at, end: end_ms.max(at), teams, players: Vec::new() });
+    }
+    games
+}
+
+/// The teams of an "OverFilm 경기: 로제 vs 오투 블래스트" marker (or "OverFilm 경기 2: …");
+/// `None` for another marker or one with no team.
+fn match_teams(name: &str) -> Option<Vec<String>> {
+    let rest = name.strip_prefix(MARK_MATCH)?;
+    let (head, rest) = rest.split_once(": ")?;
+    if !head.trim().chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let teams: Vec<String> = rest.split(" vs ").map(str::trim).filter(|t| !t.is_empty() && *t != "?").map(String::from).collect();
+    (!teams.is_empty()).then_some(teams)
 }
 
 /// The match prior of media item `item` on the active sequence, on the item's own clock (ms from
@@ -333,16 +440,26 @@ pub fn prior_for(s: &Session, item: ItemId) -> Option<MatchPrior> {
         return None;
     }
     let clips: Vec<_> = q.video_tracks.iter().chain(&q.audio_tracks).flat_map(|t| t.items.iter()).filter(|c| c.item == item).cloned().collect();
-    let mut p = MatchPrior { teams: on_seq.teams, players: on_seq.players, heroes: Vec::new() };
-    for (a, b, names) in on_seq.heroes {
+    // a span of the sequence (ms) on the item's clock, once per clip that covers part of it
+    let on_item = |a: i64, b: i64| -> Vec<(i64, i64)> {
         let (a, b) = (Tick(a.saturating_mul(TICKS_PER_MS)), Tick(b.saturating_mul(TICKS_PER_MS)));
-        for c in &clips {
-            let (x, y) = (a.max(c.start), b.min(c.end()));
-            if x < y {
-                let (mx, my) = (c.source_time_at(x).0 / TICKS_PER_MS, c.source_time_at(y).0 / TICKS_PER_MS);
-                p.heroes.push((mx.min(my), mx.max(my), names.clone()));
-            }
-        }
+        clips
+            .iter()
+            .filter_map(|c| {
+                let (x, y) = (a.max(c.start), b.min(c.end()));
+                (x < y).then(|| {
+                    let (mx, my) = (c.source_time_at(x).0 / TICKS_PER_MS, c.source_time_at(y).0 / TICKS_PER_MS);
+                    (mx.min(my), mx.max(my))
+                })
+            })
+            .collect()
+    };
+    let mut p = MatchPrior { teams: on_seq.teams, players: on_seq.players, heroes: Vec::new(), games: Vec::new() };
+    for (a, b, names) in on_seq.heroes {
+        p.heroes.extend(on_item(a, b).into_iter().map(|(x, y)| (x, y, names.clone())));
+    }
+    for g in on_seq.games {
+        p.games.extend(on_item(g.start, g.end).into_iter().map(|(start, end)| GamePrior { start, end, ..g.clone() }));
     }
     Some(p)
 }

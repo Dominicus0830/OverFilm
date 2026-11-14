@@ -6,7 +6,11 @@
 //! text are noisy (`RODE ZANSIDE GAMING`, `D2 Blat`, `WUTAN`), so they are only ever compared
 //! with a **roster** (the teams and players of the glossary) and many readings vote:
 //!
-//! - each side's team is the roster team the team-name readings match best overall;
+//! - each side's team is the roster team the team-name readings match best;
+//! - a broadcast may show two or three **games** (matches) one after another: a stretch that
+//!   clearly reads a team that is not one of the current game's two starts the next game, and
+//!   each game's two teams are the ones its readings match best overall. Teams change sides
+//!   between maps, so every stretch has its own side → team ([`Stretch::teams`]);
 //! - players are matched only against that team's roster, plate by plate, and the votes are
 //!   counted per **stretch** of play (a round between breaks): players can be substituted
 //!   between rounds, and the plates' order changes from round to round;
@@ -193,6 +197,10 @@ pub struct Stretch {
     pub end: i64,
     /// Per side (team 1, team 2), per plate.
     pub plates: [Vec<Option<usize>>; 2],
+    /// Each side's team in this stretch (index into [`Roster::teams`]); teams change sides
+    /// between maps, and a long broadcast shows more than one game.
+    #[serde(default)]
+    pub teams: [Option<usize>; 2],
 }
 
 impl Stretch {
@@ -202,12 +210,28 @@ impl Stretch {
     }
 }
 
+/// One game (match) of a broadcast: the stretches between the same two teams. A broadcast day
+/// shows two or three, one after the other.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Game {
+    /// From the start of its first stretch to the end of its last (ms).
+    pub start: i64,
+    pub end: i64,
+    /// Each side's team at the game's first stretch that read one (index into
+    /// [`Roster::teams`]).
+    pub teams: [Option<usize>; 2],
+}
+
 /// What the readings say.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct MatchInfo {
-    /// Each side's team (index into [`Roster::teams`]).
+    /// Each side's team in the first game (index into [`Roster::teams`]); see [`Self::games`]
+    /// and [`Stretch::teams`].
     pub teams: [Option<usize>; 2],
     pub stretches: Vec<Stretch>,
+    /// The games, in order (one for a single match).
+    #[serde(default)]
+    pub games: Vec<Game>,
 }
 
 impl MatchInfo {
@@ -222,6 +246,11 @@ impl MatchInfo {
             }
         }
         out
+    }
+
+    /// The game around `at` (or the last one started by then).
+    pub fn game_at(&self, at: i64) -> Option<&Game> {
+        self.games.iter().rev().find(|g| g.start <= at).or(self.games.first())
     }
 
     /// The stretch around `at`.
@@ -306,38 +335,49 @@ impl LineupReader {
     /// Resolve the readings against `roster`.
     pub fn finish(&self, roster: &Roster) -> MatchInfo {
         let mut info = MatchInfo::default();
-        // teams: summed similarity of every reading over the threshold
-        for side in 1..=2u8 {
-            let mut votes = vec![0.0f32; roster.teams.len()];
-            for r in self.reads.iter().filter(|r| r.side == side && r.plate.is_none()) {
-                let best = roster.teams.iter().enumerate().map(|(i, t)| (i, team_score(&r.text, t))).max_by(|a, b| a.1.total_cmp(&b.1));
-                if let Some((i, s)) = best.filter(|b| b.1 >= TEAM_MIN)
-                    && let Some(v) = votes.get_mut(i)
-                {
-                    *v += s;
+        let nt = roster.teams.len();
+        // which stretch each reading belongs to: the last one started by then (readings before
+        // the first stretch go with it)
+        let owner = |at: i64| -> usize { self.stretches.iter().rposition(|&(start, _)| start <= at).unwrap_or(0) };
+        // team votes per stretch, per side, per roster team
+        let mut votes: Vec<[Vec<f32>; 2]> = self.stretches.iter().map(|_| [vec![0.0f32; nt], vec![0.0f32; nt]]).collect();
+        for r in self.reads.iter().filter(|r| r.plate.is_none()) {
+            let best = roster.teams.iter().enumerate().map(|(i, t)| (i, team_score(&r.text, t))).max_by(|a, b| a.1.total_cmp(&b.1));
+            if let Some((i, s)) = best.filter(|b| b.1 >= TEAM_MIN)
+                && let Some(v) = votes.get_mut(owner(r.at)).and_then(|v| v.get_mut(usize::from(r.side.saturating_sub(1)))).and_then(|v| v.get_mut(i))
+            {
+                *v += s;
+            }
+        }
+        let games = split_games(&votes);
+        let mut stretch_teams: Vec<[Option<usize>; 2]> = vec![[None, None]; self.stretches.len()];
+        for g in &games {
+            let range = g.first..=g.last;
+            let pair = game_pair(votes.get(range.clone()).unwrap_or_default());
+            let sides = orient(votes.get(range.clone()).unwrap_or_default(), &pair);
+            for (k, t) in range.zip(sides) {
+                if let Some(x) = stretch_teams.get_mut(k) {
+                    *x = t;
                 }
             }
-            let top = votes.iter().enumerate().filter(|(_, v)| **v >= 1.0).max_by(|a, b| a.1.total_cmp(b.1)).map(|(i, _)| i);
-            if let Some(t) = info.teams.get_mut(usize::from(side - 1)) {
-                *t = top;
-            }
         }
-        // the other side's team cannot be the same one
-        if info.teams[0].is_some() && info.teams[0] == info.teams[1] {
-            info.teams[1] = None;
-        }
-        let candidates = |side: u8| -> Vec<usize> {
-            let team = info.teams.get(usize::from(side - 1)).copied().flatten().and_then(|t| roster.teams.get(t)).map(|t| t.id.as_str());
+        let candidates = |team: Option<usize>| -> Vec<usize> {
+            let team = team.and_then(|t| roster.teams.get(t)).map(|t| t.id.as_str());
             roster.players.iter().enumerate().filter(|(_, p)| team.is_some() && p.team.as_deref() == team).map(|(i, _)| i).collect()
         };
-        let cands = [candidates(1), candidates(2)];
-        let mut prev: [Vec<Option<usize>>; 2] = Default::default();
-        for &(start, end) in &self.stretches {
-            let mut st = Stretch { start, end, plates: Default::default() };
+        // the plates of each team in its last stretch (of the same game)
+        let mut prev: Vec<(usize, Vec<Option<usize>>)> = Vec::new();
+        for (k, &(start, end)) in self.stretches.iter().enumerate() {
+            if games.iter().any(|g| g.first == k) {
+                prev.clear();
+            }
+            let teams = stretch_teams.get(k).copied().unwrap_or_default();
+            let mut st = Stretch { start, end, plates: Default::default(), teams };
             for side in 1..=2u8 {
                 let si = usize::from(side - 1);
                 let n = usize::from(self.plates.get(si).copied().unwrap_or(0));
-                let cand = cands.get(si).cloned().unwrap_or_default();
+                let team = teams.get(si).copied().flatten();
+                let cand = candidates(team);
                 // votes[plate][candidate]
                 let mut votes = vec![vec![0.0f32; cand.len()]; n];
                 for r in self.reads.iter().filter(|r| r.side == side && r.at >= start && r.at <= end) {
@@ -369,19 +409,22 @@ impl LineupReader {
                         }
                     }
                 }
-                // one plate unread, everyone else from the last stretch: the one left over
-                let last = prev.get(si).cloned().unwrap_or_default();
-                let missing: Vec<usize> = (0..n).filter(|&p| plates.get(p).is_some_and(Option::is_none)).collect();
-                let known: Vec<usize> = plates.iter().flatten().copied().collect();
-                let left: Vec<usize> = last.iter().flatten().copied().filter(|p| !known.contains(p)).collect();
-                if let ([m], [l]) = (missing.as_slice(), left.as_slice())
-                    && known.iter().all(|k| last.contains(&Some(*k)))
-                    && let Some(x) = plates.get_mut(*m)
-                {
-                    *x = Some(*l);
-                }
-                if let Some(x) = prev.get_mut(si) {
-                    *x = plates.clone();
+                // one plate unread, everyone else from the team's last stretch: the one left over
+                if let Some(team) = team {
+                    let last = prev.iter().find(|(t, _)| *t == team).map(|(_, p)| p.clone()).unwrap_or_default();
+                    let missing: Vec<usize> = (0..n).filter(|&p| plates.get(p).is_some_and(Option::is_none)).collect();
+                    let known: Vec<usize> = plates.iter().flatten().copied().collect();
+                    let left: Vec<usize> = last.iter().flatten().copied().filter(|p| !known.contains(p)).collect();
+                    if let ([m], [l]) = (missing.as_slice(), left.as_slice())
+                        && known.iter().all(|k| last.contains(&Some(*k)))
+                        && let Some(x) = plates.get_mut(*m)
+                    {
+                        *x = Some(*l);
+                    }
+                    match prev.iter_mut().find(|(t, _)| *t == team) {
+                        Some(e) => e.1 = plates.clone(),
+                        None => prev.push((team, plates.clone())),
+                    }
                 }
                 if let Some(x) = st.plates.get_mut(si) {
                     *x = plates;
@@ -389,8 +432,99 @@ impl LineupReader {
             }
             info.stretches.push(st);
         }
+        info.games = games
+            .iter()
+            .filter_map(|g| {
+                let (a, b) = (self.stretches.get(g.first)?, self.stretches.get(g.last)?);
+                let teams = stretch_teams.get(g.first..=g.last)?.iter().find(|t| t.iter().any(Option::is_some)).copied().unwrap_or_default();
+                Some(Game { start: a.0, end: b.1, teams })
+            })
+            .collect();
+        info.teams = info.games.first().map(|g| g.teams).unwrap_or_default();
         info
     }
+}
+
+/// Team votes a stretch needs for a team to count as read there.
+const TEAM_VOTES: f32 = 1.0;
+
+/// The teams read in one stretch: each side's strongest, when read well enough (a stray
+/// misreading rarely outvotes the real name).
+fn stretch_set(v: &[Vec<f32>; 2]) -> Vec<usize> {
+    let mut out = Vec::new();
+    for side in v {
+        let top = side.iter().copied().enumerate().filter(|x| x.1 >= TEAM_VOTES).max_by(|a, b| a.1.total_cmp(&b.1)).map(|x| x.0);
+        if let Some(t) = top
+            && !out.contains(&t)
+        {
+            out.push(t);
+        }
+    }
+    out
+}
+
+/// A run of stretches between the same two teams (indexes into the stretches, inclusive).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Span {
+    first: usize,
+    last: usize,
+}
+
+/// Split the stretches into games: a game ends where a stretch clearly reads a team that is
+/// neither of the game's two (a third team, or a different pair). Stretches that read no team
+/// stay in the game around them.
+fn split_games(votes: &[[Vec<f32>; 2]]) -> Vec<Span> {
+    let mut out: Vec<Span> = Vec::new();
+    let mut teams: Vec<usize> = Vec::new();
+    for (k, v) in votes.iter().enumerate() {
+        let read = stretch_set(v);
+        let new: Vec<usize> = read.iter().copied().filter(|t| !teams.contains(t)).collect();
+        match out.last_mut() {
+            Some(g) if new.is_empty() || teams.len() + new.len() <= 2 => {
+                g.last = k;
+                teams.extend(new);
+            }
+            _ => {
+                out.push(Span { first: k, last: k });
+                teams = read;
+            }
+        }
+    }
+    out
+}
+
+/// The game's two teams: the strongest overall in its stretches, either side.
+fn game_pair(votes: &[[Vec<f32>; 2]]) -> Vec<usize> {
+    let n = votes.iter().flat_map(|v| v.iter().map(Vec::len)).max().unwrap_or(0);
+    let mut sum = vec![0.0f32; n];
+    for v in votes.iter().flat_map(|v| v.iter()) {
+        for (s, x) in sum.iter_mut().zip(v) {
+            *s += x;
+        }
+    }
+    let mut t: Vec<(usize, f32)> = sum.into_iter().enumerate().filter(|x| x.1 >= TEAM_VOTES).collect();
+    t.sort_by(|a, b| b.1.total_cmp(&a.1));
+    t.into_iter().take(2).map(|x| x.0).collect()
+}
+
+/// Which of the game's teams is on which side in each stretch: teams change sides between maps.
+/// A stretch with no reading keeps the side of the stretch before it (the first ones, of the
+/// first that has one).
+fn orient(votes: &[[Vec<f32>; 2]], pair: &[usize]) -> Vec<[Option<usize>; 2]> {
+    let vote = |v: &[Vec<f32>; 2], side: usize, t: Option<usize>| t.and_then(|t| v.get(side).and_then(|s| s.get(t))).copied().unwrap_or(0.0);
+    let (x, y) = (pair.first().copied(), pair.get(1).copied());
+    // +: x on side 1; −: x on side 2; 0: nothing read
+    let lean: Vec<f32> = votes.iter().map(|v| (vote(v, 0, x) + vote(v, 1, y)) - (vote(v, 0, y) + vote(v, 1, x))).collect();
+    let total: f32 = lean.iter().sum();
+    let mut cur = lean.iter().copied().find(|l| *l != 0.0).unwrap_or(if total < 0.0 { -1.0 } else { 1.0 }) >= 0.0;
+    lean.iter()
+        .map(|l| {
+            if *l != 0.0 {
+                cur = *l > 0.0;
+            }
+            if cur { [x, y] } else { [y, x] }
+        })
+        .collect()
 }
 
 /// A hero pick or swap with the player it was (when their plate was read).

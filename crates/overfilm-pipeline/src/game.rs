@@ -71,6 +71,19 @@ pub struct MatchPrior {
     pub players: Vec<String>,
     /// Heroes in play: (start ms, end ms, hero names).
     pub heroes: Vec<(i64, i64, Vec<String>)>,
+    /// When the sound holds more than one game (a broadcast day): each game's span, teams and
+    /// players. [`Self::teams`] and [`Self::players`] are then every game's together.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub games: Vec<GamePrior>,
+}
+
+/// One game of a [`MatchPrior`] (ms on the same clock).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GamePrior {
+    pub start: i64,
+    pub end: i64,
+    pub teams: Vec<String>,
+    pub players: Vec<String>,
 }
 
 impl MatchPrior {
@@ -81,7 +94,10 @@ impl MatchPrior {
     /// The recogniser's context about this match (goes before the general lists).
     pub fn context(&self) -> String {
         let mut s = String::new();
-        if !self.teams.is_empty() {
+        let games: Vec<String> = self.games.iter().filter(|g| !g.teams.is_empty()).map(|g| g.teams.join(" 대 ")).collect();
+        if games.len() > 1 {
+            s.push_str(&format!("이 영상의 경기: {}.", games.join(", ")));
+        } else if !self.teams.is_empty() {
             s.push_str(&format!("이번 경기: {}.", self.teams.join(" 대 ")));
         }
         if !self.players.is_empty() {
@@ -90,11 +106,18 @@ impl MatchPrior {
         s.trim().to_string()
     }
 
-    /// The names to prefer in a chunk from `start` to `end` (ms): teams and players throughout,
-    /// heroes in play at some point of it.
+    /// The names to prefer in a chunk from `start` to `end` (ms): the teams and players of the
+    /// games it overlaps (all of them when there are no games or it overlaps none), heroes in
+    /// play at some point of it.
     pub fn preferred(&self, start: i64, end: i64) -> Preferred {
         let heroes = self.heroes.iter().filter(|(a, b, _)| *a <= end && *b >= start).flat_map(|(_, _, h)| h.iter().map(|n| (n.as_str(), false)));
-        Preferred::new(self.teams.iter().map(|t| (t.as_str(), false)).chain(self.players.iter().map(|p| (p.as_str(), true))).chain(heroes))
+        let games: Vec<&GamePrior> = self.games.iter().filter(|g| g.start <= end && g.end >= start).collect();
+        if games.is_empty() {
+            return Preferred::new(self.teams.iter().map(|t| (t.as_str(), false)).chain(self.players.iter().map(|p| (p.as_str(), true))).chain(heroes));
+        }
+        let teams = games.iter().flat_map(|g| g.teams.iter().map(|t| (t.as_str(), false)));
+        let players = games.iter().flat_map(|g| g.players.iter().map(|p| (p.as_str(), true)));
+        Preferred::new(teams.chain(players).chain(heroes))
     }
 }
 
@@ -127,6 +150,7 @@ mod tests {
             teams: vec!["로제".into(), "오투 블래스트".into()],
             players: vec!["태종".into(), "우톈".into()],
             heroes: vec![(0, 60_000, vec!["트레이서".into()]), (60_000, 120_000, vec!["겐지".into()])],
+            games: Vec::new(),
         };
         assert_eq!(p.context(), "이번 경기: 로제 대 오투 블래스트. 출전 선수: 태종, 우톈.");
         assert!(MatchPrior::default().context().is_empty());
@@ -136,5 +160,31 @@ mod tests {
         let all = p.preferred(0, 120_000);
         assert!(!all.is_empty());
         assert_eq!(c.apply_preferring("우텐 선수", &all).text, "우톈 선수");
+    }
+
+    #[test]
+    fn a_broadcast_with_two_games_prefers_each_games_names() {
+        let game = |start, end, teams: [&str; 2], players: &[&str]| GamePrior {
+            start,
+            end,
+            teams: teams.iter().map(|t| t.to_string()).collect(),
+            players: players.iter().map(|p| p.to_string()).collect(),
+        };
+        let p = MatchPrior {
+            teams: vec!["로제".into(), "오투 블래스트".into(), "티원".into(), "크레이지 라쿤".into()],
+            players: vec!["태종".into(), "우톈".into(), "페이커".into(), "필더".into()],
+            heroes: Vec::new(),
+            games: vec![game(0, 60_000, ["로제", "오투 블래스트"], &["태종", "우톈"]), game(70_000, 120_000, ["티원", "크레이지 라쿤"], &["페이커", "필더"])],
+        };
+        assert_eq!(p.context(), "이 영상의 경기: 로제 대 오투 블래스트, 티원 대 크레이지 라쿤. 출전 선수: 태종, 우톈, 페이커, 필더.");
+        let names = |a, b| format!("{:?}", p.preferred(a, b));
+        assert!(names(0, 30_000).contains("우톈") && !names(0, 30_000).contains("페이커"));
+        assert!(names(80_000, 90_000).contains("페이커") && !names(80_000, 90_000).contains("우톈"));
+        assert!(names(50_000, 80_000).contains("우톈") && names(50_000, 80_000).contains("페이커"), "a chunk over the boundary");
+        assert!(names(61_000, 69_000).contains("우톈") && names(61_000, 69_000).contains("필더"), "between games: everyone");
+        // a prior saved before games existed still loads
+        let old: MatchPrior = serde_json::from_str(r#"{"teams":["로제"],"players":[],"heroes":[]}"#).unwrap();
+        assert!(old.games.is_empty());
+        assert_eq!(old.context(), "이번 경기: 로제.");
     }
 }
