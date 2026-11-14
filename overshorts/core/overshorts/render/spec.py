@@ -66,7 +66,7 @@ def build_spec(timing: dict[str, Any], title: str, subject: str, fact: str, sour
                 emph = True
                 used += 1
             words.append({"text": text, "start": w["start"], "end": w["end"], "emphasis": emph})
-        scenes.append({"part": s.get("part", "body"), "speaker": s.get("speaker", "narrator"),
+        scenes.append({"line": s.get("line", 0), "part": s.get("part", "body"), "speaker": s.get("speaker", "narrator"),
                        "text": s.get("text", ""), "start": s.get("start", 0),
                        "end": s.get("end", 0), "words": words})
     duration = float(timing.get("duration") or 0) + TAIL_SEC

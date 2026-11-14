@@ -16,7 +16,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "httpx>=0.27"]
+panel = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
 # 그림 검사(얼굴 흐림·선정성). Windows 는 DirectML 이라 라데온·NVIDIA·인텔 GPU 모두 쓴다.
 images = [
     "numpy>=1.26",

@@ -125,6 +125,9 @@ class Store:
         self.conn = sqlite3.connect(self.path, timeout=30)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
+        if self.path != ":memory:":
+            # 패널(여러 요청)과 작업 스레드가 같은 DB 를 함께 쓴다
+            self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript(SCHEMA)
         self._migrate()
         self.conn.commit()

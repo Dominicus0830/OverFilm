@@ -60,6 +60,26 @@ Edge-TTS 는 비공식 엔드포인트라 수익화 채널은 유료 API 권장 
 2026-11-14 클라우드 CPU 시험 렌더: 24초 1080×1920 60fps, 1분 44초, 3.2MB (공유 폴더 `overshorts/CardStory-시험-렌더.mp4`).
 라데온 AMF 하드웨어 인코딩은 아직 없음: Remotion 번들 FFmpeg 은 Windows 에서 NVENC 만 지원.
 
+## M5 패널 핵심
+
+`overshorts serve` 로 띄우면 브라우저가 열린다 (`http://127.0.0.1:8765/`, 이 PC 에서만 접속).
+
+| 화면 | 하는 일 |
+| --- | --- |
+| 홈 | 오늘 수집·생성·승인 수, 크롤링 예산 게이지·차단 상태, Claude 한도, GPU, 다음 할 일 |
+| 새로 만들기 | 링크 입력 → 종류 배지 자동 표시, 갤러리 모드 경고, 톤, ‘고급’에 개념글·추천·기간·개수 → 시작 |
+| 작업 큐 | 단계별 진행률, 실패 사유와 ‘이 단계부터 다시’, 일시정지, 실시간 로그(WebSocket) |
+| 검수 | 와이어프레임대로 원문(대본과 겹치는 글자 노란 표시) / 대본(문장별 편집, ▶ 그 문장만 듣기, 오글? 표시, 오글 신고) / 9:16 Player 미리보기. 승인 A·수정 반영 E·재생성 R(톤→대본부터, 프리셋→렌더 설정만)·폐기 D, J/K 이동 |
+
+보이스·스타일·소스·설정 화면은 M8. 오글 신고는 `style/reports.jsonl` 에 쌓이고 M8 스타일 화면에서 금지 목록 반영을 승인한다.
+긴 작업은 작업 스레드 하나가 차례로 돈다 (크롤링은 한 줄로만, GPU 모델은 한 번에 하나만).
+
+```sh
+cd overshorts/panel && npm install && npm run build      # 패널 화면 (한 번만)
+cd ../render && npm install                              # 렌더 템플릿 (한 번만)
+cd ../core && pip install -e .[dev,images,panel] && overshorts serve
+```
+
 2026-11-14 실측 (요청 4번): 목록 `tbody tr.us-post`, 본문 `div.write_div`, 공지·AD·설문 행 구분 확인.
 댓글은 HTML에 없고 `POST https://gall.dcinside.com/board/comment/` 가 JSON으로 준다. 브라우저 없이
 받아지므로 Playwright 폴백은 아직 넣지 않았다. 정상 글 페이지에도 추천용 `kcaptcha` 가 있어서,
@@ -98,4 +118,4 @@ pytest                                                                # 저장 H
 
 ## 다음
 
-- M5 패널(검수 화면 와이어프레임은 공유 폴더 overshorts/)
+- M6 클로닝(GPT-SoVITS, AMD 는 CPU), M7 OverFilm MCP·`doctor`, M8 설정 화면 전부

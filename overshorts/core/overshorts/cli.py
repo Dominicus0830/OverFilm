@@ -9,6 +9,7 @@
     overshorts preview                미리보기 spec 만들기
     overshorts approve <작업>         승인 (패널 전 임시)
     overshorts render                 승인된 작업 최종 렌더
+    overshorts serve                  패널 열기 (localhost, 브라우저 자동)
     overshorts budget                 오늘 요청 예산·쿨다운 상태
 """
 
@@ -86,6 +87,26 @@ def _llm_stage(args, cfg: dict, store: Store) -> int:
     return 0
 
 
+def _serve(args) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        print("패널에는 fastapi·uvicorn 이 필요합니다: pip install -e .[panel]", file=sys.stderr)
+        return 2
+    from .server.app import create_app
+
+    port = max(1024, min(int(args.port), 65535))
+    url = f"http://127.0.0.1:{port}/"
+    if not args.no_browser:
+        import threading
+        import webbrowser
+
+        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    print(f"OverShorts 패널: {url}")
+    uvicorn.run(create_app(args.config), host="127.0.0.1", port=port, log_level="warning")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="overshorts", description="DC 갤러리 → 쇼츠 자동화")
     ap.add_argument("--config", default="config.yaml", help="설정 파일 (없으면 기본값)")
@@ -107,6 +128,9 @@ def main(argv: list[str] | None = None) -> int:
     ap_ = sub.add_parser("approve", help="작업 승인 (패널 전 임시)")
     ap_.add_argument("job", type=int)
     sub.add_parser("render", help="승인된 작업 최종 렌더 (Remotion)")
+    sv = sub.add_parser("serve", help="패널 열기 (브라우저 자동)")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument("--no-browser", action="store_true")
     sub.add_parser("filter", help="규칙 통과 글을 LLM 필터로 분류 (로컬 Ollama)")
     sc = sub.add_parser("script", help="필터 통과 글의 대본 쓰기 (Claude Code)")
     sc.add_argument("--post", type=int, action="append", help="이 글만 (여러 번 가능)")
@@ -125,6 +149,9 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print(json.dumps({**u.__dict__, "label": u.label}, ensure_ascii=False))
         return 0
+
+    if args.cmd == "serve":
+        return _serve(args)
 
     store, data = _store(cfg)
     try:

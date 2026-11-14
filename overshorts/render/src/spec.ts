@@ -1,6 +1,7 @@
 // render_spec.json 형식. Python(core/overshorts/render/spec.py)이 만들고 여기서는 화면만 그린다.
 export type SpecWord = {text: string; start: number; end: number; emphasis?: boolean};
 export type SpecScene = {
+  line?: number; // 대본 줄 번호 (검수 화면의 '그 문장만 듣기')
   part: 'hook' | 'body' | 'comment' | 'outro';
   speaker: 'narrator' | 'comment';
   text: string;
@@ -69,6 +70,7 @@ export function sanitize(input: unknown): RenderSpec {
     background: typeof s.background === 'string' ? s.background : null,
     theme: {dark: s.theme?.dark !== false, accent: str(s.theme?.accent, '#FFD43B') || '#FFD43B'},
     scenes: scenes.map((sc) => ({
+      line: Math.round(num(sc?.line, 0, 0, 1000)),
       part: (['hook', 'body', 'comment', 'outro'] as const).includes(sc?.part) ? sc.part : 'body',
       speaker: sc?.speaker === 'comment' ? 'comment' : 'narrator',
       text: str(sc?.text),

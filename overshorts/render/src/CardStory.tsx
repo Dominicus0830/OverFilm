@@ -9,7 +9,8 @@ import {RenderSpec, SpecScene, sanitize} from './spec';
 
 loadFonts();
 
-const src = (p: string) => (/^https?:\/\//.test(p) ? p : staticFile(p));
+// 패널 미리보기는 /files/... 절대 경로, 최종 렌더는 public 폴더 기준 경로
+const src = (p: string) => (/^(https?:)?\/\//.test(p) || p.startsWith('/') ? p : staticFile(p));
 
 function useScene(spec: RenderSpec, t: number): SpecScene | null {
   let current: SpecScene | null = null;
