@@ -274,6 +274,9 @@ fn apply_flat_overrides(settings: &mut ExportSettings, p: &Value, cmd: &str) -> 
     if let Some(v) = p.get("gpuRendering") {
         settings.gpu_rendering = parse_gpu_rendering(v, cmd)?;
     }
+    if let Some(v) = str_p(p, "encoderSpeed") {
+        settings.encoder_speed = serde_json::from_value(json!(v)).map_err(|_| bad(cmd, "encoderSpeed: speed | balanced | quality"))?;
+    }
     if let Some(v) = bool_p(p, "burnCaptions") {
         settings.burn_captions = v;
     }

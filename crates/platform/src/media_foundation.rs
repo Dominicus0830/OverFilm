@@ -23,9 +23,13 @@
 //! The readback (`gpu::Readback`, [`crate::biplanar`]) is the one GPU to CPU copy; a later
 //! zero-copy path would hand the texture to the renderer instead and keep everything else.
 //!
-//! The modules that call into Windows (`gpu`, `mft`) are the FFI modules of this backend
+//! The hardware H.264 encoder MFTs of the export ([`crate::mf_h264`]) are driven by `encode`.
+//!
+//! The modules that call into Windows (`encode`, `gpu`, `mft`) are the FFI modules of this backend
 //! (docs/adr/0001-platform-ffi.md); this one is safe code.
 
+#[allow(unsafe_code)]
+mod encode;
 #[allow(unsafe_code)]
 mod gpu;
 #[allow(unsafe_code)]
@@ -56,6 +60,14 @@ pub fn stream_info(entry: &filmcraft_isobmff::SampleEntry) -> Option<StreamInfo>
         Some(r) => r.ok().map(StreamInfo::Nal),
         None => FrameStreamInfo::from_entry(entry)?.ok().map(StreamInfo::Frame),
     }
+}
+
+pub(crate) use self::encode::{MfEncoder, RawPacket};
+
+/// A hardware H.264 encoder MFT for `cfg` (AMD, Intel or NVIDIA), or why there is none
+/// ([`crate::mf_h264`]).
+pub(crate) fn open_h264_encoder(cfg: &crate::mf_h264::EncodeConfig) -> std::result::Result<MfEncoder, String> {
+    MfEncoder::new(mft::api()?, cfg)
 }
 
 /// Whether Media Foundation and a Direct3D 11 video device exist on this system.

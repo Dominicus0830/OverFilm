@@ -7,7 +7,7 @@
 //! Automation ids: `overfilm.panel.<param>` for each control (`autoCut`, `templates`,
 //! `keepBefore`, `applyCuts`, `reviewCuts`, `captions`, `audioTrack`, `mode`, `who`, `gameVoice`,
 //! `maxLines`, `lineChars`, `reviewCaptions`, `kills`, `render`, `renderFormat`, `renderPath`,
-//! `renderSplit`, `burnCaptions`), `overfilm.panel.run`, `overfilm.panel.stop`,
+//! `renderSplit`, `burnCaptions`, `renderFast`), `overfilm.panel.run`, `overfilm.panel.stop`,
 //! `overfilm.panel.step.<n>` for each step of the run, `overfilm.panel.reviewSettings`,
 //! `overfilm.panel.tool.<command id>`,
 //! `overfilm.panel.kill.<n>` for each kill in the kill list (click: go there),
@@ -106,6 +106,7 @@ fn defaults(app: &mut FilmcraftApp) -> Value {
         "renderPath": "",
         "renderSplit": "match",
         "burnCaptions": true,
+        "renderFast": true,
     })
 }
 
@@ -131,11 +132,12 @@ fn run_params(p: &Value) -> Value {
         "renderPath": p["renderPath"],
         "renderSplit": p["renderSplit"].as_str().unwrap_or("match"),
         "burnCaptions": p["burnCaptions"].as_bool().unwrap_or(true),
+        "renderFast": p["renderFast"].as_bool().unwrap_or(true),
     });
     if !out["render"].as_bool().unwrap_or(false)
         && let Some(m) = out.as_object_mut()
     {
-        for k in ["renderFormat", "renderPath", "renderSplit", "burnCaptions"] {
+        for k in ["renderFormat", "renderPath", "renderSplit", "burnCaptions", "renderFast"] {
             m.remove(k);
         }
     }
@@ -363,6 +365,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                     });
                     if p["renderFormat"] != "premiere" && p["captions"] != "off" {
                         check(ui, &mut elems, format!("{PRE}.burnCaptions"), tl!("Burn the captions into the picture"), &mut p["burnCaptions"]);
+                    }
+                    if p["renderFormat"] != "premiere" {
+                        check(ui, &mut elems, format!("{PRE}.renderFast"), tl!("Render fast (graphics card encoding and compositing)"), &mut p["renderFast"]);
                     }
                 });
             }

@@ -62,7 +62,8 @@ impl H264Profile {
 }
 
 /// Export ▸ Hardware encoding: whether H.264 may be encoded by the system's hardware video encoder
-/// (VideoToolbox on macOS, NVENC on NVIDIA GPUs on Windows) instead of FilmCraft's own encoder. Off
+/// (VideoToolbox on macOS; NVENC on NVIDIA GPUs and Media Foundation's encoder MFTs on AMD and Intel GPUs on
+/// Windows) instead of FilmCraft's own encoder. Off
 /// by default: hardware encoders make different streams, and exports are otherwise byte-identical
 /// from run to run and machine to machine.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,6 +74,30 @@ pub enum HardwareEncoding {
     /// Use the hardware encoder when the system has one and it takes the settings; otherwise the
     /// software encoder.
     Auto,
+}
+
+/// Export ▸ Encoder speed of the built-in H.264 encoder: how hard it searches for a good coding of
+/// each picture. `Balanced` is the default. `Speed` encodes about 1.6× as fast (1080p, measured
+/// 2026-11-04 on 4 cores: 43 → 68 fps) at a slightly lower quality per bit (test pattern at 8 Mb/s:
+/// 46.6 → 44.1 dB luma PSNR); `Quality` is slower and a little better. Hardware encoders ignore it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EncoderSpeed {
+    Speed,
+    #[default]
+    Balanced,
+    Quality,
+}
+
+impl EncoderSpeed {
+    /// The name used by commands and presets (`speed`, `balanced`, `quality`).
+    pub fn name(self) -> &'static str {
+        match self {
+            EncoderSpeed::Speed => "speed",
+            EncoderSpeed::Balanced => "balanced",
+            EncoderSpeed::Quality => "quality",
+        }
+    }
 }
 
 /// Whether the picture of an export may be composited on the GPU (`filmcraft-gpu`'s off-screen

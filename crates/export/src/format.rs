@@ -1,8 +1,8 @@
 use super::output::OutputSink;
 use super::run::validate_range;
 use super::{
-    Arc, AudioCodec, AudioSettings, BitrateMode, Deserialize, ExportEffects, ExportError, ExportMetadata, ExrCompression, FieldOrder, FrameRate, GpuRendering,
-    H264Profile, HardwareEncoding, Multiplexer, MxfVideoCodec, Result, SampleEntry, Scaling, Serialize, Tick, TimeRange,
+    Arc, AudioCodec, AudioSettings, BitrateMode, Deserialize, EncoderSpeed, ExportEffects, ExportError, ExportMetadata, ExrCompression, FieldOrder, FrameRate,
+    GpuRendering, H264Profile, HardwareEncoding, Multiplexer, MxfVideoCodec, Result, SampleEntry, Scaling, Serialize, Tick, TimeRange,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -322,8 +322,8 @@ pub struct ExportSettings {
     /// 18 is visually near-lossless.
     #[serde(default = "default_crf")]
     pub crf: f32,
-    /// May H.264 be encoded by the system's hardware encoder (VideoToolbox on macOS, NVENC on
-    /// Windows)? Off unless asked for: hardware output depends on the machine, so it is not
+    /// May H.264 be encoded by the system's hardware encoder (VideoToolbox on macOS, NVENC or
+    /// a Media Foundation encoder MFT (AMD, Intel) on Windows)? Off unless asked for: hardware output depends on the machine, so it is not
     /// byte-reproducible like the built-in encoder's (`determinism_tests`).
     #[serde(default)]
     pub hardware_encoding: HardwareEncoding,
@@ -331,6 +331,9 @@ pub struct ExportSettings {
     /// GPU rendering: Auto / Off, Off by default). Off = the CPU reference renderer exactly.
     #[serde(default)]
     pub gpu_rendering: GpuRendering,
+    /// Search effort of the built-in H.264 encoder ([`EncoderSpeed`], Balanced by default).
+    #[serde(default)]
+    pub encoder_speed: EncoderSpeed,
     /// VBR maximum bitrate (None = 1.5 × target).
     pub max_bitrate_kbps: Option<u32>,
     /// Adaptive bitrate (the Match Source presets): bits per pixel per frame; replaces
@@ -447,6 +450,7 @@ impl Default for ExportSettings {
             crf: DEFAULT_CRF,
             hardware_encoding: HardwareEncoding::default(),
             gpu_rendering: GpuRendering::Off,
+            encoder_speed: EncoderSpeed::Balanced,
             max_bitrate_kbps: None,
             adaptive_bitrate: None,
             keyframe_distance: None,

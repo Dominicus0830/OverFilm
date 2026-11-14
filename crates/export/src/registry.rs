@@ -40,6 +40,11 @@ pub trait VideoEncoder: Send {
     fn media_start(&self) -> Option<i64> {
         None
     }
+    /// The sample entry to write at the end of the file, when [`VideoEncoder::sample_entry`] (asked
+    /// once the first batch is encoded) could not be complete yet.
+    fn final_sample_entry(&self) -> Option<SampleEntry> {
+        None
+    }
     /// First-pass statistics of a two-pass encode (H.264).
     fn pass_stats(&self) -> Option<filmcraft_h264enc::PassStats> {
         None

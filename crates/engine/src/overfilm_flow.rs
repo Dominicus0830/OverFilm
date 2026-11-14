@@ -8,7 +8,7 @@
 //!   reviewCuts=false, applyCuts=true, captions="new"|"reuse"|"off", audioTrack?, mode, speakers,
 //!   numSpeakers?, extraTerms?, gpu, gameVoice, lineChars=16, maxLines=2, cleanFillers,
 //!   reviewCaptions=false, kills=true, killFps=2, render=false, renderFormat="h264",
-//!   renderPath?, renderSplit="match"|"one", burnCaptions=true, captionSidecar?, wait=false}`: `captions` "new" recognises the speech
+//!   renderPath?, renderSplit="match"|"one", burnCaptions=true, renderFast=true, captionSidecar?, wait=false}`: `captions` "new" recognises the speech
 //!   (`overfilm.captions.generate`), "reuse" lays the transcript the sequence already has out again
 //!   (`overfilm.captions.fromTranscript`, after the cuts: no second recognition). `applyCuts`
 //!   false leaves the cut markers for the user to check (the captions then follow the uncut
@@ -21,7 +21,9 @@
 //!   match when the sequence has several "OverFilm 경기" markers (different teams, from the kill
 //!   scan), named `<date>-<team 1>vs<team 2>.<ext>`, each from its marker to the next one, so no
 //!   part of the sequence is left out; a single match is one file under that name, and no match
-//!   marker keeps the sequence's name. "one" writes the whole sequence as one file. The first step
+//!   marker keeps the sequence's name. "one" writes the whole sequence as one file. `renderFast`
+//!   (on by default) renders with the graphics card's encoder and compositor where there are
+//!   ones and the built-in encoder's quicker search otherwise. The first step
 //!   starts at once, so its errors come back here; a later step that
 //!   fails stops the run (a review that fails is noted and the run goes on: it is optional).
 //! - `overfilm.flow.status` returns the steps, each `pending`, `running` (with the job's progress
@@ -155,7 +157,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Cut and Caption in One Go (OverFilm)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"autoCut":bool=true,"templates":path?,"keepBefore":seconds=10,"fps":0.5..8=2,"frozenPauses":bool=true,"reviewCuts":bool=false,"applyCuts":bool=true,"captions":"new"|"reuse"|"off"="new","audioTrack":n?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"reviewCaptions":bool=false,"kills":bool=true,"killFps":0.5..8=2,"render":bool=false,"renderFormat":"h264|hevc|av1|prores|dnxhr|mxf-op1a|gif|wav|aac|flac|premiere"="h264","renderPath":path?,"renderSplit":"match"|"one"="match","burnCaptions":bool=true,"captionSidecar":"srt|vtt"?,"wait":bool=false}"#,
+            params: r#"{"autoCut":bool=true,"templates":path?,"keepBefore":seconds=10,"fps":0.5..8=2,"frozenPauses":bool=true,"reviewCuts":bool=false,"applyCuts":bool=true,"captions":"new"|"reuse"|"off"="new","audioTrack":n?,"mode":"general"|"commentary"="general","speakers":bool=true,"numSpeakers":n?,"extraTerms":str?,"gpu":bool=true,"gameVoice":"drop"|"label"|"keep"="drop","lineChars":n=16,"maxLines":1|2=2,"leadMs":n=120,"holdMs":n=400,"readingCps":n=12,"cleanFillers":bool=true,"reviewCaptions":bool=false,"kills":bool=true,"killFps":0.5..8=2,"render":bool=false,"renderFormat":"h264|hevc|av1|prores|dnxhr|mxf-op1a|gif|wav|aac|flac|premiere"="h264","renderPath":path?,"renderSplit":"match"|"one"="match","burnCaptions":bool=true,"renderFast":bool=true,"captionSidecar":"srt|vtt"?,"wait":bool=false}"#,
             enabled: can_run,
             run,
             journal: false,
@@ -775,6 +777,12 @@ fn render_params(s: &Session, p: &Value, format: &str) -> Value {
     v["split"] = json!(str_p(p, "renderSplit").unwrap_or("match"));
     v["path"] = json!(path.unwrap_or_else(|| crate::export_tools::default_export_dir(s).to_string_lossy().into_owned()));
     v["burnCaptions"] = json!(bool_p(p, "burnCaptions").unwrap_or(true));
+    // fast by default: the graphics card's encoder (AMD / NVIDIA / Intel) and compositor where the
+    // machine has them, and the built-in encoder's quicker search where it has not
+    let fast = bool_p(p, "renderFast").unwrap_or(true);
+    v["hardwareEncoding"] = json!(if fast { "auto" } else { "off" });
+    v["gpuRendering"] = json!(if fast { "auto" } else { "off" });
+    v["encoderSpeed"] = json!(if fast { "speed" } else { "balanced" });
     v
 }
 

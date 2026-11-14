@@ -64,6 +64,7 @@ remain in effect; implementation differences are not exceptions to those rules.
 | macOS | [`videotoolbox`](../../crates/platform/src/videotoolbox.rs) | VideoToolbox decoding, CoreMedia/CoreVideo buffers and its output callback. |
 | macOS | [`videotoolbox_encode`](../../crates/platform/src/videotoolbox_encode.rs) | VideoToolbox H.264/HEVC encoding and its output callback; `dlsym` resolves an optional VideoToolbox property. |
 | Windows | [`media_foundation::gpu`](../../crates/platform/src/media_foundation/gpu.rs), [`media_foundation::mft`](../../crates/platform/src/media_foundation/mft.rs) | COM, Media Foundation, D3D11 device setup and surface readback. |
+| Windows | [`media_foundation::encode`](../../crates/platform/src/media_foundation/encode.rs) | Hardware H.264 encoder MFTs (AMD, Intel, NVIDIA) for Export: `ICodecAPI` settings, the polled event queue (no callbacks), output sample readback. |
 | Windows / 64-bit Linux | [`nvenc::ffi`](../../crates/platform/src/nvenc/ffi.rs), [`nvenc::session`](../../crates/platform/src/nvenc/session.rs), [`nvenc::device`](../../crates/platform/src/nvenc/device.rs) | NVENC declarations and calls, driver loading, D3D11 or CUDA device/context operations. |
 | 64-bit Linux | [`nvdec::cuvid`](../../crates/platform/src/nvdec/cuvid.rs) | NVDEC driver calls, parser callbacks and CUDA readback, using `nvenc::device`. |
 | Linux | [`vaapi::va`](../../crates/platform/src/vaapi/va.rs) | libva/libva-drm loading, displays, decoding, surface readback and logging. |
