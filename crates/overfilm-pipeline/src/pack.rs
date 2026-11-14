@@ -178,6 +178,13 @@ mod tests {
         assert_eq!(c.apply("티온이 동커퀸 아이언발드 백기 선수").text, "티원이 정커퀸 아이헨발데 베키 선수");
         // Quick speech (the M1 aichi video at 1.35x): a known word running into the rest of a name.
         assert_eq!(c.apply("솜브라 로더그가 사기였던 제트팩킷").text, "솜브라 로드호그가 사기였던 제트팩 캣");
+        // user report: the recogniser writes 캣 half as broken bytes, half as Latin (`제트팩et`),
+        // and sometimes 햇; the official spelling has a space (Blizzard's hero page, 나무위키)
+        assert_eq!(c.apply("솜브라 제트팩et 독트린 힐러가").text, "솜브라 제트팩 캣 독트린 힐러가");
+        assert_eq!(c.apply("이전 시즌에 사기였던 제트팩et, 아나").text, "이전 시즌에 사기였던 제트팩 캣, 아나");
+        assert_eq!(c.apply("제트팩햇 현재 하락세가").text, "제트팩 캣 현재 하락세가");
+        assert_eq!(c.apply("제트팩캣이 좋아요").text, "제트팩 캣이 좋아요");
+        assert_eq!(c.apply("제트팩 캣 제트팩으로 날아서").text, "제트팩 캣 제트팩으로 날아서");
         // aichi tier list: "히트박스 패치로 꿀을 빨고 있었던"
         assert_eq!(c.apply("패치로 꼴을 빨고 있었던").text, "패치로 꿀을 빨고 있었던");
         // user report on the same video: 냥이 (제트팩 캣) heard as 양이, and English "two"

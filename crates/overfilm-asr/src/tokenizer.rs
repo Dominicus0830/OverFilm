@@ -214,7 +214,9 @@ impl Tokenizer {
                 bytes.extend(tok.chars().filter_map(|c| self.byte_dec.get(&c).copied()));
             }
         }
-        String::from_utf8_lossy(&bytes).into_owned()
+        // a cut-off character (the model wrote part of a syllable, then something else: `제트팩` +
+        // half of `캣` + `et`) is dropped, as in decode_scored, not shown as `�` in captions
+        String::from_utf8_lossy(&bytes).chars().filter(|&c| c != char::REPLACEMENT_CHARACTER).collect()
     }
 }
 
@@ -243,6 +245,18 @@ mod tests {
         assert_eq!(scored[0].1, 0.9);
         assert_eq!(scored[2].1, 0.5);
         assert_eq!(scored.last().map(|x| x.1), Some(1.0), "a missing score counts as sure");
+    }
+
+    #[test]
+    fn cut_off_characters_are_dropped() {
+        // the recogniser's `제트팩et`: the first two bytes of 켓 (EC BC 93), then the token `et`
+        let b = bytes_to_unicode();
+        let half: String = [0xEC_u8, 0xBC].iter().map(|&x| b[x as usize]).collect();
+        let vocab = format!(r#"{{"e":0,"t":1,"et":2,"{half}":3}}"#);
+        let t = Tokenizer::new(&vocab, "#version: 0.2\ne t\n", "{}").unwrap();
+        assert_eq!(t.decode(&[2, 3, 2], false), "etet");
+        let scored: String = t.decode_scored(&[2, 3, 2], &[]).iter().map(|x| x.0).collect();
+        assert_eq!(scored, "etet");
     }
 
     #[test]
