@@ -1,0 +1,24 @@
+# OverShorts 설정 예시. config.yaml 로 복사해서 쓴다 (나중에는 패널이 이 파일을 저장한다).
+sources:
+  - url: https://gall.dcinside.com/mgallery/board/lists/?id=example
+    recommend_only: true
+    min_upvotes: 30
+    max_posts: 10
+    within_hours: 24
+filter:
+  block_words: []
+  allow_topics: []        # 비우면 전부 허용
+  min_chars: 80
+  max_chars: 4000
+crawler:
+  delay_sec: [1.5, 4]     # 요청마다 랜덤 간격 (1초 미만은 차단 위험)
+  rest_every: 10          # 글 N개마다
+  rest_sec: [20, 40]      # 긴 휴식
+  hourly_limit: 60
+  daily_limit: 200
+  cooldown_min: 60        # 403·429·캡차 뒤 쉬는 시간
+  max_comments: 50
+  proxy: null
+gpu_tier: auto
+encoder: auto             # auto | nvenc | amf | cpu (라데온 지원)
+data_dir: ./data
