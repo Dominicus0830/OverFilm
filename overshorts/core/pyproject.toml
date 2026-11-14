@@ -11,6 +11,7 @@ dependencies = [
     "curl_cffi>=0.7",
     "beautifulsoup4>=4.12",
     "PyYAML>=6.0",
+    "pydantic>=2.6",
 ]
 
 [project.optional-dependencies]

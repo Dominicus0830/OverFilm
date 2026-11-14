@@ -21,6 +21,20 @@ OverFilm 본체(Rust)와 따로 도는 프로그램이라 Rust 워크스페이�
 | 첨부 그림 받기(`Referer` 헤더, 글당 5장, 예산에 같이 셈) | `core/overshorts/crawler/collector.py` |
 | 그림 검사: 얼굴 흐림(OpenCV YuNet, MIT), 선정성 분류(Falconsai ViT ONNX, Apache-2.0)에 걸리면 뺌, 검사 못 한 그림은 검수 표시 | `core/overshorts/images.py` |
 
+## M2 LLM·대본
+
+| 기능 | 파일 |
+| --- | --- |
+| LLM 어댑터: `claude -p`(빈 임시 폴더, 도구 끔, API 키 지움) + Ollama(JSON 스키마), pydantic 검증·2번 재질문, 한도 시 로컬로 넘김 | `core/overshorts/llm/` |
+| LLM 필터: 정치·혐오·성적·실존 인물 비방·개인정보·범죄·광고 → pass/block/review + 적합도 | `core/overshorts/filters/llm_filter.py` |
+| 대본 프롬프트: 훅·전개·댓글·마무리, 톤 3종, 반말/해요체, 스타일 파일 반영 | `core/overshorts/script/prompts.py` |
+| 규칙 검사: 금지 표현, ~노 어미, 전언 반복, 긴 문장·단조로운 길이, 지어낸 댓글, 원문 겹침(글자 5-gram), 예상 길이 | `core/overshorts/script/checks.py` |
+| 오글 검사(별도 호출 0~10), 기준 미만·규칙 위반이면 사유 붙여 다시 씀(최대 2번), 남은 문제는 검수 경고 | `core/overshorts/script/writer.py` |
+| 스타일 파일: `style/guide.md`, `banned.txt`, `good/`, `bad/` | `style/` |
+
+게시물 본문·댓글은 `<post>`·`<comments>` 태그로 감싸고 안의 지시를 따르지 말라고 프롬프트에 넣는다.
+2026-11-14 실제 `claude -p`(sonnet)로 테스트 글 대본: 30초 안팎, 원문 겹침 10%, 오글 7.5점, 다시 쓰기 1번.
+
 2026-11-14 실측 (요청 4번): 목록 `tbody tr.us-post`, 본문 `div.write_div`, 공지·AD·설문 행 구분 확인.
 댓글은 HTML에 없고 `POST https://gall.dcinside.com/board/comment/` 가 JSON으로 준다. 브라우저 없이
 받아지므로 Playwright 폴백은 아직 넣지 않았다. 정상 글 페이지에도 추천용 `kcaptcha` 가 있어서,
@@ -37,6 +51,8 @@ copy ..\config.example.yaml config.yaml              # 선택
 overshorts parse "https://m.dcinside.com/board/overwatch2/1981822"   # 요청 없이 종류만
 overshorts ingest "https://gall.dcinside.com/mgallery/board/lists/?id=overwatch2" --recommend-only --min-upvotes 30 --max-posts 5
 overshorts inspect                                                    # 받은 그림 검사 (첫 실행 때 모델 약 90MB 받음)
+overshorts filter                                                     # LLM 필터 (Ollama 켜 두기)
+overshorts script                                                     # 대본 (Claude Code 로그인 필요)
 overshorts budget                                                     # 오늘 예산·쿨다운
 pytest                                                                # 저장 HTML 테스트 (네트워크 안 씀)
 ```

@@ -239,6 +239,34 @@ class Store:
         self.conn.commit()
         return int(cur.lastrowid or 0)
 
+    def set_job_status(self, job_id: int, status: str, error: str | None = None,
+                       script_id: int | None = None) -> None:
+        if status not in JOB_STATUSES:
+            raise ValueError(f"알 수 없는 작업 상태: {status}")
+        if script_id is None:
+            self.conn.execute("UPDATE jobs SET status=?, error=?, updated_at=? WHERE id=?",
+                              (status, error, now_iso(), job_id))
+        else:
+            self.conn.execute(
+                "UPDATE jobs SET status=?, error=?, script_id=?, updated_at=? WHERE id=?",
+                (status, error, script_id, now_iso(), job_id))
+        self.conn.commit()
+
+    def next_script_version(self, post_id: int) -> int:
+        row = self.conn.execute("SELECT MAX(version) AS v FROM scripts WHERE post_id=?",
+                                (post_id,)).fetchone()
+        return int(row["v"] or 0) + 1
+
+    def add_script(self, post_id: int, version: int, tone: str, payload: dict[str, Any],
+                   overlap_ratio: float, model: str) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO scripts(post_id, version, tone, lines, overlap_ratio, model) "
+            "VALUES(?,?,?,?,?,?)",
+            (post_id, version, tone, json.dumps(payload, ensure_ascii=False), overlap_ratio,
+             model))
+        self.conn.commit()
+        return int(cur.lastrowid or 0)
+
     def upsert_source(self, url: str, kind: str, gall_type: str, gall_id: str,
                       options: dict[str, Any]) -> None:
         self.conn.execute(

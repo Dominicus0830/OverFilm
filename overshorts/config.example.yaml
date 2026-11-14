@@ -12,6 +12,19 @@ filter:
   max_chars: 4000
   blur_faces: true        # 첨부 그림 얼굴 흐림
   drop_nsfw_images: true  # 선정성 그림 빼기
+llm:
+  filter: ollama          # LLM 필터 (로컬 GPU, 라데온은 Ollama AMD 지원)
+  script: claude_code     # 대본·오글 검사 (claude -p, 구독)
+  fallback: ollama
+  ollama_model: qwen3:8b  # VRAM 6~7GB면 qwen3:4b
+  claude_model: ""        # 비우면 Claude Code 기본 모델
+  on_limit: fallback      # fallback = 로컬 LLM으로 넘김(경고), wait = 대기열에 둠
+render:
+  tone: 담백              # 담백 | 드립 조금 | 정리형
+style:
+  dir: ../style
+  speech: 반말            # 반말 | 해요체 (채널당 하나)
+  min_cringe_score: 7
 crawler:
   delay_sec: [1.5, 4]     # 요청마다 랜덤 간격 (1초 미만은 차단 위험)
   rest_every: 10          # 글 N개마다
