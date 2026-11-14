@@ -119,6 +119,18 @@ pub fn tell_apart(r: &Request) -> bool {
 /// Recognise mono 16 kHz `audio` with the models in `models` (already downloaded, see
 /// [`ensure_models`]). Progress runs 0–1: recognition and timing first, speakers last.
 pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) -> Result<Recognised, String> {
+    recognise_live(audio, r, models, progress, None)
+}
+
+/// [`recognise`] that shows `live` each chunk's text while it is generated and when it is done
+/// (see [`overfilm_asr::Settings::live`]).
+pub fn recognise_live(
+    audio: &[f32],
+    r: &Request,
+    models: &Path,
+    progress: Progress,
+    live: Option<&dyn Fn(&overfilm_asr::LiveText)>,
+) -> Result<Recognised, String> {
     if audio.is_empty() {
         return Err("소리가 비어 있습니다".into());
     }
@@ -143,6 +155,7 @@ pub fn recognise(audio: &[f32], r: &Request, models: &Path, progress: Progress) 
         correct: &correct,
         gpu: r.gpu,
         skip_silence: r.skip_silence,
+        live,
     };
     let label_speakers = tell_apart(r);
     let rec_share = if label_speakers { 0.9 } else { 1.0 };

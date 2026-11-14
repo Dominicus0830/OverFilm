@@ -438,6 +438,14 @@ fn finish(tok: &Tokenizer, out: &[u32], probs: &[f32], language: Option<&str>) -
     Scored { text, words }
 }
 
+/// Text generated so far, for showing recognition as it happens (no clean-up).
+fn partial(tok: &Tokenizer, out: &[u32]) -> String {
+    tok.decode(out, false).trim().to_string()
+}
+
+/// Tokens between two looks at the text being generated ([`Asr::transcribe_many_live`]).
+pub const PEEK_EVERY: usize = 8;
+
 /// Pieces of sound recognised side by side on the GPU (see [`Asr::transcribe_many`]; eight
 /// 60-second pieces fill its key/value cache, [`gpu::KV_CAP_SIDE`], and one decoding step reads
 /// each weight once for all of them).
@@ -507,6 +515,18 @@ impl Asr {
 
     /// [`Asr::transcribe`] with how sure the model was of each word.
     pub fn transcribe_scored(&mut self, audio: &[f32], context: &str, language: Option<&str>, cancel: &mut dyn FnMut() -> bool) -> Result<Scored, AsrError> {
+        self.transcribe_scored_live(audio, context, language, cancel, &mut |_| {})
+    }
+
+    /// [`Asr::transcribe_scored`] that shows `peek` the text so far every [`PEEK_EVERY`] tokens.
+    pub fn transcribe_scored_live(
+        &mut self,
+        audio: &[f32],
+        context: &str,
+        language: Option<&str>,
+        cancel: &mut dyn FnMut() -> bool,
+        peek: &mut dyn FnMut(&str),
+    ) -> Result<Scored, AsrError> {
         let t0 = std::time::Instant::now();
         let feats = self.m.net.encode(audio)?;
         self.clock.encode += secs(t0);
@@ -535,6 +555,9 @@ impl Asr {
             }
             out.push(next);
             probs.push(p);
+            if out.len().is_multiple_of(PEEK_EVERY) {
+                peek(&partial(tok, &out));
+            }
             let e = net.embed(&[next])?;
             let (ids, np) = net.forward_p(&e, true, true)?;
             next = ids.first().copied().unwrap_or(self.eos[0]);
@@ -583,11 +606,28 @@ impl Asr {
         language: Option<&str>,
         cancel: &mut dyn FnMut() -> bool,
     ) -> Result<Vec<Scored>, AsrError> {
+        self.transcribe_many_live(audios, context, language, cancel, &mut |_, _| {})
+    }
+
+    /// [`Asr::transcribe_many`] that shows `peek` each piece's text so far (piece index, text)
+    /// every [`PEEK_EVERY`] tokens.
+    pub fn transcribe_many_live(
+        &mut self,
+        audios: &[&[f32]],
+        context: &str,
+        language: Option<&str>,
+        cancel: &mut dyn FnMut() -> bool,
+        peek: &mut dyn FnMut(usize, &str),
+    ) -> Result<Vec<Scored>, AsrError> {
         if audios.is_empty() || (audios.len() < 2 && self.on_gpu()) {
-            return audios.iter().map(|a| self.transcribe_scored(a, context, language, cancel)).collect();
+            let mut out = Vec::with_capacity(audios.len());
+            for (k, a) in audios.iter().enumerate() {
+                out.push(self.transcribe_scored_live(a, context, language, cancel, &mut |t| peek(k, t))?);
+            }
+            return Ok(out);
         }
         if self.on_gpu() {
-            return self.transcribe_many_gpu(audios, context, language, cancel);
+            return self.transcribe_many_gpu(audios, context, language, cancel, peek);
         }
         let trace = std::env::var_os("OVERFILM_ASR_TRACE").is_some();
         let t0 = std::time::Instant::now();
@@ -638,6 +678,9 @@ impl Asr {
                 if let (Some(o), Some(pr), Some(&t), Some(&p)) = (outs.get_mut(i), probs.get_mut(i), next.get(i), prob.get(i)) {
                     o.push(t);
                     pr.push(p);
+                    if o.len().is_multiple_of(PEEK_EVERY) {
+                        peek(i, &partial(&self.m.tok, o));
+                    }
                 }
             }
             let Net::Cpu(th) = &mut self.m.net else { return Err(AsrError::Model("batched decoding needs the CPU model".into())) };
@@ -681,6 +724,7 @@ impl Asr {
         context: &str,
         language: Option<&str>,
         cancel: &mut dyn FnMut() -> bool,
+        peek: &mut dyn FnMut(usize, &str),
     ) -> Result<Vec<Scored>, AsrError> {
         let trace = std::env::var_os("OVERFILM_ASR_TRACE").is_some();
         let t0 = std::time::Instant::now();
@@ -702,14 +746,15 @@ impl Asr {
         }
         if side < 2 {
             let mut out = Vec::with_capacity(audios.len());
-            for a in audios {
-                out.push(self.transcribe_scored(a, context, language, cancel)?);
+            for (k, a) in audios.iter().enumerate() {
+                out.push(self.transcribe_scored_live(a, context, language, cancel, &mut |t| peek(k, t))?);
             }
             return Ok(out);
         }
         let mut results: Vec<Scored> = Vec::with_capacity(audios.len());
         let eos = self.eos.clone();
-        for group in feats.chunks(side) {
+        for (g_at, group) in feats.chunks(side).enumerate() {
+            let first_piece = g_at * side;
             let t1 = std::time::Instant::now();
             // prefill each piece into its region: (position, region start) per piece
             let mut pos = Vec::with_capacity(group.len());
@@ -761,6 +806,9 @@ impl Asr {
                         pr.push(p);
                         ids.push(t);
                         rows.push((ps, b, plen));
+                        if o.len().is_multiple_of(PEEK_EVERY) {
+                            peek(first_piece + i, &partial(&self.m.tok, o));
+                        }
                     }
                 }
                 let x = g.embed.forward(&Tensor::new(ids.as_slice(), &Device::Cpu)?)?;
@@ -942,14 +990,25 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
         let longest_s = pieces.iter().map(|p| p.len()).max().unwrap_or(0) as f32 / SAMPLE_RATE as f32;
         let (mut steps, at, size) = (0u32, i as f32, group.len() as f32);
         let label = format!("인식 {}–{}/{}", i + 1, i + group.len(), spans.len());
-        let r = asr.transcribe_many(&pieces, s.context, s.language, &mut || {
-            steps += 1;
-            if steps.is_multiple_of(16) && !cancelled {
-                let frac = (steps as f32 / (longest_s * 6.0).max(1.0)).min(0.95);
-                cancelled = !progress(0.8 * (at + size * frac) / n, &label);
+        let mut peek = |k: usize, text: &str| {
+            if let (Some(live), Some(&(a, b))) = (s.live, group.get(k)) {
+                live(&crate::LiveText { start_ms: ms_of_sample(a), end_ms: ms_of_sample(b), text, done: false });
             }
-            cancelled
-        });
+        };
+        let r = asr.transcribe_many_live(
+            &pieces,
+            s.context,
+            s.language,
+            &mut || {
+                steps += 1;
+                if steps.is_multiple_of(16) && !cancelled {
+                    let frac = (steps as f32 / (longest_s * 6.0).max(1.0)).min(0.95);
+                    cancelled = !progress(0.8 * (at + size * frac) / n, &label);
+                }
+                cancelled
+            },
+            &mut peek,
+        );
         let raws = match r {
             Err(e) if asr.on_gpu() && !matches!(e, AsrError::Cancelled) => {
                 gpu = None;
@@ -967,6 +1026,9 @@ pub fn transcribe(audio: &[f32], s: &Settings, progress: Progress) -> Result<Tra
         };
         for (raw, &(a, b)) in raws.into_iter().zip(&group) {
             let text = (s.correct)(&raw.text, ms_of_sample(a), ms_of_sample(b));
+            if let Some(live) = s.live {
+                live(&crate::LiveText { start_ms: ms_of_sample(a), end_ms: ms_of_sample(b), text: &text, done: true });
+            }
             scores.push(raw.words);
             let preview: String = text.chars().take(40).collect();
             chunks.push(ChunkText { start_ms: ms_of_sample(a), end_ms: ms_of_sample(b), text, words: Vec::new() });

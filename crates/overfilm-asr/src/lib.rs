@@ -201,6 +201,20 @@ pub struct Settings<'a> {
     /// [`chunk::split_voiced`]). Safe on a voice-only track; on sound mixed with the game a soft
     /// voice under loud game sound can be lost, so callers keep it off there unless asked.
     pub skip_silence: bool,
+    /// Called with each chunk's text while it is being generated (raw, every few tokens) and
+    /// once more when it is done (corrected), for showing recognition as it happens.
+    pub live: Option<&'a dyn Fn(&LiveText)>,
+}
+
+/// A chunk's text so far, for [`Settings::live`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LiveText<'t> {
+    /// The chunk's place in the input (ms from the first sample).
+    pub start_ms: i64,
+    pub end_ms: i64,
+    /// Text generated so far (raw), or the chunk's final corrected text when `done`.
+    pub text: &'t str,
+    pub done: bool,
 }
 
 #[cfg_attr(not(feature = "qwen"), allow(dead_code))]
