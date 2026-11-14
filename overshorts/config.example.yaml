@@ -10,6 +10,8 @@ filter:
   allow_topics: []        # 비우면 전부 허용
   min_chars: 80
   max_chars: 4000
+  blur_faces: true        # 첨부 그림 얼굴 흐림
+  drop_nsfw_images: true  # 선정성 그림 빼기
 crawler:
   delay_sec: [1.5, 4]     # 요청마다 랜덤 간격 (1초 미만은 차단 위험)
   rest_every: 10          # 글 N개마다
@@ -18,6 +20,7 @@ crawler:
   daily_limit: 200
   cooldown_min: 60        # 403·429·캡차 뒤 쉬는 시간
   max_comments: 50
+  max_images: 5           # 글당 받을 첨부 그림
   proxy: null
 gpu_tier: auto
 encoder: auto             # auto | nvenc | amf | cpu (라데온 지원)

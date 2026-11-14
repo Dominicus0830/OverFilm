@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from datetime import datetime
 
 from conftest import fixture
@@ -103,3 +104,24 @@ def test_mobile_link_resolves_mgallery():
     assert rep.url.gall_type == "mgallery"
     assert any("/mgallery/board/view/" in u for _, u in dc.calls)
     assert len(rep.saved) == 1
+
+
+def test_images_downloaded_with_referer(tmp_path):
+    jpeg = b"\xff\xd8\xff\xe0" + b"0" * 100
+    seen = {}
+    dc = FakeDc()
+
+    def transport(method, url, headers, form):
+        if "viewimage.php" in url:
+            seen["referer"] = headers.get("Referer")
+            return Response(200, "", url, jpeg, "application/octet-stream")
+        return dc(method, url, headers, form)
+
+    store = Store(":memory:")
+    guard = CrawlGuard(store, CrawlLimits(), sleep=lambda s: None)
+    col = Collector(store, Fetcher(guard, transport), now=lambda: NOW, image_dir=tmp_path)
+    rep = col.ingest("https://gall.dcinside.com/mgallery/board/view/?id=example&no=1000200")
+    assert len(rep.saved) == 1 and rep.errors == []
+    assert seen["referer"] == "https://gall.dcinside.com/"
+    item = json.loads(store.conn.execute("SELECT images FROM posts").fetchone()["images"])[0]
+    assert item["inspected"] is False and Path(item["local"]).read_bytes() == jpeg

@@ -2,6 +2,7 @@
 
     overshorts parse <링크>          링크 종류만 판단 (요청 안 함)
     overshorts ingest <링크> [옵션]   수집 + 1차 규칙 필터
+    overshorts inspect                받은 그림 얼굴 흐림·선정성 검사 (모아서 한 번에)
     overshorts budget                 오늘 요청 예산·쿨다운 상태
 """
 
@@ -41,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--max-posts", type=int, default=10)
 
     sub.add_parser("budget", help="요청 예산·쿨다운 상태")
+    ins = sub.add_parser("inspect", help="받은 그림의 얼굴 흐림·선정성 검사")
+    ins.add_argument("--no-download", action="store_true", help="모델을 받지 않음 (없으면 검사 못 함)")
 
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
@@ -58,6 +61,20 @@ def main(argv: list[str] | None = None) -> int:
     try:
         limits = crawl_limits(cfg)
         guard = CrawlGuard(store, limits)
+        if args.cmd == "inspect":
+            from .images import ImageInspector, inspect_pending
+
+            f = cfg.get("filter") or {}
+            inspector = ImageInspector(data / "models", download=not args.no_download,
+                                       blur_faces=bool(f.get("blur_faces", True)),
+                                       drop_nsfw=bool(f.get("drop_nsfw_images", True)))
+            counts = inspect_pending(store, inspector, data / "images")
+            print(f"글 {counts['posts']}개, 그림 {counts['images']}장 검사: 얼굴 흐림 "
+                  f"{counts['faces']}장, 선정성으로 뺌 {counts['dropped']}장, "
+                  f"검사 못 함 {counts['unchecked']}장 (장치: {inspector.provider or '없음'})")
+            for e in inspector.load_errors:
+                print(f"  경고: {e}", file=sys.stderr)
+            return 0
         if args.cmd == "budget":
             print(json.dumps(guard.status(), ensure_ascii=False))
             for w in limits.warnings():
@@ -75,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         collector = Collector(
             store, fetcher, rule_config(cfg), cache_dir=data / "cache",
             max_comments=int(crawler.get("max_comments") or 50),
+            image_dir=data / "images", max_images=int(crawler.get("max_images") or 5),
         )
         opts = GalleryOptions(
             recommend_only=args.recommend_only,

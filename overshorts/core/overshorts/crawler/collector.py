@@ -60,13 +60,16 @@ class IngestReport:
 class Collector:
     def __init__(self, store: Store, fetcher: Fetcher, rules: RuleConfig | None = None,
                  cache_dir: str | Path | None = None, max_comments: int = 50,
-                 now: Callable[[], datetime] = datetime.now):
+                 now: Callable[[], datetime] = datetime.now,
+                 image_dir: str | Path | None = None, max_images: int = 5):
         self.store = store
         self.fetcher = fetcher
         self.rules = rules or RuleConfig()
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.max_comments = max(0, min(int(max_comments), 500))
         self.now = now
+        self.image_dir = Path(image_dir) if image_dir else None
+        self.max_images = max(0, min(int(max_images), 30))
 
     # --- 공개 진입점 ---
     def ingest(self, raw_url: str, options: GalleryOptions | None = None) -> IngestReport:
@@ -162,15 +165,37 @@ class Collector:
             return
         result = check_post(post.title, post.body, post.images, self.rules)
         comments: list[Comment] = []
-        if result.verdict == "pass" and self.max_comments > 0 and post.comment_count > 0:
-            comments = self._comments(url, post, view, report)
-        post_id = self.store.upsert_post(_record(url, post, comments))
+        images = [{"url": u, "local": None, "inspected": None} for u in post.images]
+        if result.verdict == "pass":
+            if self.max_comments > 0 and post.comment_count > 0:
+                comments = self._comments(url, post, view, report)
+            images = self._images(url, post, report)
+        post_id = self.store.upsert_post(_record(url, post, comments, images))
         self.store.add_filter_result(post_id, "rule", result.verdict, result.reasons)
         if result.verdict == "pass":
             self.store.add_job(post_id, "crawled")
             report.saved.append(post_id)
         else:
             report.blocked.append((post_no, result.reasons))
+
+    def _images(self, url: DcUrl, post: Post, report: IngestReport) -> list[dict]:
+        """규칙을 통과한 글의 첨부 그림만 받는다. 검사(얼굴·선정성)는 inspect 단계가 모아서 한다."""
+        out: list[dict] = []
+        for i, src in enumerate(post.images):
+            item: dict = {"url": src, "local": None, "inspected": None}
+            if self.image_dir is not None and i < self.max_images:
+                try:
+                    data = self.fetcher.get_image(src)
+                    path = self.image_dir / url.gall_id / f"{post.post_no}-{i}.img"
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(data)
+                    item.update(local=str(path), inspected=False)
+                except FetchError as err:
+                    report.errors.append(f"{post.post_no} 그림: {err}")
+                except OSError as err:
+                    report.errors.append(f"{post.post_no} 그림 저장 실패: {err}")
+            out.append(item)
+        return out
 
     def _comments(self, url: DcUrl, post: Post, referer: str,
                   report: IngestReport) -> list[Comment]:
@@ -213,7 +238,7 @@ def _raw_count(payload: str) -> int:
         return 0
 
 
-def _record(url: DcUrl, post: Post, comments: list[Comment]) -> dict:
+def _record(url: DcUrl, post: Post, comments: list[Comment], images: list[dict]) -> dict:
     digest = hashlib.sha256(f"{post.title}\n{post.body}".encode()).hexdigest()
     return {
         "gall_id": url.gall_id,
@@ -222,8 +247,8 @@ def _record(url: DcUrl, post: Post, comments: list[Comment]) -> dict:
         "title": post.title,
         "subject": post.subject,
         "body": post.body,
-        # 그림 판정(얼굴·선정성)은 이미지 검사 단계가 채운다
-        "images": [{"url": u, "local": None, "faces": None, "nsfw": None} for u in post.images],
+        # 그림 판정(faces, nsfw, blurred, dropped)은 images.inspect_pending 이 채운다
+        "images": images,
         "comments": [c.__dict__ for c in comments],
         "upvotes": post.upvotes,
         "posted_at": post.posted_at.isoformat() if post.posted_at else None,

@@ -23,6 +23,8 @@ class Response:
     status: int
     text: str
     url: str
+    content: bytes = b""
+    content_type: str = ""
 
 
 class FetchError(Exception):
@@ -63,9 +65,22 @@ def curl_transport(proxy: str | None = None) -> Transport:
             raise RedirectLoop(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - 네트워크 오류는 모두 FetchError로
             raise FetchError(f"요청 실패: {exc}") from exc
-        return Response(int(r.status_code), r.text or "", str(r.url))
+        ctype = str(r.headers.get("content-type") or "")
+        body = r.content or b""
+        text = "" if ctype.startswith("image/") else (r.text or "")
+        return Response(int(r.status_code), text, str(r.url), body, ctype)
 
     return send
+
+
+def _image_magic(data: bytes) -> bool:
+    """content-type 이 틀리게 오는 경우를 위해 파일 앞부분으로 그림인지 본다."""
+    return (
+        data[:3] == b"\xff\xd8\xff"
+        or data[:8] == b"\x89PNG\r\n\x1a\n"
+        or data[:6] in (b"GIF87a", b"GIF89a")
+        or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
+    )
 
 
 class Fetcher:
@@ -106,6 +121,15 @@ class Fetcher:
 
     def get(self, url: str, referer: str = REFERER) -> Response:
         return self._send("GET", url, referer, None)
+
+    def get_image(self, url: str, max_bytes: int = 15 * 1024 * 1024) -> bytes:
+        """첨부 그림. DC 그림 서버는 Referer 가 있어야 준다. 요청 예산에 같이 센다."""
+        resp = self._send("GET", url, REFERER, None)
+        if not (resp.content_type.startswith("image/") or _image_magic(resp.content)):
+            raise FetchError(f"그림이 아닙니다 ({resp.content_type or '종류 없음'}): {url}")
+        if len(resp.content) > max_bytes:
+            raise FetchError(f"그림이 너무 큽니다 ({len(resp.content)} 바이트): {url}")
+        return resp.content
 
     def post_form(self, url: str, form: dict[str, str], referer: str) -> Response:
         return self._send("POST", url, referer, form, xhr=True)
