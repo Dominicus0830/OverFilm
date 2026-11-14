@@ -53,8 +53,23 @@ def filter_pending(store: Store, router: Router, block_categories: list[str],
             continue
         verdict, reasons = decide(ans, block_categories)
         store.add_filter_result(row["post_id"], "llm", verdict, reasons, ans.fit_score, model)
-        # review 는 대본까지 만들고 검수 화면에서 사유를 보여준다
-        status = "blocked" if verdict == "block" else "filtered"
-        store.set_job_status(row["job_id"], status, "; ".join(reasons) if verdict != "pass" else None)
+        # 파이프라인 도식: pass 만 대본으로 넘어간다. review 는 멈춰 두고 사람이 패널에서
+        # 통과시키면(approve_review) 대본 단계로 간다.
+        if verdict == "pass":
+            store.set_job_status(row["job_id"], "filtered", None)
+        else:
+            prefix = "검토 필요: " if verdict == "review" else ""
+            store.set_job_status(row["job_id"], "blocked", prefix + "; ".join(reasons))
         counts[verdict] += 1
     return counts
+
+
+def approve_review(store: Store, post_id: int) -> bool:
+    """LLM 필터가 review 로 멈춘 글을 사람이 통과시킨다 → 대본 단계로."""
+    cur = store.conn.execute(
+        "UPDATE jobs SET status='filtered', error=NULL WHERE post_id=? AND status='blocked' "
+        "AND error LIKE '검토 필요:%'", (post_id,))
+    store.conn.commit()
+    if cur.rowcount:
+        store.add_filter_result(post_id, "human", "pass", ["사람이 통과시킴"])
+    return cur.rowcount > 0

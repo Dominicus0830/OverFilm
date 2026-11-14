@@ -35,6 +35,18 @@ OverFilm 본체(Rust)와 따로 도는 프로그램이라 Rust 워크스페이�
 게시물 본문·댓글은 `<post>`·`<comments>` 태그로 감싸고 안의 지시를 따르지 말라고 프롬프트에 넣는다.
 2026-11-14 실제 `claude -p`(sonnet)로 테스트 글 대본: 30초 안팎, 원문 겹침 10%, 오글 7.5점, 다시 쓰기 1번.
 
+## M3 음성
+
+| 기능 | 파일 |
+| --- | --- |
+| Edge-TTS 엔진(단어 경계 시각), `synthesize(text, voice)` 하나로 맞춤 | `core/overshorts/tts/engines.py` |
+| 문장 단위 합성 + 0.15초 간격, 댓글 줄은 댓글 보이스, 따옴표 등은 읽지 않음, FFmpeg 로 48kHz 모노 wav | `core/overshorts/tts/assemble.py` |
+| 단어 시각 없으면 음절 수 비율로 나눔(정렬 실패 대비), `timing.json` 에 문장·단어 시각 | `core/overshorts/tts/assemble.py` |
+| 작업 단계: scripted → aligned, `data/jobs/<id>/voice.wav`, `timing.json` | `core/overshorts/tts/stage.py` |
+
+2026-11-14 실측: 대본 6문장 → 23.3초 wav, 합성 6초, 단어 시각은 숫자 원문 그대로(`500힐밖에`).
+Edge-TTS 는 비공식 엔드포인트라 수익화 채널은 유료 API 권장 (기획서 5.3).
+
 2026-11-14 실측 (요청 4번): 목록 `tbody tr.us-post`, 본문 `div.write_div`, 공지·AD·설문 행 구분 확인.
 댓글은 HTML에 없고 `POST https://gall.dcinside.com/board/comment/` 가 JSON으로 준다. 브라우저 없이
 받아지므로 Playwright 폴백은 아직 넣지 않았다. 정상 글 페이지에도 추천용 `kcaptcha` 가 있어서,
@@ -53,6 +65,7 @@ overshorts ingest "https://gall.dcinside.com/mgallery/board/lists/?id=overwatch2
 overshorts inspect                                                    # 받은 그림 검사 (첫 실행 때 모델 약 90MB 받음)
 overshorts filter                                                     # LLM 필터 (Ollama 켜 두기)
 overshorts script                                                     # 대본 (Claude Code 로그인 필요)
+overshorts voice                                                      # 음성 + 단어 시각 (FFmpeg 필요)
 overshorts budget                                                     # 오늘 예산·쿨다운
 pytest                                                                # 저장 HTML 테스트 (네트워크 안 씀)
 ```
@@ -69,4 +82,4 @@ pytest                                                                # 저장 H
 
 ## 다음
 
-- M2 LLM·대본, M3 음성, M4 렌더(Remotion), M5 패널
+- M4 렌더(Remotion `CardStory`, AMD 인코딩), M5 패널(검수 화면 와이어프레임은 공유 폴더 overshorts/)

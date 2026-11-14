@@ -5,6 +5,7 @@
     overshorts inspect                받은 그림 얼굴 흐림·선정성 검사 (모아서 한 번에)
     overshorts filter                 LLM 필터 (로컬 GPU LLM)
     overshorts script [--post N]      대본 쓰기 + 규칙·오글 검사
+    overshorts voice                  대본 → 음성 + 단어 시각
     overshorts budget                 오늘 요청 예산·쿨다운 상태
 """
 
@@ -98,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--max-posts", type=int, default=10)
 
     sub.add_parser("budget", help="요청 예산·쿨다운 상태")
+    sub.add_parser("voice", help="대본 → 음성 wav + 단어 시각 (Edge-TTS)")
     sub.add_parser("filter", help="규칙 통과 글을 LLM 필터로 분류 (로컬 Ollama)")
     sc = sub.add_parser("script", help="필터 통과 글의 대본 쓰기 (Claude Code)")
     sc.add_argument("--post", type=int, action="append", help="이 글만 (여러 번 가능)")
@@ -134,6 +136,15 @@ def main(argv: list[str] | None = None) -> int:
                   f"검사 못 함 {counts['unchecked']}장 (장치: {inspector.provider or '없음'})")
             for e in inspector.load_errors:
                 print(f"  경고: {e}", file=sys.stderr)
+            return 0
+        if args.cmd == "voice":
+            from .tts.stage import voice_pending
+
+            v = cfg.get("voice") or {}
+            counts = voice_pending(store, data / "jobs",
+                                   str(v.get("narrator") or "edge:ko-KR-SunHiNeural"),
+                                   str(v.get("comment") or "") or None)
+            print(f"음성 {counts['voiced']}개, 실패 {counts['failed']}")
             return 0
         if args.cmd in ("filter", "script"):
             return _llm_stage(args, cfg, store)

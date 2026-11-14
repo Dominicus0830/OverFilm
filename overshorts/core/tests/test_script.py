@@ -147,3 +147,15 @@ def test_pipeline_filter_then_script():
 def test_no_ending(text, hit):
     from overshorts.script.checks import _no_ending
     assert _no_ending(text) is hit
+
+
+def test_review_waits_for_human():
+    from overshorts.filters.llm_filter import approve_review
+    store = Store(":memory:")
+    pid = store.upsert_post({"gall_id": "g", "post_no": 2, "title": "t", "body": BODY})
+    store.add_job(pid, "crawled")
+    flt = Fake([{"verdict": "review", "reasons": ["애매함"], "fit_score": 5}])
+    assert filter_pending(store, Router({"filter": flt}), [], [])["review"] == 1
+    assert store.conn.execute("SELECT status FROM jobs").fetchone()["status"] == "blocked"
+    assert approve_review(store, pid)
+    assert store.conn.execute("SELECT status FROM jobs").fetchone()["status"] == "filtered"
