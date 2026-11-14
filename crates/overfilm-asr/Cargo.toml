@@ -49,3 +49,7 @@ required-features = ["qwen"]
 [[example]]
 name = "asr_load"
 required-features = ["qwen"]
+
+[[example]]
+name = "asr_many"
+required-features = ["qwen"]

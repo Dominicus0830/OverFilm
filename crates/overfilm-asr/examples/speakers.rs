@@ -97,6 +97,10 @@ fn main() {
                         i += 1;
                     }
                     "--no-stitch" => op.stitch = false,
+                    "--turn-reach" => {
+                        p.turn_reach = a[i + 1].parse().unwrap();
+                        i += 1;
+                    }
                     "--clean-pool" => {
                         op.clean_pool = a[i + 1].parse().unwrap();
                         i += 1;
