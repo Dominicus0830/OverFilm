@@ -6,6 +6,9 @@
     overshorts filter                 LLM 필터 (로컬 GPU LLM)
     overshorts script [--post N]      대본 쓰기 + 규칙·오글 검사
     overshorts voice                  대본 → 음성 + 단어 시각
+    overshorts preview                미리보기 spec 만들기
+    overshorts approve <작업>         승인 (패널 전 임시)
+    overshorts render                 승인된 작업 최종 렌더
     overshorts budget                 오늘 요청 예산·쿨다운 상태
 """
 
@@ -100,6 +103,10 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("budget", help="요청 예산·쿨다운 상태")
     sub.add_parser("voice", help="대본 → 음성 wav + 단어 시각 (Edge-TTS)")
+    sub.add_parser("preview", help="미리보기용 render_spec.json 만들기")
+    ap_ = sub.add_parser("approve", help="작업 승인 (패널 전 임시)")
+    ap_.add_argument("job", type=int)
+    sub.add_parser("render", help="승인된 작업 최종 렌더 (Remotion)")
     sub.add_parser("filter", help="규칙 통과 글을 LLM 필터로 분류 (로컬 Ollama)")
     sc = sub.add_parser("script", help="필터 통과 글의 대본 쓰기 (Claude Code)")
     sc.add_argument("--post", type=int, action="append", help="이 글만 (여러 번 가능)")
@@ -136,6 +143,28 @@ def main(argv: list[str] | None = None) -> int:
                   f"검사 못 함 {counts['unchecked']}장 (장치: {inspector.provider or '없음'})")
             for e in inspector.load_errors:
                 print(f"  경고: {e}", file=sys.stderr)
+            return 0
+        if args.cmd == "preview":
+            from .render.spec import spec_pending
+
+            bg = (cfg.get("render") or {}).get("background_dir")
+            counts = spec_pending(store, data / "jobs", Path(str(bg)) if bg else None)
+            print(f"미리보기 준비 {counts['ready']}개, 실패 {counts['failed']}")
+            return 0
+        if args.cmd == "approve":
+            cur = store.conn.execute(
+                "UPDATE jobs SET status='approved' WHERE id=? AND status='preview_ready'", (args.job,))
+            store.conn.commit()
+            print("승인했습니다" if cur.rowcount else "미리보기 준비된 작업이 아닙니다")
+            return 0 if cur.rowcount else 1
+        if args.cmd == "render":
+            from .render.runner import render_approved
+
+            r = cfg.get("render") or {}
+            counts = render_approved(store, Path(str(r.get("out_dir") or data / "approved")),
+                                     str(cfg.get("encoder") or "auto"),
+                                     r.get("browser_executable"))
+            print(f"렌더 {counts['rendered']}개, 실패 {counts['failed']}")
             return 0
         if args.cmd == "voice":
             from .tts.stage import voice_pending

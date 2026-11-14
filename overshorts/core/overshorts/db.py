@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS posts (
     gall_id TEXT NOT NULL,
     post_no INTEGER NOT NULL,
     gall_type TEXT NOT NULL DEFAULT 'board',
+    gall_name TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
     subject TEXT NOT NULL DEFAULT '',
     body TEXT NOT NULL DEFAULT '',
@@ -125,7 +126,14 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """예전 DB 에 새 열을 더한다."""
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(posts)").fetchall()}
+        if "gall_name" not in cols:
+            self.conn.execute("ALTER TABLE posts ADD COLUMN gall_name TEXT NOT NULL DEFAULT ''")
 
     def close(self) -> None:
         self.conn.close()
@@ -176,6 +184,7 @@ class Store:
             "gall_id": record["gall_id"],
             "post_no": int(record["post_no"]),
             "gall_type": record.get("gall_type", "board"),
+            "gall_name": record.get("gall_name", ""),
             "title": record.get("title", ""),
             "subject": record.get("subject", ""),
             "body": record.get("body", ""),

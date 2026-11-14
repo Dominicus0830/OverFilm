@@ -53,6 +53,7 @@ class Post:
     posted_at: datetime | None = None
     deleted: bool = False
     e_s_n_o: str = ""  # 댓글 요청에 필요한 값
+    gall_name: str = ""  # 출처 표기용 갤러리 이름 ("오버워치 2 마이너 갤러리")
 
 
 @dataclass
@@ -153,6 +154,8 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
     if write is None and not deleted:
         deleted = soup.select_one(".title_subject") is None
     esno = soup.find("input", {"id": "e_s_n_o"})
+    page_title = _text(soup.title)
+    gall_name = page_title.rsplit(" - ", 1)[-1].strip() if " - " in page_title else ""
     date = soup.select_one(".gallview_head .gall_date") or soup.select_one(".gall_date")
     return Post(
         gall_id=gall_id,
@@ -167,6 +170,7 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
         posted_at=_dt(date.get("title") if date is not None else None),
         deleted=deleted,
         e_s_n_o=(esno.get("value") or "") if esno is not None else "",
+        gall_name=gall_name[:60] if gall_name.endswith("갤러리") else "",
     )
 
 

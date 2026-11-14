@@ -28,6 +28,7 @@ def test_post_body_and_meta():
     assert p.images == ["https://dcimg8.dcinside.co.kr/viewimage.php?id=example&no=abc"]
     assert (p.upvotes, p.views, p.comment_count) == (31, 1192, 13)
     assert p.e_s_n_o == "0f00test00esno"
+    assert p.gall_name == "예시 마이너 갤러리"
     assert not p.deleted
 
 

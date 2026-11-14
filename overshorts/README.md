@@ -47,6 +47,19 @@ OverFilm 본체(Rust)와 따로 도는 프로그램이라 Rust 워크스페이�
 2026-11-14 실측: 대본 6문장 → 23.3초 wav, 합성 6초, 단어 시각은 숫자 원문 그대로(`500힐밖에`).
 Edge-TTS 는 비공식 엔드포인트라 수익화 채널은 유료 API 권장 (기획서 5.3).
 
+## M4 렌더
+
+| 기능 | 파일 |
+| --- | --- |
+| `render_spec.json` 만들기: 장면·단어 자막·핵심 단어 강조(숫자, 제목 낱말 최대 6개)·배경·출처 | `core/overshorts/render/spec.py` |
+| Remotion `CardStory`: 상단 제목바, 중앙 글 카드(읽는 단어까지 밝게, 댓글은 파란 카드), 단어 팝업 자막, 배경 영상 반복, 출처 | `render/src/CardStory.tsx` |
+| 렌더 실행: 승인된 작업만, GPU 감지 → NVIDIA 는 NVENC, 라데온·인텔은 CPU x264, Windows 는 `--gl=angle` | `core/overshorts/render/runner.py` |
+
+글꼴 Pretendard(OFL)는 저장소에 넣지 않고 렌더할 때 CDN 에서 불러온다(오프라인이면 맑은 고딕).
+배경 영상은 직접 녹화한 것이나 라이선스 있는 것만 `render.background_dir` 에 넣는다.
+2026-11-14 클라우드 CPU 시험 렌더: 24초 1080×1920 60fps, 1분 44초, 3.2MB (공유 폴더 `overshorts/CardStory-시험-렌더.mp4`).
+라데온 AMF 하드웨어 인코딩은 아직 없음: Remotion 번들 FFmpeg 은 Windows 에서 NVENC 만 지원.
+
 2026-11-14 실측 (요청 4번): 목록 `tbody tr.us-post`, 본문 `div.write_div`, 공지·AD·설문 행 구분 확인.
 댓글은 HTML에 없고 `POST https://gall.dcinside.com/board/comment/` 가 JSON으로 준다. 브라우저 없이
 받아지므로 Playwright 폴백은 아직 넣지 않았다. 정상 글 페이지에도 추천용 `kcaptcha` 가 있어서,
@@ -66,6 +79,9 @@ overshorts inspect                                                    # 받은 �
 overshorts filter                                                     # LLM 필터 (Ollama 켜 두기)
 overshorts script                                                     # 대본 (Claude Code 로그인 필요)
 overshorts voice                                                      # 음성 + 단어 시각 (FFmpeg 필요)
+overshorts preview                                                    # 미리보기 spec
+overshorts approve 3                                                  # 승인 (패널 전 임시)
+overshorts render                                                     # 최종 MP4 (render 폴더에서 npm install 먼저)
 overshorts budget                                                     # 오늘 예산·쿨다운
 pytest                                                                # 저장 HTML 테스트 (네트워크 안 씀)
 ```
@@ -82,4 +98,4 @@ pytest                                                                # 저장 H
 
 ## 다음
 
-- M4 렌더(Remotion `CardStory`, AMD 인코딩), M5 패널(검수 화면 와이어프레임은 공유 폴더 overshorts/)
+- M5 패널(검수 화면 와이어프레임은 공유 폴더 overshorts/)

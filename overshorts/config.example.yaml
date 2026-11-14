@@ -21,6 +21,9 @@ llm:
   on_limit: fallback      # fallback = 로컬 LLM으로 넘김(경고), wait = 대기열에 둠
 render:
   tone: 담백              # 담백 | 드립 조금 | 정리형
+  background_dir: ./assets/bg   # 직접 녹화했거나 라이선스 있는 배경 영상만
+  out_dir: ./data/approved
+  browser_executable: null      # 비우면 Remotion 이 받은 Chrome
 style:
   dir: ../style
   speech: 반말            # 반말 | 해요체 (채널당 하나)
