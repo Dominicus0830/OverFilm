@@ -55,6 +55,8 @@ enum Action {
     Redo,
     CancelRedo,
     RedoDone(Result<Vec<overfilm_asr::Word>, String>),
+    /// Play the selected captions (a little before and after), or stop.
+    Listen,
 }
 
 pub fn page(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -65,6 +67,19 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
     };
     let p = pal(ui);
     let mut actions = Vec::new();
+    if !r.wave.looked {
+        r.wave.looked = true;
+        if let Some(src) = overfilm_subs::wave::source(&r.opened.srt, r.input.as_deref()) {
+            r.wave.start(src, &ctx);
+        }
+    }
+    if let Some(e) = r.wave.poll() {
+        app.status = Some(Err(e));
+    }
+    // Space plays; taken before the widgets so a focused button does not also take it
+    if !ui.ctx().egui_wants_keyboard_input() && ui.ctx().input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Space)) {
+        actions.push(Action::Listen);
+    }
     if let Some(job) = &r.redo {
         let done = job.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).2.take();
         if let Some(res) = done {
@@ -143,6 +158,9 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
     });
     egui::Panel::right("issues").exact_size(236.0).resizable(false).frame(egui::Frame::new().inner_margin(Margin::same(10))).show(ui, |ui| {
         issues_pane(r, ui, &mut actions);
+    });
+    egui::Panel::bottom("wave").frame(egui::Frame::new().fill(p.card).inner_margin(Margin::symmetric(12, 8))).show(ui, |ui| {
+        wave_pane(r, ui, &ctx, &mut actions);
     });
     if r.selected.is_some() {
         egui::Panel::bottom("editor").frame(egui::Frame::new().fill(p.card).inner_margin(Margin::symmetric(14, 10))).show(ui, |ui| {
@@ -458,6 +476,192 @@ fn table(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
     });
 }
 
+/// Sound played before and after the captions when listening.
+const LEAD_MS: i64 = 250;
+const WAVE_H: f32 = 76.0;
+/// Seconds across the waveform unless zoomed.
+const SPAN_S: f32 = 20.0;
+
+/// The waveform under the table: the sound around the selected captions, captions as blocks in
+/// their speaker's colour, the play head. Click a block to select it, double-click to play from
+/// there, drag to move along, wheel to zoom.
+fn wave_pane(r: &mut Review, ui: &mut egui::Ui, ctx: &egui::Context, actions: &mut Vec<Action>) {
+    let p = pal(ui);
+    if r.wave.followed != r.selected {
+        r.wave.followed = r.selected;
+        r.wave.view_from = None;
+    }
+    let span_s = if r.wave.span_s > 0.0 { r.wave.span_s } else { SPAN_S };
+    let span_ms = ((span_s * 1000.0) as i64).max(1000);
+    let peaks = match &r.wave.peaks {
+        Some(Ok(s)) => Some(s.clone()),
+        _ => None,
+    };
+    let caps_end = r.opened.captions.iter().map(|c| c.end_ms).max().unwrap_or(0);
+    let total_ms = peaks.as_ref().map_or(caps_end, |s| (s.peaks.len() as i64).saturating_mul(1000 / overfilm_subs::wave::PER_SECOND).max(caps_end));
+    let sel = r.selection().and_then(|s| Some((r.opened.captions.get(*s.start())?.start_ms, r.opened.captions.get(*s.end())?.end_ms)));
+    let playing = r.wave.player.position_ms();
+    let mut from = match (r.wave.view_from, sel) {
+        (Some(f), _) => f,
+        (None, Some((a, b))) => (a + b) / 2 - span_ms / 2,
+        (None, None) => 0,
+    };
+    if let Some(t) = playing
+        && (t < from || t > from + span_ms)
+    {
+        from = t - span_ms / 10;
+        r.wave.view_from = Some(from);
+    }
+    let from = from.clamp(0, (total_ms - span_ms).max(0));
+    let to = from + span_ms;
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.label(RichText::new(short_clock(from)).monospace().size(12.0).color(p.text2));
+        let can_play = r.wave.source.is_some() && sel.is_some();
+        let label = if r.wave.busy() { "멈추기" } else { "들어 보기" };
+        if ui
+            .add_enabled(can_play || r.wave.busy(), egui::Button::new(label).frame(false).min_size(vec2(0.0, 28.0)))
+            .on_hover_text("선택한 자막 듣기 (Space)")
+            .clicked()
+        {
+            actions.push(Action::Listen);
+        }
+        if let Some(t) = playing {
+            ui.label(RichText::new(short_clock(t)).monospace().size(12.0).color(p.accent));
+        } else if r.wave.fetch.is_some() {
+            ui.spinner();
+        }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.label(RichText::new(short_clock(to)).monospace().size(12.0).color(p.text2));
+            if subtle_button(ui, "＋").on_hover_text("확대 (마우스 휠)").clicked() {
+                r.wave.span_s = (span_s / 1.5).max(4.0);
+            }
+            if subtle_button(ui, "－").on_hover_text("축소 (마우스 휠)").clicked() {
+                r.wave.span_s = (span_s * 1.5).min(600.0);
+            }
+            caption(ui, format!("{}초", span_s.round()));
+        });
+    });
+
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), WAVE_H), Sense::click_and_drag());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, CornerRadius::same(4), p.layer);
+    painter.rect_stroke(rect, CornerRadius::same(4), Stroke::new(1.0, p.stroke), egui::StrokeKind::Inside);
+    let w = rect.width().max(1.0);
+    let x_of = |ms: i64| rect.left() + (ms - from) as f32 / span_ms as f32 * w;
+    let ms_of = |x: f32| from + ((x - rect.left()) / w * span_ms as f32) as i64;
+
+    // captions as blocks
+    let labels = edit::caption_speakers(&r.opened.captions);
+    let selected = r.selection();
+    let mut blocks = Vec::new();
+    for (k, c) in r.opened.captions.iter().enumerate() {
+        if c.end_ms <= from || c.start_ms >= to {
+            continue;
+        }
+        let who = labels.get(k).and_then(|(w, _)| w.as_deref()).and_then(|w| w.split('·').next()).unwrap_or("");
+        let color = if who.is_empty() { p.text3 } else { speaker_color(r, &p, who) };
+        let b = egui::Rect::from_x_y_ranges(x_of(c.start_ms).max(rect.left())..=x_of(c.end_ms).min(rect.right()), (rect.top() + 3.0)..=(rect.bottom() - 3.0));
+        painter.rect_filled(b, CornerRadius::same(2), color.gamma_multiply(0.16));
+        if selected.as_ref().is_some_and(|s| s.contains(&k)) {
+            painter.rect_stroke(b, CornerRadius::same(2), Stroke::new(1.5, p.accent), egui::StrokeKind::Inside);
+        }
+        painter.text(b.left_top() + vec2(4.0, 2.0), Align2::LEFT_TOP, (k + 1).to_string(), FontId::monospace(10.0), p.text3);
+        blocks.push((k, b));
+    }
+
+    // the sound
+    let mid = rect.center().y;
+    let half = rect.height() / 2.0 - 6.0;
+    match (&peaks, &r.wave.peaks, &r.wave.source) {
+        (Some(sound), _, _) => {
+            let pk = &sound.peaks;
+            let per_ms = overfilm_subs::wave::PER_SECOND as f32 / 1000.0;
+            let mut x = rect.left();
+            while x < rect.right() {
+                let a = (ms_of(x).max(0) as f32 * per_ms) as usize;
+                let b = ((ms_of(x + 1.0).max(0) as f32 * per_ms) as usize).max(a + 1);
+                let v = pk.get(a..b.min(pk.len())).and_then(|s| s.iter().max().copied()).unwrap_or(0);
+                let h = f32::from(v) / 255.0 * half;
+                if h >= 0.5 {
+                    let ms = ms_of(x);
+                    let inside = sel.is_some_and(|(s, e)| ms >= s && ms < e);
+                    painter.vline(x, (mid - h)..=(mid + h), Stroke::new(1.0, if inside { p.accent } else { p.text2 }));
+                }
+                x += 1.0;
+            }
+        }
+        (None, Some(Err(e)), _) => {
+            painter.text(rect.center(), Align2::CENTER_CENTER, format!("파형을 읽지 못했습니다: {e}"), FontId::proportional(12.0), p.text2);
+        }
+        (None, _, Some(_)) => {
+            let f = r.wave.load.lock().unwrap_or_else(std::sync::PoisonError::into_inner).0;
+            painter.text(rect.center(), Align2::CENTER_CENTER, format!("파형 읽는 중 {:.0}%", f * 100.0), FontId::proportional(12.0), p.text2);
+        }
+        (None, _, None) => {
+            painter.text(
+                rect.center(),
+                Align2::CENTER_CENTER,
+                "원본 영상을 찾지 못해 파형이 없습니다. 아래 '원본 찾기'로 고르세요.",
+                FontId::proportional(12.0),
+                p.text2,
+            );
+        }
+    }
+    if let Some(t) = playing {
+        if (from..to).contains(&t) {
+            painter.vline(x_of(t), rect.y_range(), Stroke::new(2.0, p.accent));
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(30));
+    }
+
+    // pointer
+    if resp.dragged() {
+        let dx = resp.drag_delta().x;
+        r.wave.view_from = Some(from - (dx / w * span_ms as f32) as i64);
+    }
+    if resp.hovered() {
+        let dy = ui.input(|i| i.smooth_scroll_delta.y);
+        if dy.abs() > 0.5
+            && let Some(pos) = resp.hover_pos()
+        {
+            let anchor = ms_of(pos.x);
+            let next = (span_s * if dy > 0.0 { 1.0 / 1.15 } else { 1.15 }).clamp(4.0, 600.0);
+            r.wave.span_s = next;
+            let frac = (pos.x - rect.left()) / w;
+            r.wave.view_from = Some(anchor - (frac * next * 1000.0) as i64);
+        }
+    }
+    if let Some(pos) = resp.interact_pointer_pos() {
+        let ms = ms_of(pos.x);
+        if resp.double_clicked() && r.wave.source.is_some() {
+            r.wave.play(ms, to.max(ms + 3000), ctx);
+        } else if resp.clicked()
+            && let Some(&(k, _)) = blocks.iter().find(|(_, b)| b.x_range().contains(pos.x))
+        {
+            // select without moving the view
+            r.wave.followed = Some(k);
+            r.wave.view_from = Some(from);
+            r.jump = true;
+            actions.push(Action::Select(k));
+        }
+    }
+    if r.wave.source.is_none() {
+        ui.horizontal(|ui| {
+            if subtle_button(ui, "원본 찾기…").clicked()
+                && let Some(f) = rfd::FileDialog::new().add_filter("영상·오디오", overfilm_subs::MEDIA_EXTENSIONS).pick_file()
+            {
+                r.wave.start(f.clone(), ctx);
+                if r.input.is_none() {
+                    r.input = Some(f);
+                }
+            }
+            caption(ui, "같은 폴더에 자막과 같은 이름으로 두면 자동으로 찾습니다.");
+        });
+    }
+}
+
 /// `MM:SS.mmm` (hours only when there are any).
 fn short_clock(ms: i64) -> String {
     let ms = ms.max(0);
@@ -509,6 +713,12 @@ fn editor(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(format!("#{}", k + 1)).strong());
         caption(ui, format!("{} → {}", short_clock(c.start_ms), short_clock(c.end_ms)));
+        if r.wave.source.is_some() {
+            let label = if r.wave.busy() { "멈추기" } else { "들어 보기" };
+            if subtle_button(ui, label).on_hover_text("Space").clicked() {
+                actions.push(Action::Listen);
+            }
+        }
     });
     for i in &issues {
         ui.horizontal(|ui| {
@@ -725,6 +935,18 @@ fn run(app: &mut App, a: Action, ctx: &egui::Context) {
                 }
                 Err(e) => Err(e),
             }
+        }
+        Action::Listen => {
+            if r.wave.busy() {
+                r.wave.stop();
+            } else if r.wave.source.is_none() {
+                return;
+            } else if let Some((a, b)) =
+                r.selection().and_then(|s| Some((r.opened.captions.get(*s.start())?.start_ms, r.opened.captions.get(*s.end())?.end_ms)))
+            {
+                r.wave.play(a - LEAD_MS, b + LEAD_MS, ctx);
+            }
+            return;
         }
         Action::Select(k) => {
             r.sel_end = None;

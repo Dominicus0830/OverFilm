@@ -139,6 +139,96 @@ struct Review {
     redo_terms: String,
     /// A part being recognised again in the background.
     redo: Option<RedoJob>,
+    /// The waveform under the table and listening back.
+    wave: Wave,
+}
+
+/// Peaks of the result's video or audio, the part of it on screen, and the player.
+#[derive(Default)]
+struct Wave {
+    /// Looked for the source already (on the first frame of the review).
+    looked: bool,
+    /// The video or audio the captions were made from, when found.
+    source: Option<PathBuf>,
+    /// Loading in the background: progress, then the peaks.
+    load: Arc<Mutex<(f32, Option<Result<overfilm_subs::wave::Sound, String>>)>>,
+    peaks: Option<Result<Arc<overfilm_subs::wave::Sound>, String>>,
+    /// Seconds across the waveform (0 = the default).
+    span_s: f32,
+    /// Left edge (ms) after a drag; `None` keeps the selected caption in the middle.
+    view_from: Option<i64>,
+    /// The caption the view last moved to (a new selection re-centres it).
+    followed: Option<usize>,
+    /// A stretch being read for playing: its start (ms) and the sound when read.
+    fetch: Option<(i64, Arc<Mutex<Option<Result<Vec<f32>, String>>>>)>,
+    player: overfilm_subs::play::Player,
+}
+
+impl Wave {
+    /// Start reading the peaks of `source` (whole file) in the background.
+    fn start(&mut self, source: PathBuf, ctx: &egui::Context) {
+        self.looked = true;
+        self.source = Some(source.clone());
+        self.peaks = None;
+        self.load = Arc::default();
+        let (load, ctx) = (self.load.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let progress = load.clone();
+            let pctx = ctx.clone();
+            let r = job::guarded(|| {
+                overfilm_subs::wave::load(&source, &mut |f| {
+                    progress.lock().unwrap_or_else(PoisonError::into_inner).0 = f;
+                    pctx.request_repaint();
+                    true
+                })
+            });
+            load.lock().unwrap_or_else(PoisonError::into_inner).1 = Some(r);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Read `[from_ms, to_ms)` in the background and play it when read.
+    fn play(&mut self, from_ms: i64, to_ms: i64, ctx: &egui::Context) {
+        let Some(source) = self.source.clone() else { return };
+        let sound = match &self.peaks {
+            Some(Ok(s)) => Some(s.clone()),
+            _ => None,
+        };
+        self.player.stop();
+        let slot: Arc<Mutex<Option<Result<Vec<f32>, String>>>> = Arc::default();
+        self.fetch = Some((from_ms.max(0), slot.clone()));
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let r = job::guarded(|| overfilm_subs::wave::stretch(&source, sound.as_ref().and_then(|s| s.samples.as_deref()), from_ms, to_ms));
+            *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(r);
+            ctx.request_repaint();
+        });
+    }
+
+    fn stop(&mut self) {
+        self.fetch = None;
+        self.player.stop();
+    }
+
+    /// Something is playing or about to.
+    fn busy(&self) -> bool {
+        self.fetch.is_some() || self.player.position_ms().is_some()
+    }
+
+    /// Pick up finished background work; an error comes back for the status bar.
+    fn poll(&mut self) -> Option<String> {
+        if self.peaks.is_none() {
+            let done = self.load.lock().unwrap_or_else(PoisonError::into_inner).1.take();
+            if let Some(r) = done {
+                self.peaks = Some(r.map(Arc::new));
+            }
+        }
+        let (from, slot) = self.fetch.as_ref()?;
+        let got = slot.lock().unwrap_or_else(PoisonError::into_inner).take()?;
+        let from = *from;
+        self.fetch = None;
+        got.and_then(|s| self.player.play(s, from)).err()
+    }
 }
 
 /// Recognising a part again: the span, progress, and the words when done.
@@ -413,6 +503,7 @@ impl App {
             sel_end: None,
             redo_terms: String::new(),
             redo: None,
+            wave: Wave::default(),
         };
         r.refresh_issues(self.prefs.options.mask_profanity);
         let entry = Recent {
