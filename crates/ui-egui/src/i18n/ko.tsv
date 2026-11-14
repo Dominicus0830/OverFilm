@@ -3944,3 +3944,5 @@
 	Each hero is numbered where it first appears (see the hero markers). Name it once: OverFilm knows the portrait again in later videos, and captions prefer the heroes in play.	영웅은 처음 나온 순서로 번호가 붙어요(영웅 마커 참고). 한 번 이름을 붙이면 다음 영상부터 같은 그림을 알아보고, 자막은 지금 쓰는 영웅 이름을 우선해요.
 	List Heroes on the Name Plates (OverFilm)	이름판 영웅 목록(OverFilm)
 	Name Hero (OverFilm)	영웅 이름 붙이기(OverFilm)
+	internal error (see the crash log); the job was stopped	예기치 못한 오류로 작업을 멈췄어요. 프로젝트는 그대로예요. 도움말 ▸ 로그 파일 표시에서 crash로 시작하는 파일을 보내 주시면 원인을 찾을 수 있어요.
+	internal error during automatic transcription (see the crash log); the clips were placed	자동 자막을 만들다 예기치 못한 오류가 났어요. 클립은 놓였어요. 도움말 ▸ 로그 파일 표시에서 crash로 시작하는 파일을 보내 주시면 원인을 찾을 수 있어요.

@@ -57,6 +57,9 @@ pub enum AsrError {
     Download(String),
     #[error("cancelled")]
     Cancelled,
+    /// The GPU ran out of memory (too little free video memory for the model).
+    #[error("model: GPU: out of GPU memory: {0}")]
+    GpuMemory(String),
 }
 
 #[cfg(feature = "qwen")]

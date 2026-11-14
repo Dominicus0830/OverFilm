@@ -406,7 +406,8 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                     line.push_str(&format!(" ({})", clock(secs)));
                 }
                 let r = ui.label(RichText::new(&line).color(color)).rect;
-                let mut detail = st["message"].as_str().unwrap_or_default().to_string();
+                // engine messages are English; known ones (such as the internal-error notice) are translated
+                let mut detail = crate::i18n::t(st["message"].as_str().unwrap_or_default()).to_string();
                 if state == "running" {
                     let frac = st["progress"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0) as f32;
                     ui.add(egui::ProgressBar::new(frac).desired_height(6.0));
@@ -634,13 +635,22 @@ mod tests {
         assert_eq!(
             run_params(&p),
             json!({"autoCut": true, "templates": "s.json", "keepBefore": 10.0, "applyCuts": false, "reviewCuts": true, "captions": "new",
-                   "audioTrack": 2, "mode": "commentary", "speakers": true, "numSpeakers": 1, "gameVoice": "drop", "reviewCaptions": false})
+                   "audioTrack": 2, "mode": "commentary", "speakers": true, "numSpeakers": 1, "gameVoice": "drop", "reviewCaptions": false,
+                   "kills": true, "render": false})
         );
         // from the transcript: no recognition settings; an empty template file is left to the default
         let p = json!({"autoCut": false, "templates": "", "captions": "reuse", "audioTrack": "1", "who": "3", "gameVoice": "label"});
         assert_eq!(
             run_params(&p),
-            json!({"autoCut": false, "applyCuts": true, "reviewCuts": false, "captions": "reuse", "gameVoice": "label", "reviewCaptions": false})
+            json!({"autoCut": false, "applyCuts": true, "reviewCuts": false, "captions": "reuse", "gameVoice": "label", "reviewCaptions": false,
+                   "kills": true, "render": false})
+        );
+        // the render: its choices go only when it is ticked
+        let p = json!({"render": true, "renderFormat": "prores", "renderPath": "/out/", "renderSplit": "one", "burnCaptions": false, "kills": false});
+        let r = run_params(&p);
+        assert_eq!(
+            (r["render"].clone(), r["renderFormat"].clone(), r["renderPath"].clone(), r["renderSplit"].clone(), r["burnCaptions"].clone(), r["kills"].clone()),
+            (json!(true), json!("prores"), json!("/out/"), json!("one"), json!(false), json!(false))
         );
         assert_eq!(run_params(&Value::Null)["captions"], "new");
         // the caption shape set in the panel goes to the run
