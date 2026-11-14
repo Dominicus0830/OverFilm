@@ -12,7 +12,13 @@
 //! `overfilm.panel.tool.<command id>`,
 //! `overfilm.panel.kill.<n>` for each kill in the kill list (click: go there),
 //! `overfilm.panel.name.<player|hero>.<id>` and `overfilm.panel.name.<player|hero>.<id>.save` to
-//! name a player or hero read off the kill feed.
+//! name a player or hero read off the kill feed, `overfilm.panel.killsResize` (drag: the kill
+//! list's height), `overfilm.panel.killsWindow` (the kill list in a window of its own, sized
+//! freely), `overfilm.panel.openAtStart`, `overfilm.panel.resetSettings`.
+//!
+//! The choices are saved as they change (`overfilm.panel.settings`, beside the preferences) and
+//! come back the next time the panel opens; the panel opens with the editor unless
+//! `openAtStart` is turned off.
 
 use egui::{Rect, RichText, vec2};
 use serde_json::{Value, json};
@@ -106,7 +112,74 @@ fn defaults(app: &mut FilmcraftApp) -> Value {
         "renderPath": "",
         "renderSplit": "match",
         "burnCaptions": true,
+        "killsHeight": KILLS_HEIGHT,
+        "killsWindow": false,
+        "openAtStart": true,
     })
+}
+
+/// The kill list's height in the panel at first, and how short and tall it can be dragged.
+const KILLS_HEIGHT: f64 = 420.0;
+const KILLS_MIN: f64 = 120.0;
+const KILLS_MAX: f64 = 4000.0;
+
+fn saved_id() -> egui::Id {
+    egui::Id::unique("overfilm-panel-saved")
+}
+
+/// The panel's settings file, beside the preferences (none without a preferences folder, as in
+/// tests: nothing is read or written then).
+pub(crate) fn settings_file(s: &filmcraft_engine::Session) -> Option<String> {
+    let dir = s.prefs_path.as_ref()?.parent()?;
+    Some(dir.join("overfilm-panel.json").to_string_lossy().into_owned())
+}
+
+/// The saved settings (an empty object when there are none).
+fn load_saved(app: &mut FilmcraftApp) -> serde_json::Map<String, Value> {
+    let Some(file) = settings_file(&app.session) else { return serde_json::Map::new() };
+    match app.session.execute("overfilm.panel.settings", json!({"file": file})) {
+        Ok(r) => r["settings"].as_object().cloned().unwrap_or_default(),
+        Err(e) => {
+            log::warn!("OverFilm panel settings: {e}");
+            serde_json::Map::new()
+        }
+    }
+}
+
+/// Whether the panel opens when the editor starts (on unless the user turned it off; off for a
+/// session the desktop app did not start, with no auto-save or preferences folder, as in tests).
+pub(crate) fn open_at_start(app: &mut FilmcraftApp) -> bool {
+    if app.session.persistence.is_none() {
+        return false;
+    }
+    let Some(file) = settings_file(&app.session) else { return false };
+    app.session.execute("overfilm.panel.settings", json!({"file": file})).ok().and_then(|r| r["openAtStart"].as_bool()).unwrap_or(true)
+}
+
+/// The defaults with the saved settings over them (a saved value of another type than the
+/// default's is left out, so a hand-edited file cannot break a control).
+fn with_saved(mut p: Value, saved: &serde_json::Map<String, Value>) -> Value {
+    if let Some(m) = p.as_object_mut() {
+        for (k, v) in saved {
+            let fits = match m.get(k) {
+                Some(d) => std::mem::discriminant(d) == std::mem::discriminant(v),
+                None => false,
+            };
+            if fits {
+                m.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    p
+}
+
+/// The settings kept between sessions: all the choices but the names being typed.
+fn kept(p: &Value) -> Value {
+    let mut k = p.clone();
+    if let Some(m) = k.as_object_mut() {
+        m.remove("names");
+    }
+    k
 }
 
 /// The run's parameters from the panel's choices.
@@ -224,7 +297,12 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let ctx = ui.ctx().clone();
     let mut p = match ctx.data(|m| m.get_temp::<Value>(state_id())) {
         Some(p) => p,
-        None => defaults(app),
+        None => {
+            let saved = load_saved(app);
+            let p = with_saved(defaults(app), &saved);
+            ctx.data_mut(|m| m.insert_temp(saved_id(), kept(&p)));
+            p
+        }
     };
     let mut elems: Elems = Vec::new();
     let status = filmcraft_engine::overfilm_flow::status(&app.session);
@@ -244,8 +322,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 .collect()
         })
         .unwrap_or_default();
-    let (mut run, mut stop, mut settings, mut tool) = (false, false, false, None::<&'static str>);
-    let (mut seek, mut name) = (None::<i64>, None::<(&'static str, u64, String)>);
+    let (mut run, mut stop, mut settings, mut tool, mut reset) = (false, false, false, None::<&'static str>, false);
+    // the kill clicked (its time) and a player or hero named, from the kill list
+    let mut picked: Picked = (None, None);
     let mut hero_name = None::<(u64, String)>;
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(10.0, 8.0))));
     let ui = &mut child;
@@ -441,12 +520,23 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 ui.end_row();
             }
         });
-        kill_list(ui, &mut elems, &facts.kills, &mut p, &mut seek, &mut name, t);
+        // the kill list is never taller than the panel, so the panel still scrolls past it
+        let fit = f64::from(rect.height() - 90.0).max(KILLS_MIN);
+        kill_list(ui, &mut elems, &facts.kills, &mut p, fit, &mut picked, t);
         lineup_list(ui, &mut elems, &facts.lineup, &mut p, &mut hero_name, t);
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label(RichText::new(tl!("Panel")).strong());
+        ui.label(RichText::new(tl!("Your choices here are saved and come back the next time you open the panel.")).color(t.text_dim).size(11.0));
+        check(ui, &mut elems, format!("{PRE}.openAtStart"), tl!("Open this panel when the editor starts"), &mut p["openAtStart"]);
+        let r = ui.button(tl!("Back to the default settings"));
+        elems.push((format!("{PRE}.resetSettings"), r.rect, "Back to the default settings".into()));
+        reset = r.clicked();
     });
     for (id, r, l) in elems {
         app.auto.add(&id, r, &l);
     }
+    let (seek, name) = picked;
     if settings {
         let _ = crate::menus::invoke(app, &ctx, "overfilm.review.settings", json!({}));
     }
@@ -494,7 +584,40 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         // the steps move on in the background
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
+    if reset {
+        if let Some(file) = settings_file(&app.session)
+            && let Err(e) = app.session.execute("overfilm.panel.settings", json!({"file": file, "reset": true}))
+        {
+            app.ui.status = plain_error(&e.to_string());
+        }
+        // filled again from the defaults on the next frame
+        ctx.data_mut(|m| {
+            m.remove::<Value>(state_id());
+            m.remove::<Value>(saved_id());
+        });
+        ctx.request_repaint();
+        return;
+    }
+    save_if_changed(app, &ctx, &p);
     ctx.data_mut(|m| m.insert_temp(state_id(), p));
+}
+
+/// Save the choices when they changed (not while a drag or a click is held, so dragging the
+/// kill list's height writes the file once, on release).
+fn save_if_changed(app: &mut FilmcraftApp, ctx: &egui::Context, p: &Value) {
+    let now = kept(p);
+    if ctx.data(|m| m.get_temp::<Value>(saved_id())).as_ref() == Some(&now) || ctx.input(|i| i.pointer.any_down()) {
+        return;
+    }
+    let Some(file) = settings_file(&app.session) else {
+        ctx.data_mut(|m| m.insert_temp(saved_id(), now));
+        return;
+    };
+    if let Err(e) = app.session.execute("overfilm.panel.settings", json!({"file": file, "settings": now})) {
+        // not tried again every frame: the next change tries again
+        log::warn!("OverFilm panel settings not saved: {e}");
+    }
+    ctx.data_mut(|m| m.insert_temp(saved_id(), now));
 }
 
 /// The teams and players read off the screen, and the heroes on the name plates to name (the
@@ -552,38 +675,72 @@ fn lineup_list(ui: &mut egui::Ui, elems: &mut Elems, lineup: &Value, p: &mut Val
     });
 }
 
+/// From the kill list: the time of the kill clicked, and a player or hero named.
+type Picked = (Option<i64>, Option<(&'static str, u64, String)>);
+
 /// The kills found on the sequence (kill feed: who killed whom; else the name plates' deaths),
 /// each a link to its time, and the kill feed's players and heroes to name.
-fn kill_list(
-    ui: &mut egui::Ui,
-    elems: &mut Elems,
-    kills: &Value,
-    p: &mut Value,
-    seek: &mut Option<i64>,
-    name: &mut Option<(&'static str, u64, String)>,
-    t: crate::theme::Tokens,
-) {
+fn kill_list(ui: &mut egui::Ui, elems: &mut Elems, kills: &Value, p: &mut Value, fit: f64, picked: &mut Picked, t: crate::theme::Tokens) {
+    let (seek, name) = (&mut picked.0, &mut picked.1);
     let Some(list) = kills["kills"].as_array().filter(|l| !l.is_empty()) else { return };
     ui.add_space(10.0);
     ui.separator();
-    ui.label(RichText::new(tlf!("Kills ({n})", n = list.len())).strong());
+    let in_window = p["killsWindow"].as_bool().unwrap_or(false);
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(tlf!("Kills ({n})", n = list.len())).strong());
+        let label = if in_window { tl!("Show in the panel") } else { tl!("Open in a window") };
+        let r = ui.small_button(label);
+        elems.push((format!("{PRE}.killsWindow"), r.rect, label.to_string()));
+        if r.clicked() {
+            p["killsWindow"] = json!(!in_window);
+        }
+    });
     if kills["source"] == "plates" {
         ui.label(RichText::new(tl!("Who died, from the name plates. Learn the kill feed to see who killed whom.")).color(t.text_dim).size(11.0));
     }
-    egui::ScrollArea::vertical().id_salt("overfilm-panel-kills").max_height(260.0).show(ui, |ui| {
-        for (n, k) in list.iter().enumerate() {
-            let line = format!("{}  {}", k["clock"].as_str().unwrap_or_default(), k["text"].as_str().unwrap_or_default());
-            let color = if k["ult"].as_bool().unwrap_or(false) { t.accent } else { t.text };
-            let mut r = ui.selectable_label(false, RichText::new(&line).color(color));
-            elems.push((format!("{PRE}.kill.{n}"), r.rect, line.clone()));
-            if let Some(c) = k["comment"].as_str().filter(|c| !c.is_empty()) {
-                r = r.on_hover_text(c);
-            }
-            if r.clicked() {
-                *seek = k["time"].as_i64();
-            }
+    if in_window {
+        let mut open = true;
+        egui::Window::new(tlf!("Kills ({n})", n = list.len()))
+            .id(egui::Id::unique("overfilm-panel-kills-window"))
+            .open(&mut open)
+            .default_size([560.0, 640.0])
+            .min_size([260.0, 160.0])
+            .resizable(true)
+            .collapsible(false)
+            .show(ui.ctx(), |ui| {
+                egui::ScrollArea::vertical().id_salt("overfilm-panel-kills-window-scroll").auto_shrink([false, false]).show(ui, |ui| {
+                    kill_rows(ui, elems, list, seek, t);
+                });
+            });
+        if !open {
+            p["killsWindow"] = json!(false);
         }
-    });
+    } else {
+        let saved = p["killsHeight"].as_f64().filter(|h| h.is_finite()).unwrap_or(KILLS_HEIGHT).clamp(KILLS_MIN, KILLS_MAX);
+        let h = saved.min(fit);
+        egui::ScrollArea::vertical().id_salt("overfilm-panel-kills").min_scrolled_height(h as f32).max_height(h as f32).show(ui, |ui| {
+            kill_rows(ui, elems, list, seek, t);
+        });
+        // drag the bar under the list to make it taller or shorter (up to the panel's height:
+        // a taller panel, or the list in a window, shows more)
+        let (bar, r) = ui.allocate_exact_size(vec2(ui.available_width(), 10.0), egui::Sense::drag());
+        let r = r.on_hover_text(tl!("Drag to make the kill list taller or shorter"));
+        let active = r.hovered() || r.dragged();
+        if active {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        }
+        let mid = bar.center();
+        ui.painter().hline(
+            (mid.x - 24.0)..=(mid.x + 24.0),
+            mid.y,
+            egui::Stroke::new(if active { 3.0 } else { 2.0 }, if active { t.accent } else { t.text_faint }),
+        );
+        elems.push((format!("{PRE}.killsResize"), bar, format!("{h:.0}")));
+        if r.dragged() {
+            let dy = f64::from(r.drag_delta().y);
+            p["killsHeight"] = json!((h + dy).clamp(KILLS_MIN, KILLS_MAX).round());
+        }
+    }
     let players = kills["players"].as_array().cloned().unwrap_or_default();
     let heroes = kills["heroes"].as_array().cloned().unwrap_or_default();
     if players.is_empty() && heroes.is_empty() {
@@ -623,9 +780,35 @@ fn kill_list(
     });
 }
 
+/// The kill lines, each a link to its time.
+fn kill_rows(ui: &mut egui::Ui, elems: &mut Elems, list: &[Value], seek: &mut Option<i64>, t: crate::theme::Tokens) {
+    for (n, k) in list.iter().enumerate() {
+        let line = format!("{}  {}", k["clock"].as_str().unwrap_or_default(), k["text"].as_str().unwrap_or_default());
+        let color = if k["ult"].as_bool().unwrap_or(false) { t.accent } else { t.text };
+        let mut r = ui.selectable_label(false, RichText::new(&line).color(color));
+        elems.push((format!("{PRE}.kill.{n}"), r.rect, line.clone()));
+        if let Some(c) = k["comment"].as_str().filter(|c| !c.is_empty()) {
+            r = r.on_hover_text(c);
+        }
+        if r.clicked() {
+            *seek = k["time"].as_i64();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_settings_over_the_defaults() {
+        let d = json!({"mode": "general", "maxLines": 2, "killsHeight": 420.0, "openAtStart": true, "names": {}});
+        let saved = json!({"mode": "commentary", "killsHeight": 600.0, "openAtStart": false, "maxLines": "two", "gone": 1});
+        let p = with_saved(d, saved.as_object().unwrap());
+        // a value of another type, and a key the panel no longer has, are left out
+        assert_eq!(p, json!({"mode": "commentary", "maxLines": 2, "killsHeight": 600.0, "openAtStart": false, "names": {}}));
+        assert_eq!(kept(&p).get("names"), None);
+    }
 
     #[test]
     fn run_params_from_the_panel() {

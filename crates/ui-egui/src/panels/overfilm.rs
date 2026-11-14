@@ -142,7 +142,8 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
 }
 
 pub(crate) fn combo(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, options: &[(&str, String)]) {
-    ui.label(label);
+    // the label names the box for screen readers
+    let name = ui.label(label).id;
     let cur = v.as_str().unwrap_or_default().to_string();
     let shown = options.iter().find(|(k, _)| *k == cur).map(|(_, l)| l.clone()).unwrap_or_else(|| cur.clone());
     let r = craft_ui::ComboBox::from_id_salt(id.clone())
@@ -154,7 +155,8 @@ pub(crate) fn combo(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &st
                 }
             }
         })
-        .response;
+        .response
+        .labelled_by(name);
     elems.push((id, r.rect, shown));
     ui.end_row();
 }
@@ -167,12 +169,12 @@ pub(crate) fn check(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &st
 }
 
 pub(crate) fn number(ui: &mut egui::Ui, elems: &mut Elems, id: String, label: &str, v: &mut Value, range: std::ops::RangeInclusive<f64>, suffix: &str) {
-    ui.label(label);
+    let name = ui.label(label).id;
     let mut n = v.as_f64().unwrap_or(*range.start());
     // counts are whole numbers; seconds and rates keep one decimal
     let whole = v.is_u64() || v.is_i64();
     let drag = crate::widgets::number_drag(&mut n).range(range).suffix(suffix);
-    let r = ui.add(if whole { drag.speed(0.05).max_decimals(0) } else { drag.speed(0.1).max_decimals(1) });
+    let r = ui.add(if whole { drag.speed(0.05).max_decimals(0) } else { drag.speed(0.1).max_decimals(1) }).labelled_by(name);
     if whole {
         n = n.round();
     }

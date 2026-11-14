@@ -294,3 +294,30 @@ fn renders_one_file_per_match_by_default() {
     assert!(files[0].ends_with("-로제vs오투 블래스트.mov") && files[1].ends_with("-크레이지 라쿤vs팀 팔콘스.mov"), "{files:?}");
     assert!(s.execute("overfilm.flow.run", json!({"render": true, "renderSplit": "both"})).unwrap_err().to_string().contains("renderSplit"));
 }
+
+#[test]
+fn panel_settings_are_saved_and_read_back() {
+    let dir = tmp_dir("overfilm-panel-settings");
+    let file = dir.join("sub").join("overfilm-panel.json");
+    let f = file.to_string_lossy().into_owned();
+    let mut s = Session::default();
+    // nothing saved yet: no settings, the panel opens at start
+    let r = s.execute("overfilm.panel.settings", json!({"file": f})).unwrap();
+    assert_eq!((r["settings"].clone(), r["openAtStart"].clone()), (json!({}), json!(true)));
+    // saved (the typed names are not), merged over what is there
+    s.execute("overfilm.panel.settings", json!({"file": f, "settings": {"mode": "commentary", "killsHeight": 500.0, "names": {"player.1": "x"}}})).unwrap();
+    let r = s.execute("overfilm.panel.settings", json!({"file": f, "settings": {"openAtStart": false}})).unwrap();
+    assert_eq!(r["settings"], json!({"mode": "commentary", "killsHeight": 500.0, "openAtStart": false}));
+    assert_eq!(r["openAtStart"], false);
+    let r = s.execute("overfilm.panel.settings", json!({"file": f})).unwrap();
+    assert_eq!(r["settings"]["mode"], "commentary");
+    // forgotten
+    let r = s.execute("overfilm.panel.settings", json!({"file": f, "reset": true})).unwrap();
+    assert_eq!((r["settings"].clone(), r["openAtStart"].clone()), (json!({}), json!(true)));
+    // a broken file reads as nothing; settings that are not an object are refused
+    std::fs::write(&file, "{not json").unwrap();
+    assert_eq!(s.execute("overfilm.panel.settings", json!({"file": f})).unwrap()["settings"], json!({}));
+    std::fs::write(&file, "[1, 2]").unwrap();
+    assert_eq!(s.execute("overfilm.panel.settings", json!({"file": f})).unwrap()["settings"], json!({}));
+    assert!(s.execute("overfilm.panel.settings", json!({"file": f, "settings": [1]})).is_err());
+}

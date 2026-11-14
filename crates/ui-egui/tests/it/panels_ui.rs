@@ -1016,6 +1016,80 @@ fn overfilm_panel_runs_from_the_window_menu() {
     d.ok("ui.menu.invoke", json!({"id": "app.language.english"}));
 }
 
+/// The OverFilm panel's choices are saved beside the preferences and come back the next time
+/// the panel opens (here: in a new app on the same preferences folder).
+#[test]
+fn overfilm_panel_settings_come_back_next_time() {
+    let dir = std::env::temp_dir().join(format!("filmcraft-overfilm-panel-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("overfilm-panel.json");
+    let open = |dir: &std::path::Path| {
+        let mut session = Session::default();
+        session.execute("file.openDemoProject", json!({})).expect("demo project");
+        // kills off the kill feed, for the kill list
+        for n in 0..30 {
+            let name = format!("OverFilm 킬피드: 선수 {} (영웅 {}) → 선수 {} (영웅 {})", n % 5 + 1, n % 7 + 1, n % 4 + 6, n % 3 + 8);
+            session.execute("markers.add", json!({"seconds": 0.5 + f64::from(n) * 0.25, "name": name})).expect("marker");
+        }
+        session.prefs_path = Some(dir.join("preferences.json"));
+        let mut d = Driver::with(session);
+        d.ok("ui.menu.invoke", json!({"id": "overfilm.flow.run"}));
+        d.frames(4);
+        d
+    };
+    let saved = |key: &str| -> Value {
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        serde_json::from_str::<Value>(&text).unwrap_or_default()[key].clone()
+    };
+    let mut d = open(&dir);
+    assert!(!d.ids("overfilm.panel.openAtStart").is_empty());
+    assert!(!d.ids("overfilm.panel.resetSettings").is_empty());
+    d.click("overfilm.panel.autoCut");
+    d.frames(2);
+    // the panel's own settings are at the bottom
+    d.ok("ui.scroll", json!({"id": "overfilm.panel.captions", "dy": -4000}));
+    d.frames(3);
+    d.click("overfilm.panel.openAtStart");
+    d.frames(3);
+    assert_eq!((saved("openAtStart"), saved("autoCut")), (json!(false), json!(false)));
+    // the kill list is shorter or taller by dragging the bar under it, and stays so
+    assert!(d.ids("overfilm.panel.kill.").len() > 5, "kills listed");
+    d.ok("ui.drag", json!({"from": {"id": "overfilm.panel.killsResize"}, "to": {"id": "overfilm.panel.killsResize", "fy": -20.0}, "steps": 6}));
+    d.frames(3);
+    let short = saved("killsHeight").as_f64().unwrap_or_default();
+    assert!((100.0..300.0).contains(&short), "dragged shorter: {short}");
+    d.ok("ui.scroll", json!({"id": "overfilm.panel.captions", "dy": -4000}));
+    d.frames(3);
+    d.ok("ui.drag", json!({"from": {"id": "overfilm.panel.killsResize"}, "to": {"id": "overfilm.panel.killsResize", "fy": 10.0}, "steps": 6}));
+    d.frames(3);
+    let tall = saved("killsHeight").as_f64().unwrap_or_default();
+    assert!(tall > short + 50.0, "dragged taller: {tall}");
+    d.snapshot("overfilm-panel-kills", None);
+    // in a window of its own
+    d.ok("ui.scroll", json!({"id": "overfilm.panel.captions", "dy": -4000}));
+    d.frames(3);
+    d.click("overfilm.panel.killsWindow");
+    d.frames(3);
+    assert_eq!(saved("killsWindow"), json!(true));
+    d.snapshot("overfilm-panel-kills-window", None);
+    d.click("overfilm.panel.killsWindow");
+    d.frames(3);
+    drop(d);
+    // a new app reads them: ticking again turns them back on
+    let mut d = open(&dir);
+    d.ok("ui.scroll", json!({"id": "overfilm.panel.captions", "dy": -4000}));
+    d.frames(3);
+    d.click("overfilm.panel.openAtStart");
+    d.frames(3);
+    assert_eq!((saved("openAtStart"), saved("autoCut")), (json!(true), json!(false)));
+    // back to the defaults
+    d.click("overfilm.panel.resetSettings");
+    d.frames(4);
+    assert_eq!(saved("autoCut"), Value::Null, "nothing saved: the defaults");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// #3669: opening a clip in the Source monitor must also focus it, so Space plays that clip.
 #[test]
 fn opening_a_clip_in_source_focuses_it_so_space_plays_it() {
