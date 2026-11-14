@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "overshorts"
+version = "0.1.0"
+description = "DC 갤러리 → 쇼츠 자동화 (OverFilm 모듈)"
+requires-python = ">=3.11"
+dependencies = [
+    "curl_cffi>=0.7",
+    "beautifulsoup4>=4.12",
+    "PyYAML>=6.0",
+    "pydantic>=2.6",
+    "edge-tts>=7.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+panel = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+# 그림 검사(얼굴 흐림·선정성). Windows 는 DirectML 이라 라데온·NVIDIA·인텔 GPU 모두 쓴다.
+images = [
+    "numpy>=1.26",
+    "opencv-python-headless>=4.8",
+    "onnxruntime-directml>=1.18; sys_platform == 'win32'",
+    "onnxruntime>=1.18; sys_platform != 'win32'",
+]
+
+[project.scripts]
+overshorts = "overshorts.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["overshorts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

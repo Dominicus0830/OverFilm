@@ -1,0 +1,49 @@
+# OverShorts 설정 예시. config.yaml 로 복사해서 쓴다 (나중에는 패널이 이 파일을 저장한다).
+sources:
+  - url: https://gall.dcinside.com/mgallery/board/lists/?id=example
+    recommend_only: true
+    min_upvotes: 30
+    max_posts: 10
+    within_hours: 24
+filter:
+  block_words: []
+  allow_topics: []        # 비우면 전부 허용
+  min_chars: 80
+  max_chars: 4000
+  blur_faces: true        # 첨부 그림 얼굴 흐림
+  drop_nsfw_images: true  # 선정성 그림 빼기
+llm:
+  filter: ollama          # LLM 필터 (로컬 GPU, 라데온은 Ollama AMD 지원)
+  script: claude_code     # 대본·오글 검사 (claude -p, 구독)
+  fallback: ollama
+  ollama_model: qwen3:8b  # VRAM 6~7GB면 qwen3:4b
+  claude_model: ""        # 비우면 Claude Code 기본 모델
+  on_limit: ask           # ask = 패널이 전환/대기를 물음(CLI는 fallback), fallback = 로컬 LLM으로 넘김, wait = 대기열에 둠
+render:
+  tone: 담백              # 담백 | 드립 조금 | 정리형
+  preset: auto            # auto = 원문 사진·영상 있으면 프레임형, 없으면 썰 카드형 | frame | card
+  composition: auto       # auto = AI가 A(제목→본문→댓글)/B(제목→본문) 고름 | A | B
+  max_comments: 6         # 화면에 보여줄 댓글 최대 개수 (답글 포함)
+  max_media: 6            # 한 영상에 넣을 원문 미디어 최대 개수
+  nickname: original      # original = 원본 그대로 | blur = 흐림 | replace = ㅇㅇ 치환
+  bgm_dir: null           # 무음이 5초 넘지 않게 깔 BGM (라이선스 있는 것만)
+  background_dir: ./assets/bg   # 직접 녹화했거나 라이선스 있는 배경 영상만
+  out_dir: ./data/approved
+  browser_executable: null      # 비우면 Remotion 이 받은 Chrome
+style:
+  dir: ../style
+  speech: 반말            # 반말 | 해요체 (채널당 하나)
+  min_cringe_score: 7
+crawler:
+  delay_sec: [1.5, 4]     # 요청마다 랜덤 간격 (1초 미만은 차단 위험)
+  rest_every: 10          # 글 N개마다
+  rest_sec: [20, 40]      # 긴 휴식
+  hourly_limit: 60
+  daily_limit: 200
+  cooldown_min: 60        # 403·429·캡차 뒤 쉬는 시간
+  max_comments: 50
+  max_images: 6           # 글당 받을 첨부 사진 (영상은 3개, 한 영상에 원문 미디어 최대 6개)
+  proxy: null
+gpu_tier: auto
+encoder: auto             # auto | nvenc | amf | cpu (라데온 지원)
+data_dir: ./data
