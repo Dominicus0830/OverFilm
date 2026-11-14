@@ -14,13 +14,17 @@ BODY = "힐러가 받은 힐량을 보면 딜러들이 할 말이 많아질 것 
 COMMENTS = ["이거 진짜 필요했음", "그건 때마다 다르지 케어 못하는 힐러도 많음"]
 
 
+CMTS = [{"no": 11, "text": COMMENTS[0], "depth": 0},
+        {"no": 12, "text": COMMENTS[1], "depth": 1, "parent": 11}]
+
+
 def good_script():
-    return {"title": "받은 힐량 표시", "fact": "500힐", "lines": [
-        {"part": "hook", "text": "받은 힐량이 화면에 뜬다면?"},
-        {"part": "body", "text": "딜러 쪽은 반기는 분위기다."},
-        {"part": "body", "text": "500힐 받은 기록을 들고 따질 사람도 나올 거다."},
-        {"part": "comment", "text": "이거 진짜 필요했음", "comment_no": 0},
-        {"part": "outro", "text": "숫자는 거짓말을 안 한다."},
+    return {"title": "받은 힐량 표시", "fact": "500힐", "composition": "A", "segments": [
+        {"kind": "title", "tts": True, "lines": ["받은 힐량이 화면에 뜬다면?"]},
+        {"kind": "body", "subtitle": "딜러 반응", "tts": True, "lines": [
+            "딜러 쪽은 반기는 분위기다.", "500힐 받은 기록을 들고 따질 사람도 나올 거다.",
+            "숫자는 거짓말을 안 한다."]},
+        {"kind": "comments", "tts": True, "comments": [1], "read": [0]},
     ]}
 
 
@@ -58,7 +62,10 @@ def test_checks_catch_banned_reported_no_ending_fake_comment():
 
 
 def test_checks_clean_script_and_copy():
-    res = check_script(good_script()["lines"], BODY, COMMENTS)
+    lines = [{"part": "hook", "text": "받은 힐량이 화면에 뜬다면?"},
+             {"part": "body", "text": "딜러 쪽은 반기는 분위기다."},
+             {"part": "comment", "text": "이거 진짜 필요했음", "comment_no": 0}]
+    res = check_script(lines, BODY, COMMENTS)
     assert not res.needs_rewrite, res.reasons()
     copied = [{"part": "body", "text": BODY}]
     assert any(i.kind == "원문 겹침" for i in check_script(copied, BODY, COMMENTS).issues)
@@ -113,20 +120,26 @@ def test_decide_respects_config():
 
 
 def test_writer_rewrites_once_on_problems(tmp_path):
-    bad = {"title": "t", "lines": [{"part": "hook", "text": "여러분 충격!"},
-                                   {"part": "body", "text": "그렇다."},
-                                   {"part": "outro", "text": "끝."}]}
+    bad = {"title": "t", "composition": "B", "segments": [
+        {"kind": "title", "tts": True, "lines": ["여러분 충격!"]},
+        {"kind": "body", "tts": True, "lines": ["그렇다.", "끝."]}]}
     client = Fake([bad, good_script(), {"score": 8.5, "issues": []}])
     router = Router({"script": client, "cringe": client})
-    out = write_script(router, "제목", BODY, COMMENTS, ScriptSettings(style_dir=tmp_path))
+    out = write_script(router, "제목", BODY, CMTS, ScriptSettings(style_dir=tmp_path))
     assert out.rewrites == 1 and out.warnings == [] and out.cringe.score == 8.5
+    # 답글을 고르면 부모도 같이, 읽는 댓글은 원문 그대로
+    seg = out.segments[-1]
+    assert seg["comments"] == [0, 1] and seg["read"] == [0]
+    said = [ln for ln in out.lines if ln["part"] == "comment"]
+    assert said == [{"part": "comment", "text": COMMENTS[0], "comment_no": 0, "seg": 2}]
+    assert [ln["seg"] for ln in out.lines if ln["part"] == "pause"] == [0, 1, 2]
     assert "여러분" in client.prompts[1].prompt  # 사유를 붙여 다시 씀
 
 
 def test_pipeline_filter_then_script():
     store = Store(":memory:")
     pid = store.upsert_post({"gall_id": "g", "post_no": 1, "title": "제목", "body": BODY,
-                             "comments": [{"no": 1, "text": c} for c in COMMENTS]})
+                             "comments": CMTS})
     store.add_job(pid, "crawled")
     flt = Fake([{"verdict": "pass", "fit_score": 7, "topic": "힐러"}], name="ollama:x")
     counts = filter_pending(store, Router({"filter": flt}), ["politics"], [])
@@ -159,3 +172,17 @@ def test_review_waits_for_human():
     assert store.conn.execute("SELECT status FROM jobs").fetchone()["status"] == "blocked"
     assert approve_review(store, pid)
     assert store.conn.execute("SELECT status FROM jobs").fetchone()["status"] == "filtered"
+
+
+def test_validate_drops_missing_media_and_hostile_warns():
+    from overshorts.script.models import ScriptAnswer
+    from overshorts.script.segments import validate
+    ans = ScriptAnswer.model_validate({"title": "t", "composition": "A", "segments": [
+        {"kind": "media", "tts": True, "lines": ["a"], "media": [{"n": "사진 9"}]},
+        {"kind": "body", "tts": True, "lines": ["b"]},
+        {"kind": "comments", "tts": False, "comments": [0, 5]}]})
+    cm = [{"no": 1, "text": "조센징 ㅋㅋ"}]
+    segs, warn = validate(ans, cm, [], "auto")
+    assert [s["kind"] for s in segs] == ["title", "body", "comments"]
+    assert segs[2]["comments"] == [0] and any("욕설" in w for w in warn)
+    assert [s["kind"] for s in validate(ans, cm, [], "B")[0]] == ["title", "body"]

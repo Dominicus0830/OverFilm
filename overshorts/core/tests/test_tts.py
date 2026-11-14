@@ -72,3 +72,17 @@ def test_stage(tmp_path):
     assert counts == {"voiced": 1, "failed": 0}
     assert store.conn.execute("SELECT status FROM jobs").fetchone()["status"] == "aligned"
     assert (tmp_path / str(job) / "voice.wav").exists()
+
+
+def test_pause_lines_fill_segment_time(tmp_path):
+    lines = [
+        {"part": "pause", "text": "", "seg": 0, "min_total": 2.0},  # TTS 끈 제목
+        {"part": "body", "text": "딜러는 반긴다.", "seg": 1},  # 0.5초
+        {"part": "pause", "text": "", "seg": 1, "min_total": 1.5},
+    ]
+    track = build_voice(lines, tmp_path, "edge:n", None, {"edge": FakeEngine()}, fake_decode)
+    segs = {s["seg"]: s for s in track.segments}
+    assert (segs[0]["start"], segs[0]["end"]) == (0, 2.0)
+    assert abs(segs[1]["end"] - segs[1]["start"] - 1.5) < 1e-2
+    assert abs(track.sentences[0].start - (2.0 + GAP_SEC)) < 1e-3
+    assert abs(track.duration - segs[1]["end"]) < 1e-3

@@ -17,6 +17,7 @@ from ..llm import LimitReached, LlmError, Router
 from .checks import CheckResult, check_script, load_banned
 from .models import CringeAnswer, ScriptAnswer
 from .prompts import cringe_task, load_style, script_task
+from .segments import flatten, media_items, validate
 
 MAX_REWRITES = 2
 
@@ -29,11 +30,16 @@ class ScriptSettings:
     min_cringe_score: float = 7.0
     chars_per_sec: float = 7.0
     cringe_check: bool = True
+    composition: str = "auto"  # auto | A | B
+    max_comments: int = 6
+    max_media: int = 6
 
 
 @dataclass
 class ScriptOutcome:
     script: ScriptAnswer
+    segments: list[dict]
+    lines: list[dict]
     checks: CheckResult
     cringe: CringeAnswer | None
     model: str
@@ -41,34 +47,41 @@ class ScriptOutcome:
     warnings: list[str] = field(default_factory=list)
 
 
-def write_script(router: Router, title: str, body: str, comments: list[str],
-                 settings: ScriptSettings) -> ScriptOutcome:
+def write_script(router: Router, title: str, body: str, comments: list[dict],
+                 settings: ScriptSettings, media: list[dict] | None = None) -> ScriptOutcome:
+    """comments: 수집한 댓글 dict 목록 (text, depth, parent, dccon …). media: segments.media_items."""
+    media = media or []
+    texts = [str(c.get("text") or "") for c in comments]
     style = load_style(settings.style_dir)
     banned = load_banned(settings.style_dir)
     user_words = [p for p, why in banned if why == "사용자 금지 목록"]
     feedback: list[str] | None = None
     rewrites = 0
     while True:
-        task = script_task(title, body, comments, style, settings.tone, settings.speech,
-                           user_words, settings.chars_per_sec, feedback)
+        task = script_task(title, body, comments, media, style, settings.tone, settings.speech,
+                           user_words, settings.chars_per_sec, feedback, settings.composition,
+                           settings.max_comments)
         script, model = router.ask(task, ScriptAnswer)
-        lines = [ln.model_dump() for ln in script.lines]
-        checks = check_script(lines, body, comments, banned, settings.chars_per_sec)
+        segs, seg_warn = validate(script, comments, media, settings.composition,
+                                  settings.max_comments, settings.max_media)
+        lines = flatten(segs, comments, media)
+        spoken = [ln for ln in lines if ln["part"] != "pause"]
+        checks = check_script(spoken, body, texts, banned, settings.chars_per_sec)
         cringe = None
         problems: list[str] = []
         if checks.needs_rewrite:
             problems += checks.reasons()
-        elif settings.cringe_check:
-            pairs = [(ln.part, ln.text) for ln in script.lines]
+        elif settings.cringe_check and spoken:
+            pairs = [(ln["part"], ln["text"]) for ln in spoken]
             cringe, _ = router.ask(cringe_task(pairs), CringeAnswer)
             if cringe.score < settings.min_cringe_score:
                 problems.append(f"오글 점수 {cringe.score:.1f} (기준 {settings.min_cringe_score:g})")
-                problems += [f"{i.line + 1}번째 줄: {i.reason}" for i in cringe.issues]
+                problems += [f"{i.line + 1}번째 나레이션 줄: {i.reason}" for i in cringe.issues]
         if not problems or rewrites >= MAX_REWRITES:
-            warnings = checks.reasons()
+            warnings = seg_warn + checks.reasons()
             if cringe is not None and cringe.score < settings.min_cringe_score:
                 warnings.append(f"오글 점수 {cringe.score:.1f} 로 기준 미만")
-            return ScriptOutcome(script, checks, cringe, model, rewrites, warnings)
+            return ScriptOutcome(script, segs, lines, checks, cringe, model, rewrites, warnings)
         feedback = problems
         rewrites += 1
 
@@ -76,7 +89,7 @@ def write_script(router: Router, title: str, body: str, comments: list[str],
 def script_pending(store: Store, router: Router, settings: ScriptSettings,
                    post_ids: list[int] | None = None, limit: int = 20) -> dict[str, int]:
     """LLM 필터를 통과한 글(jobs.status = filtered)의 대본을 쓴다."""
-    q = ("SELECT j.id AS job_id, p.id AS post_id, p.title, p.body, p.comments FROM jobs j "
+    q = ("SELECT j.id AS job_id, p.id AS post_id, p.title, p.body, p.comments, p.images FROM jobs j "
          "JOIN posts p ON p.id = j.post_id WHERE j.status = 'filtered' AND p.discarded = 0")
     args: list = []
     if post_ids:
@@ -84,23 +97,27 @@ def script_pending(store: Store, router: Router, settings: ScriptSettings,
         args += post_ids[:500]
     q += " ORDER BY j.id LIMIT ?"
     args.append(max(1, min(limit, 1000)))
-    counts = {"scripted": 0, "failed": 0, "warned": 0}
+    counts = {"scripted": 0, "failed": 0, "warned": 0, "limited": 0}
     for row in store.conn.execute(q, args).fetchall():
-        comments = [str(c.get("text", "")) for c in json.loads(row["comments"] or "[]")
-                    if isinstance(c, dict)]
+        comments = [c for c in json.loads(row["comments"] or "[]") if isinstance(c, dict)]
+        media = media_items(json.loads(row["images"] or "[]"))
         try:
-            out = write_script(router, row["title"], row["body"], comments, settings)
+            out = write_script(router, row["title"], row["body"], comments, settings, media)
         except LlmError as err:
             store.set_job_status(row["job_id"], "filtered", f"대본: {err}")
             counts["failed"] += 1
             if isinstance(err, LimitReached):
+                counts["limited"] = 1
                 break  # 대기열에 그대로 두고 나중에
             continue
         version = store.next_script_version(row["post_id"])
         payload = {
             "title": out.script.title,
             "fact": out.script.fact,
-            "lines": [ln.model_dump() for ln in out.script.lines],
+            "composition": "A" if any(sg["kind"] == "comments" for sg in out.segments) else "B",
+            "composition_reason": out.script.composition_reason,
+            "segments": out.segments,
+            "lines": out.lines,
             "est_seconds": out.checks.est_seconds,
             "cringe": out.cringe.model_dump() if out.cringe else None,
             "warnings": out.warnings,

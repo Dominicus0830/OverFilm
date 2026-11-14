@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {Event, subscribe} from './api';
+import {Event, api, subscribe} from './api';
 import {Home} from './screens/Home';
 import {NewJob} from './screens/NewJob';
 import {Queue} from './screens/Queue';
@@ -12,6 +12,8 @@ export function App() {
   const [screen, setScreen] = useState<Screen>('홈');
   const [events, setEvents] = useState<Event[]>([]);
   const [tick, setTick] = useState(0); // 작업이 바뀌면 화면들이 다시 읽는다
+  const [limitAsk, setLimitAsk] = useState<string | null>(null);
+  const [remember, setRemember] = useState(false);
   const [theme, setTheme] = useState<string>(() => {
     try { return localStorage.getItem('theme') || 'dark'; } catch { return 'dark'; }
   });
@@ -22,6 +24,7 @@ export function App() {
   useEffect(() => subscribe((e) => {
     setEvents((old) => [...old.slice(-199), e]);
     if (e.type === 'jobs_changed' || e.type === 'task') setTick((t) => t + 1);
+    if (e.type === 'confirm' && e.kind === 'llm_limit') setLimitAsk(e.message ?? 'Claude 한도에 걸렸습니다');
     if (e.type === 'alert' && 'Notification' in window && Notification.permission === 'granted') {
       new Notification('OverShorts', {body: e.message ?? ''});
     }
@@ -51,6 +54,24 @@ export function App() {
           </section>
         )}
       </main>
+      {limitAsk && (
+        <div className="modal-back" role="dialog" aria-modal="true" aria-label="Claude 한도">
+          <div className="modal">
+            <h3>Claude 한도에 걸렸습니다</h3>
+            <p>{limitAsk}</p>
+            <label className="check"><input type="checkbox" checked={remember}
+              onChange={(e) => setRemember(e.target.checked)} /> 다시 묻지 않기</label>
+            <div className="actions">
+              <button className="primary" data-automation-id="limit-switch" onClick={() => {
+                api('/api/llm/limit', {action: 'switch', remember}).catch(() => undefined); setLimitAsk(null);
+              }}>로컬 LLM 으로 전환</button>
+              <button data-automation-id="limit-wait" onClick={() => {
+                api('/api/llm/limit', {action: 'wait', remember}).catch(() => undefined); setLimitAsk(null);
+              }}>대기</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

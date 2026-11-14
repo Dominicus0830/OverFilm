@@ -1,11 +1,13 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Player, PlayerRef} from '@remotion/player';
-import {CardStory} from '../../../render/src/CardStory';
+import {Story} from '../../../render/src/Story';
 import {sanitize} from '../../../render/src/spec';
 import {api, ReviewItem, ScriptLine} from '../api';
 import type {Screen} from '../App';
 
-const PART_KO: Record<string, string> = {hook: '훅', body: '전개', comment: '댓글 반응', outro: '마무리'};
+const PART_KO: Record<string, string> = {hook: '훅', body: '전개', comment: '댓글 읽기', outro: '마무리'};
+const SEG_KO: Record<string, string> = {title: '제목', media: '본문 미디어', body: '본문 글', comments: '댓글 반응'};
+const PRESET_KO: Record<string, string> = {frame: '프레임형', card: '썰 카드형'};
 const norm = (s: string) => s.replace(/[\s\p{P}\p{S}]+/gu, '');
 
 /** 원문에서 대본과 겹치는 글자(글자 5-gram)를 표시한다. */
@@ -42,8 +44,12 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
   const spec = useMemo(() => {
     if (!item?.spec) return null;
     const s = sanitize(item.spec);
-    return {...s, audio: s.audio ? item.files + s.audio : null,
-      background: s.background ? item.files + s.background : null};
+    const f = (p: string | null) => (p ? item.files + p : null);
+    return {...s, audio: f(s.audio), background: f(s.background), bgm: f(s.bgm),
+      segments: s.segments.map((g) => ({...g,
+        media: g.media.map((m) => ({...m, src: item.files + m.src})),
+        comments: g.comments.map((c) => ({...c, dccon: c.dccon ? {...c.dccon, src: f(c.dccon.src)} : null})),
+      }))};
   }, [item]);
 
   const act = useCallback(async (what: 'approve' | 'edit' | 'discard') => {
@@ -100,6 +106,15 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
     requestAnimationFrame(stop);
   };
 
+  const setTts = async (seg: number, tts: boolean) => {
+    if (!item) return;
+    try {
+      await api(`/api/review/${item.job_id}/segment-tts`, {seg, tts});
+      setMsg(`세그먼트 ${seg + 1} TTS ${tts ? '켬' : '끔'}: 음성부터 다시 만듭니다`);
+      setItems((old) => old.filter((x) => x.job_id !== item.job_id));
+    } catch (e) { setMsg((e as Error).message); }
+  };
+
   const sendReport = async () => {
     if (!item || !report) return;
     await api(`/api/review/${item.job_id}/cringe`, {line: report.line, text: lines[report.line]?.text ?? '', reason: report.reason});
@@ -118,6 +133,15 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
     );
   }
   const flagged = new Map((item.script.cringe?.issues ?? []).map((i) => [i.line, i.reason]));
+  // 오글 검사 줄 번호는 나레이션(pause 뺀) 순서 기준
+  const spoken = lines.map((l, i) => (l.part === 'pause' ? -1 : i)).filter((i) => i >= 0);
+  const groups: {seg: number; idx: number[]}[] = [];
+  lines.forEach((l, i) => {
+    const seg = l.seg ?? 0;
+    let g = groups.find((x) => x.seg === seg);
+    if (!g) { g = {seg, idx: []}; groups.push(g); }
+    if (l.part !== 'pause') g.idx.push(i);
+  });
   const marks = overlapMarks(item.body, lines);
   const bodyChars = [...item.body];
   const llm = item.filters.filter((f) => f.stage === 'llm').slice(-1)[0];
@@ -137,23 +161,57 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
           <p className="muted small">노란색 = 대본과 겹치는 부분</p>
           <ul className="comments">
             {item.comments.slice(0, 50).map((c, i) => {
-              const picked = lines.some((l) => l.part === 'comment' && l.comment_no === i);
-              return <li key={i} className={picked ? 'picked' : ''}>[{i}] {c.text}</li>;
+              const picked = (item.script.segments ?? []).some((g) => g.comments.includes(i))
+                || lines.some((l) => l.part === 'comment' && l.comment_no === i);
+              return (
+                <li key={i} className={picked ? 'picked' : ''} style={{marginLeft: c.depth ? 18 : 0}}>
+                  [{i}] {c.depth ? '└ ' : ''}<span className="muted">{c.nick}{c.ip ? `(${c.ip})` : ''}</span>{' '}
+                  {c.text}{c.dccon ? ` (디시콘: ${c.dccon.name})` : ''}
+                </li>
+              );
             })}
           </ul>
         </div>
         <div className="col">
           <h3>대본 (문장별 편집)</h3>
           <p className="muted small">▶ 누르면 그 문장만 듣기 · 예상 {item.script.est_seconds}초</p>
-          {lines.map((l, i) => (
-            <div key={i} className={flagged.has(i) ? 'line flagged' : 'line'}>
-              <button className="play" aria-label={`${i + 1}번째 문장 듣기`} onClick={() => playLine(i)}>▶</button>
-              <span className="part">{PART_KO[l.part] ?? l.part}</span>
-              <input value={l.text} aria-label={`${i + 1}번째 문장`} onChange={(e) => {
-                const next = lines.slice(); next[i] = {...l, text: e.target.value}; setLines(next); setDirty(true);
-              }} />
-              {flagged.has(i) && <span className="badge yellow" title={flagged.get(i)}>오글?</span>}
-              <button className="small-btn" onClick={() => setReport({line: i, reason: ''})}>오글</button>
+          {item.script.composition && (
+            <p className="muted small">구성 {item.script.composition}
+              {item.script.composition === 'A' ? ' (제목 → 본문 → 댓글)' : ' (제목 → 본문)'}
+              {item.script.composition_reason ? ` · ${item.script.composition_reason}` : ''}</p>
+          )}
+          {groups.map(({seg, idx}) => (
+            <div key={seg} className={item.script.segments ? 'seg' : undefined}>
+              {item.script.segments?.[seg] && (() => {
+                const g = item.script.segments[seg];
+                return (
+                  <div className="seg-head">
+                    <span className="kind">{seg + 1}. {SEG_KO[g.kind] ?? g.kind}</span>
+                    {g.subtitle && <span className="muted">“{g.subtitle}”</span>}
+                    {g.media.length > 0 && <span className="muted">{g.media.map((m) => m.name).join(', ')}</span>}
+                    {g.comments.length > 0 && <span className="muted">댓글 {g.comments.map((n) => `[${n}]`).join(' ')}</span>}
+                    <button className={g.tts ? 'toggle on' : 'toggle'} title={g.tts_reason}
+                      data-automation-id={`seg-tts-${seg}`} onClick={() => setTts(seg, !g.tts)}>
+                      TTS {g.tts ? '켬' : '끔'}</button>
+                    {g.tts_reason && <span className="muted small">{g.tts_reason}</span>}
+                  </div>
+                );
+              })()}
+              {idx.map((i) => {
+                const l = lines[i];
+                return (
+                  <div key={i} className={flagged.has(spoken.indexOf(i)) ? 'line flagged' : 'line'}>
+                    <button className="play" aria-label={`${i + 1}번째 문장 듣기`} onClick={() => playLine(i)}>▶</button>
+                    <span className="part">{PART_KO[l.part] ?? l.part}</span>
+                    <input value={l.text} aria-label={`${i + 1}번째 문장`} readOnly={l.part === 'comment'}
+                      title={l.part === 'comment' ? '댓글은 원문 그대로 (고칠 수 없음)' : undefined} onChange={(e) => {
+                        const next = lines.slice(); next[i] = {...l, text: e.target.value}; setLines(next); setDirty(true);
+                      }} />
+                    {flagged.has(spoken.indexOf(i)) && <span className="badge yellow" title={flagged.get(spoken.indexOf(i))}>오글?</span>}
+                    <button className="small-btn" onClick={() => setReport({line: i, reason: ''})}>오글</button>
+                  </div>
+                );
+              })}
             </div>
           ))}
           {report && (
@@ -164,12 +222,12 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
               <div className="actions"><button onClick={sendReport}>저장</button><button onClick={() => setReport(null)}>취소</button></div>
             </div>
           )}
-          <p className="muted small">톤: {item.tone} · 프리셋: 썰 카드형 · 대본 {item.version}번째</p>
+          <p className="muted small">톤: {item.tone} · 프리셋: {PRESET_KO[spec?.preset ?? 'card']} · 대본 {item.version}번째</p>
         </div>
         <div className="col">
           <h3>미리보기</h3>
           {spec ? (
-            <Player ref={player} component={CardStory} inputProps={spec as unknown as Record<string, unknown>}
+            <Player ref={player} component={Story} inputProps={spec as unknown as Record<string, unknown>}
               durationInFrames={Math.max(1, Math.round(spec.duration * spec.fps))} fps={spec.fps}
               compositionWidth={spec.width} compositionHeight={spec.height} controls
               style={{width: '100%', aspectRatio: '9 / 16', borderRadius: 16, overflow: 'hidden'}} />
@@ -182,7 +240,9 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
           필터: {llm ? `${llm.verdict}${llm.fit_score !== null ? ` · 적합도 ${llm.fit_score}` : ''}` : '규칙만'}
           {' · '}원문 겹침 {Math.round(item.overlap_ratio * 100)}%{item.overlap_ratio > 0.3 ? ' (30% 초과)' : ''}
           {' · '}오글 점수 {item.script.cringe ? item.script.cringe.score : '-'}
-          {item.script.warnings.length > 0 && <div className="warnline">경고: {item.script.warnings.join(' / ')}</div>}
+          {[...item.script.warnings, ...((item.spec?.warnings as string[] | undefined) ?? [])].length > 0 && (
+            <div className="warnline">경고: {[...item.script.warnings,
+              ...((item.spec?.warnings as string[] | undefined) ?? [])].join(' / ')}</div>)}
         </div>
         <div className="actions">
           <button className="primary" onClick={() => act('approve')} data-automation-id="review-approve">승인 (A)</button>
@@ -194,6 +254,7 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
                 <p className="muted small">톤 바꾸기 → 대본부터</p>
                 {['담백', '드립 조금', '정리형'].map((t) => <button key={t} onClick={() => regenerate({tone: t})}>{t}</button>)}
                 <p className="muted small">프리셋만 → 렌더 설정만</p>
+                <button onClick={() => regenerate({preset: 'frame'})}>프레임형</button>
                 <button onClick={() => regenerate({preset: 'card'})}>썰 카드형</button>
               </div>
             )}

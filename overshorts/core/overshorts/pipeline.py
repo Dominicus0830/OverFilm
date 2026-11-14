@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .config import crawl_limits, rule_config
+from .config import crawl_limits, rule_config, script_settings, spec_options
 from .crawler.budget import CrawlGuard
 from .crawler.collector import Collector, GalleryOptions
 from .crawler.fetcher import Fetcher
@@ -45,8 +45,25 @@ class Pipeline:
         if self._router is None:
             from .cli import build_router
 
-            self._router, _ = build_router(self.cfg)
+            self._router, _ = build_router(self.cfg, ask=True)
+            pref = self.prefs().get("on_limit")
+            if pref in ("fallback", "wait"):  # 확인창에서 '다시 묻지 않기'
+                self._router.on_limit = pref
         return self._router
+
+    def prefs(self) -> dict[str, Any]:
+        try:
+            data = json.loads((self.data / "panel_prefs.json").read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def save_pref(self, key: str, value: Any) -> None:
+        prefs = self.prefs()
+        prefs[key] = value
+        self.data.mkdir(parents=True, exist_ok=True)
+        (self.data / "panel_prefs.json").write_text(json.dumps(prefs, ensure_ascii=False),
+                                                     encoding="utf-8")
 
     # --- 단계 ---
     def ingest(self, url: str, opts: GalleryOptions) -> dict[str, Any]:
@@ -55,7 +72,7 @@ class Pipeline:
                         cache_dir=self.data / "cache",
                         max_comments=int(crawler.get("max_comments") or 50),
                         image_dir=self.data / "images",
-                        max_images=int(crawler.get("max_images") or 5))
+                        max_images=int(crawler.get("max_images") or 6))
         self._say("crawl", "수집 중")
         rep = col.ingest(url, opts)
         if rep.stopped:
@@ -88,17 +105,17 @@ class Pipeline:
         self._say("filter", f"통과 {c['pass']}, 검토 필요 {c['review']}, 막힘 {c['block']}")
 
     def script(self, tone: str | None = None, post_ids: list[int] | None = None) -> None:
-        from .script.writer import ScriptSettings, script_pending
+        from .script.writer import script_pending
 
-        render = self.cfg.get("render") or {}
-        style = self.cfg.get("style") or {}
-        settings = ScriptSettings(style_dir=style.get("dir") or "../style",
-                                  tone=tone or str(render.get("tone") or "담백"),
-                                  speech=str(style.get("speech") or "반말"),
-                                  min_cringe_score=float(style.get("min_cringe_score") or 7))
+        settings = script_settings(self.cfg, tone)
         self._say("script", "대본 쓰는 중 (Claude)")
         c = script_pending(self.store, self.router(), settings, post_ids)
         self._say("script", f"대본 {c['scripted']}개, 실패 {c['failed']}")
+        if c.get("limited"):
+            # 기획서 3.7-8: Claude 한도 → 로컬 LLM 으로 바꿀지 묻는다 (품질이 낮아짐)
+            self.emit({"type": "confirm", "kind": "llm_limit",
+                       "message": "Claude 사용 한도에 걸렸습니다. 로컬 LLM 으로 바꾸면 대본 품질이 "
+                                  "낮아집니다. 바꿀까요, 한도가 풀릴 때까지 기다릴까요?"})
 
     def voice(self) -> None:
         from .tts.stage import voice_pending
@@ -114,7 +131,8 @@ class Pipeline:
         from .render.spec import spec_pending
 
         bg = (self.cfg.get("render") or {}).get("background_dir")
-        c = spec_pending(self.store, self.data / "jobs", Path(str(bg)) if bg else None)
+        c = spec_pending(self.store, self.data / "jobs", Path(str(bg)) if bg else None,
+                         opts=spec_options(self.cfg))
         self._say("preview", f"검수 대기 {c['ready']}개")
 
     def run_to_review(self) -> None:
@@ -144,8 +162,9 @@ class Pipeline:
 
     # --- 검수 동작 ---
     def edit_script(self, job_id: int, lines: list[dict[str, Any]]) -> None:
-        """대본 수정 → 고친 대본으로 TTS 부터 다시."""
+        """대본 수정 → 고친 대본으로 TTS 부터 다시. 세그먼트(pause 줄·TTS 켜기/끄기)는 그대로 둔다."""
         from .script.checks import check_script, load_banned
+        from .script.segments import with_pauses
 
         row = self.store.conn.execute(
             "SELECT j.post_id, s.lines, s.tone, p.body, p.comments FROM jobs j "
@@ -154,8 +173,9 @@ class Pipeline:
         if row is None:
             raise ValueError("작업을 찾지 못했습니다")
         clean = [{"part": str(ln.get("part") or "body"), "text": str(ln.get("text") or "")[:200],
-                  "comment_no": ln.get("comment_no")}
-                 for ln in lines[:40] if str(ln.get("text") or "").strip()]
+                  "comment_no": ln.get("comment_no"), "seg": ln.get("seg")}
+                 for ln in lines[:60]
+                 if str(ln.get("text") or "").strip() and ln.get("part") != "pause"]
         if not clean:
             raise ValueError("대본이 비었습니다")
         payload = json.loads(row["lines"] or "{}")
@@ -163,11 +183,42 @@ class Pipeline:
                     if isinstance(c, dict)]
         style = self.cfg.get("style") or {}
         checks = check_script(clean, row["body"], comments, load_banned(style.get("dir") or "../style"))
-        payload.update(lines=clean, warnings=checks.reasons(), est_seconds=checks.est_seconds,
+        merged = with_pauses(clean, payload.get("lines") or [])
+        segs = payload.get("segments") or []
+        for i, seg in enumerate(segs):
+            if seg.get("kind") in ("media", "body", "title"):
+                seg["lines"] = [ln["text"] for ln in merged
+                                if ln.get("seg") == i and ln.get("part") not in ("pause", "comment")]
+        payload.update(lines=merged, warnings=checks.reasons(), est_seconds=checks.est_seconds,
                        edited=True)
+        self._save_script(job_id, row, payload, checks.overlap_ratio)
+
+    def set_segment_tts(self, job_id: int, seg: int, tts: bool) -> None:
+        """검수 화면에서 세그먼트 TTS 켜기/끄기 → 줄을 다시 만들고 TTS 부터 다시."""
+        from .script.segments import flatten, media_items
+
+        row = self.store.conn.execute(
+            "SELECT j.post_id, s.lines, s.tone, s.overlap_ratio, p.images, p.comments FROM jobs j "
+            "JOIN scripts s ON s.id=j.script_id JOIN posts p ON p.id=j.post_id WHERE j.id=?",
+            (job_id,)).fetchone()
+        if row is None:
+            raise ValueError("작업을 찾지 못했습니다")
+        payload = json.loads(row["lines"] or "{}")
+        segs = payload.get("segments") or []
+        if not 0 <= seg < len(segs):
+            raise ValueError("세그먼트를 찾지 못했습니다")
+        segs[seg]["tts"] = bool(tts)
+        segs[seg]["tts_reason"] = "검수에서 " + ("켬" if tts else "끔")
+        comments = [c for c in json.loads(row["comments"] or "[]") if isinstance(c, dict)]
+        payload["lines"] = flatten(segs, comments, media_items(json.loads(row["images"] or "[]")))
+        self._save_script(job_id, row, payload, float(row["overlap_ratio"] or 0))
+        self.voice()
+        self.preview()
+        self.emit({"type": "jobs_changed"})
+
+    def _save_script(self, job_id: int, row, payload: dict[str, Any], overlap: float) -> None:
         version = self.store.next_script_version(row["post_id"])
-        sid = self.store.add_script(row["post_id"], version, row["tone"], payload,
-                                    checks.overlap_ratio, "사람")
+        sid = self.store.add_script(row["post_id"], version, row["tone"], payload, overlap, "사람")
         self.store.set_job_status(job_id, "scripted", None, script_id=sid)
 
     def regenerate(self, job_id: int, tone: str | None, preset: str | None) -> None:

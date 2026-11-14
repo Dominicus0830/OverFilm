@@ -43,3 +43,25 @@ def test_review_flow(tmp_path):
     assert c.get("/api/status").json()["today"]["approved"] == 1
     assert c.post("/api/review/999/discard").status_code == 404
     assert c.post("/api/start", json={"url": "nope"}).status_code == 400
+
+
+def test_gallery_crawl_needs_confirm(tmp_path):
+    data, _ = seed(tmp_path)
+    app = create_app(cfg={"data_dir": str(data)}, start_worker=False)
+    c = TestClient(app)
+    url = "https://gall.dcinside.com/mgallery/board/lists/?id=ex"
+    r = c.post("/api/start", json={"url": url, "max_posts": 5}).json()
+    assert r["ok"] is False and r["confirm"]["requests_max"] >= r["confirm"]["requests_min"] > 0
+    assert r["confirm"]["hour_left"] == 60 and app.state.worker.tasks.qsize() == 0
+    assert c.post("/api/start", json={"url": url, "confirm": True}).json()["ok"]
+    # 다시 묻지 않기
+    assert c.post("/api/start", json={"url": url, "remember": True}).json()["ok"]
+    assert c.post("/api/start", json={"url": url}).json()["ok"]
+    assert c.get("/api/prefs").json() == {"skip_crawl_confirm": True}
+    # 글 하나는 묻지 않는다
+    c.post("/api/prefs/reset")
+    assert c.post("/api/start", json={"url": "https://m.dcinside.com/board/ex/9"}).json()["ok"]
+    # Claude 한도 확인창
+    assert c.post("/api/llm/limit", json={"action": "wait", "remember": True}).json()["mode"] == "wait"
+    assert c.get("/api/prefs").json()["on_limit"] == "wait"
+    assert c.post("/api/llm/limit", json={"action": "nope"}).status_code == 422

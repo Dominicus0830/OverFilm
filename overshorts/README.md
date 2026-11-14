@@ -116,6 +116,22 @@ pytest                                                                # 저장 H
 없으면 CPU로 느리게 허용한다. 그림 검사는 onnxruntime DirectML 로 어느 GPU에서나 돈다.
 렌더(M4)·클로닝(M6)·`doctor`(M7)에서 반영한다.
 
+## 기획서 갱신 반영 (2026-11-15, 개정 5·6)
+
+| 바뀐 것 | 위치 |
+|---|---|
+| 프레임형 기본 프리셋: 검은 배경, 제목 15~26% 고정, 소제목 33~38%, 원문 미디어 39~66%, 노란 2~4단어 자막 67~72%, 78% 아래 비움. 원문 미디어 없으면 썰 카드형 자동 | `render/src/FrameStory.tsx`, `Story.tsx` |
+| 디시 스킨 본문 글 카드·댓글창 (닉네임 열·IP 앞자리·고닉 아이콘, 답글 └ 들여쓰기, @멘션 파란 글자, 디시콘+‘디시콘 보기’, 하나씩 쌓이고 넘치면 스크롤, 읽는 댓글 강조 테두리). 닉네임 표시 설정 original/blur/replace | `render/src/DcSkin.tsx` |
+| 세그먼트 대본: AI가 구성 A(제목→본문→댓글)/B(제목→본문), 세그먼트마다 TTS 켜기/끄기와 이유, 미디어를 어느 문장에 어떤 표시 방식(fill/crop/full/tall/scroll)으로 둘지 고름 | `core/overshorts/script/segments.py`, `models.py`, `prompts.py` |
+| 댓글은 만들지 않음: 번호로만 고르고 화면·음성은 원문 그대로. 답글은 부모와 같이, 욕설·혐오 댓글은 경고 | `segments.validate` |
+| TTS 끈 세그먼트는 무음으로 화면 시간 확보(pause 줄), 검수에서 세그먼트별 TTS 바꾸기 | `tts/assemble.py`, 패널 검수 |
+| 무음 5초 넘으면 BGM(`render.bgm_dir`) 깔기, 말할 때 −12dB 덕킹. BGM 없으면 검수 경고 | `render/spec.py`, `FrameStory.tsx` |
+| 수집: 댓글 답글 관계·닉네임·IP·고닉 아이콘·디시콘(그림 최대 8개) 저장, 본문 속 동영상(직접 받을 수 있는 mp4·webm, 최대 3개), 본문에 `[사진 N]` 자리 표시, 사진 6장 | `crawler/` |
+| 확인창: 갤러리 크롤링(예상 요청 수·남은 예산, ‘계속’), Claude 한도 → 로컬 LLM 전환/대기, 둘 다 ‘다시 묻지 않기’ | `server/app.py`, 패널 |
+
+아직 없음: 원문 미디어 분석(VLM·OCR 닉네임 흐림·장면 분할·물체 따라 크롭)은 표시 방식 이름만 받고
+크롭은 가운데 기준, 동영상 프레임 검사, Playwright 실제 댓글 캡처 모드, M9 양산(배치·변주·루프·효과음·메타데이터·썸네일·플랫폼).
+
 ## 다음
 
 - M6 클로닝(GPT-SoVITS, AMD 는 CPU), M7 OverFilm MCP·`doctor`, M8 설정 화면 전부

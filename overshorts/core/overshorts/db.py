@@ -245,7 +245,7 @@ class Store:
         if status not in JOB_STATUSES:
             raise ValueError(f"알 수 없는 작업 상태: {status}")
         cur = self.conn.execute(
-            "INSERT INTO jobs(post_id, status, error, updated_at) VALUES(?,?,?,?)",
+            "INSERT INTO jobs(post_id, status, error, preset, updated_at) VALUES(?,?,?,'auto',?)",
             (post_id, status, error, now_iso()),
         )
         self.conn.commit()

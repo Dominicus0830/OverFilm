@@ -12,6 +12,7 @@ from ..db import Store
 from ..llm import LimitReached, LlmError, Router
 from ..script.models import CATEGORY_KO, FilterAnswer
 from ..script.prompts import filter_task
+from ..script.segments import comment_label
 
 
 def decide(ans: FilterAnswer, block_categories: list[str]) -> tuple[str, list[str]]:
@@ -38,7 +39,7 @@ def filter_pending(store: Store, router: Router, block_categories: list[str],
     ).fetchall()
     counts = {"pass": 0, "review": 0, "block": 0, "failed": 0}
     for row in rows:
-        comments = [str(c.get("text", "")) for c in json.loads(row["comments"] or "[]")
+        comments = [comment_label(c) for c in json.loads(row["comments"] or "[]")
                     if isinstance(c, dict)]
         try:
             ans, model = router.ask(

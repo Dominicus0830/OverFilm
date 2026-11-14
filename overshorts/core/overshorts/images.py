@@ -249,6 +249,8 @@ def inspect_pending(store: Store, inspector: ImageInspector, image_dir: Path,
             images: list[dict[str, Any]] = json.loads(row["images"] or "[]")
             needs_review: list[str] = []
             for i, item in enumerate(images):
+                if item.get("kind", "image") != "image":
+                    continue  # 동영상 프레임 검사는 아직 (원문 미디어 분석과 함께)
                 if item.get("inspected") is not False or not item.get("local"):
                     continue
                 try:

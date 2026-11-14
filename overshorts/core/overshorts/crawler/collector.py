@@ -61,7 +61,8 @@ class Collector:
     def __init__(self, store: Store, fetcher: Fetcher, rules: RuleConfig | None = None,
                  cache_dir: str | Path | None = None, max_comments: int = 50,
                  now: Callable[[], datetime] = datetime.now,
-                 image_dir: str | Path | None = None, max_images: int = 5):
+                 image_dir: str | Path | None = None, max_images: int = 6,
+                 max_videos: int = 3, max_dccons: int = 8):
         self.store = store
         self.fetcher = fetcher
         self.rules = rules or RuleConfig()
@@ -70,6 +71,8 @@ class Collector:
         self.now = now
         self.image_dir = Path(image_dir) if image_dir else None
         self.max_images = max(0, min(int(max_images), 30))
+        self.max_videos = max(0, min(int(max_videos), 10))
+        self.max_dccons = max(0, min(int(max_dccons), 30))
 
     # --- 공개 진입점 ---
     def ingest(self, raw_url: str, options: GalleryOptions | None = None) -> IngestReport:
@@ -165,10 +168,14 @@ class Collector:
             return
         result = check_post(post.title, post.body, post.images, self.rules)
         comments: list[Comment] = []
-        images = [{"url": u, "local": None, "inspected": None} for u in post.images]
+        images = [{"kind": "image", "url": u, "local": None, "inspected": None}
+                  for u in post.images]
+        images += [{"kind": "video", "url": u, "local": None, "inspected": None}
+                   for u in post.videos]
         if result.verdict == "pass":
             if self.max_comments > 0 and post.comment_count > 0:
                 comments = self._comments(url, post, view, report)
+                self._dccons(url, post, comments, report)
             images = self._images(url, post, report)
         post_id = self.store.upsert_post(_record(url, post, comments, images))
         self.store.add_filter_result(post_id, "rule", result.verdict, result.reasons)
@@ -179,23 +186,60 @@ class Collector:
             report.blocked.append((post_no, result.reasons))
 
     def _images(self, url: DcUrl, post: Post, report: IngestReport) -> list[dict]:
-        """규칙을 통과한 글의 첨부 그림만 받는다. 검사(얼굴·선정성)는 inspect 단계가 모아서 한다."""
+        """규칙을 통과한 글의 첨부 사진·동영상만 받는다.
+
+        검사(얼굴·선정성)는 inspect 단계가 모아서 한다. 동영상은 아직 검사하지 않는다.
+        """
         out: list[dict] = []
-        for i, src in enumerate(post.images):
-            item: dict = {"url": src, "local": None, "inspected": None}
-            if self.image_dir is not None and i < self.max_images:
-                try:
-                    data = self.fetcher.get_image(src)
-                    path = self.image_dir / url.gall_id / f"{post.post_no}-{i}.img"
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_bytes(data)
-                    item.update(local=str(path), inspected=False)
-                except FetchError as err:
-                    report.errors.append(f"{post.post_no} 그림: {err}")
-                except OSError as err:
-                    report.errors.append(f"{post.post_no} 그림 저장 실패: {err}")
-            out.append(item)
+        for kind, urls, cap in (("image", post.images, self.max_images),
+                                ("video", post.videos, self.max_videos)):
+            for i, src in enumerate(urls):
+                item: dict = {"kind": kind, "url": src, "local": None, "inspected": None}
+                if self.image_dir is not None and i < cap:
+                    try:
+                        if kind == "image":
+                            data = self.fetcher.get_image(src)
+                            name = f"{post.post_no}-{i}.img"
+                        else:
+                            data = self.fetcher.get_video(src)
+                            name = f"{post.post_no}-v{i}.mp4"
+                        path = self.image_dir / url.gall_id / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(data)
+                        item.update(local=str(path), inspected=False if kind == "image" else None)
+                    except FetchError as err:
+                        what = "그림" if kind == "image" else "영상"
+                        report.errors.append(f"{post.post_no} {what}: {err}")
+                    except OSError as err:
+                        report.errors.append(f"{post.post_no} 파일 저장 실패: {err}")
+                out.append(item)
         return out
+
+    def _dccons(self, url: DcUrl, post: Post, comments: list[Comment],
+                report: IngestReport) -> None:
+        """디시콘 그림을 앞에서부터 몇 개만 받는다 (같은 디시콘은 한 번)."""
+        if self.image_dir is None:
+            return
+        got: dict[str, str] = {}
+        for c in comments:
+            if not c.dccon:
+                continue
+            src = c.dccon.get("url") or ""
+            if src in got:
+                c.dccon["local"] = got[src]
+                continue
+            if len(got) >= self.max_dccons:
+                continue
+            try:
+                data = self.fetcher.get_image(src)
+                path = self.image_dir / url.gall_id / f"{post.post_no}-con{len(got)}.img"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+                got[src] = str(path)
+                c.dccon["local"] = str(path)
+            except (FetchError, OSError) as err:
+                got[src] = ""
+                report.errors.append(f"{post.post_no} 디시콘: {err}")
 
     def _comments(self, url: DcUrl, post: Post, referer: str,
                   report: IngestReport) -> list[Comment]:
@@ -220,6 +264,7 @@ class Collector:
             except FetchError as err:
                 report.errors.append(f"{post.post_no} 댓글: {err}")
                 break
+            self._cache(f"{url.gall_id}/{post.post_no}-comments-{page}.json", resp.text)
             got, total = parse_comments(resp.text)
             out.extend(got)
             if len(out) >= self.max_comments or not got or total <= 0:

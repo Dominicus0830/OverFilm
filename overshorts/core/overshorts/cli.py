@@ -20,7 +20,7 @@ import json
 import sys
 from pathlib import Path
 
-from .config import crawl_limits, load_config, rule_config
+from .config import crawl_limits, load_config, rule_config, script_settings, spec_options
 from .crawler.budget import CrawlGuard
 from .crawler.collector import Collector, GalleryOptions
 from .crawler.fetcher import Fetcher
@@ -33,7 +33,9 @@ def _store(cfg: dict) -> tuple[Store, Path]:
     return Store(data / "overshorts.db"), data
 
 
-def build_router(cfg: dict):
+def build_router(cfg: dict, ask: bool = False):
+    """ask=True (패널): on_limit 이 ask 면 한도에서 멈추고 패널이 '전환/대기'를 묻는다.
+    CLI 는 물을 화면이 없으므로 ask 를 fallback(경고와 함께 로컬 LLM)으로 다룬다."""
     from .llm import Router
     from .llm.claude_code import ClaudeCodeClient
     from .llm.ollama import OllamaClient
@@ -50,7 +52,8 @@ def build_router(cfg: dict):
                "script": pick(str(llm.get("script") or "claude_code"))}
     clients["cringe"] = clients["script"]
     fallback = pick(str(llm.get("fallback") or "ollama"))
-    on_limit = "wait" if llm.get("on_limit") == "wait" else "fallback"
+    mode = str(llm.get("on_limit") or "ask")
+    on_limit = mode if mode in ("wait", "fallback") else ("ask" if ask else "fallback")
     return Router(clients, fallback, on_limit,
                   on_event=lambda m: print(f"경고: {m}", file=sys.stderr)), ollama
 
@@ -69,16 +72,9 @@ def _llm_stage(args, cfg: dict, store: Store) -> int:
         print(f"통과 {counts['pass']}, 검수 {counts['review']}, 막힘 {counts['block']}, "
               f"실패 {counts['failed']}")
         return 0
-    from .script.writer import ScriptSettings, script_pending
+    from .script.writer import script_pending
 
-    render = cfg.get("render") or {}
-    style = cfg.get("style") or {}
-    settings = ScriptSettings(
-        style_dir=style.get("dir") or "./style",
-        tone=args.tone or str(render.get("tone") or "담백"),
-        speech=str(style.get("speech") or "반말"),
-        min_cringe_score=float(style.get("min_cringe_score") or 7),
-    )
+    settings = script_settings(cfg, args.tone, "./style")
     try:
         counts = script_pending(store, router, settings, args.post)
     finally:
@@ -175,7 +171,8 @@ def main(argv: list[str] | None = None) -> int:
             from .render.spec import spec_pending
 
             bg = (cfg.get("render") or {}).get("background_dir")
-            counts = spec_pending(store, data / "jobs", Path(str(bg)) if bg else None)
+            counts = spec_pending(store, data / "jobs", Path(str(bg)) if bg else None,
+                                  opts=spec_options(cfg))
             print(f"미리보기 준비 {counts['ready']}개, 실패 {counts['failed']}")
             return 0
         if args.cmd == "approve":
@@ -221,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
         collector = Collector(
             store, fetcher, rule_config(cfg), cache_dir=data / "cache",
             max_comments=int(crawler.get("max_comments") or 50),
-            image_dir=data / "images", max_images=int(crawler.get("max_images") or 5),
+            image_dir=data / "images", max_images=int(crawler.get("max_images") or 6),
         )
         opts = GalleryOptions(
             recommend_only=args.recommend_only,

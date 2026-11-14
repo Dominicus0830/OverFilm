@@ -34,10 +34,12 @@ DEFAULTS: dict[str, Any] = {
         "ollama_model": "qwen3:8b",
         "ollama_host": "http://127.0.0.1:11434",
         "claude_model": "",
-        "on_limit": "fallback",
+        "on_limit": "ask",
     },
     "voice": {"narrator": "edge:ko-KR-SunHiNeural", "comment": "edge:ko-KR-InJoonNeural"},
-    "render": {"preset": "card", "tone": "담백", "background_dir": "./assets/bg"},
+    "render": {"preset": "auto", "tone": "담백", "background_dir": "./assets/bg",
+               "composition": "auto", "max_comments": 6, "max_media": 6, "nickname": "original",
+               "bgm_dir": None},
     "style": {"dir": "../style", "min_cringe_score": 7, "speech": "반말"},
     "crawler": {
         "delay_sec": [1.5, 4],
@@ -47,6 +49,7 @@ DEFAULTS: dict[str, Any] = {
         "daily_limit": 200,
         "cooldown_min": 60,
         "max_comments": 50,
+        "max_images": 6,
         "proxy": None,
     },
     "gpu_tier": "auto",
@@ -114,4 +117,30 @@ def rule_config(cfg: dict[str, Any]) -> RuleConfig:
         min_chars=int(_num(f.get("min_chars"), 80, 0, 100_000)),
         max_chars=int(_num(f.get("max_chars"), 4000, 1, 1_000_000)),
         block_words=[str(w) for w in words if isinstance(w, (str, int)) and str(w).strip()],
+    )
+
+
+def spec_options(cfg: dict[str, Any]):
+    from .render.spec import SpecOptions
+
+    r = cfg.get("render") or {}
+    bgm = r.get("bgm_dir")
+    return SpecOptions(preset=str(r.get("preset") or "auto"),
+                       nickname=str(r.get("nickname") or "original"),
+                       bgm_dir=Path(str(bgm)) if bgm else None)
+
+
+def script_settings(cfg: dict[str, Any], tone: str | None = None, default_style: str = "../style"):
+    from .script.writer import ScriptSettings
+
+    render = cfg.get("render") or {}
+    style = cfg.get("style") or {}
+    return ScriptSettings(
+        style_dir=style.get("dir") or default_style,
+        tone=tone or str(render.get("tone") or "담백"),
+        speech=str(style.get("speech") or "반말"),
+        min_cringe_score=float(style.get("min_cringe_score") or 7),
+        composition=str(render.get("composition") or "auto"),
+        max_comments=max(1, min(int(render.get("max_comments") or 6), 10)),
+        max_media=max(1, min(int(render.get("max_media") or 6), 6)),
     )

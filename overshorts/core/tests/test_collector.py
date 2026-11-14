@@ -49,7 +49,7 @@ def test_gallery_filters_by_list_before_fetching_bodies():
     assert len(rep.saved) == 1 and rep.stopped is None
     row = store.conn.execute("SELECT * FROM posts").fetchone()
     assert row["upvotes"] == 31
-    assert [c["no"] for c in json.loads(row["comments"])] == [5000001, 5000003, 5000005]
+    assert [c["no"] for c in json.loads(row["comments"])] == [5000001, 5000002, 5000003, 5000005]
     assert store.conn.execute("SELECT status FROM jobs").fetchone()["status"] == "crawled"
     # 다시 돌려도 이미 받은 글은 다시 안 받는다
     dc.calls.clear()
@@ -112,7 +112,7 @@ def test_images_downloaded_with_referer(tmp_path):
     dc = FakeDc()
 
     def transport(method, url, headers, form):
-        if "viewimage.php" in url:
+        if "viewimage.php" in url or "dccon.php" in url:
             seen["referer"] = headers.get("Referer")
             return Response(200, "", url, jpeg, "application/octet-stream")
         return dc(method, url, headers, form)
@@ -125,3 +125,6 @@ def test_images_downloaded_with_referer(tmp_path):
     assert seen["referer"] == "https://gall.dcinside.com/"
     item = json.loads(store.conn.execute("SELECT images FROM posts").fetchone()["images"])[0]
     assert item["inspected"] is False and Path(item["local"]).read_bytes() == jpeg
+    assert item["kind"] == "image"
+    con = json.loads(store.conn.execute("SELECT comments FROM posts").fetchone()["comments"])[1]
+    assert con["dccon"]["local"] and Path(con["dccon"]["local"]).read_bytes() == jpeg

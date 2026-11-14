@@ -24,6 +24,7 @@ def test_post_body_and_meta():
         "500힐밖에 못 줬다고 뭐라 하는 사람도 나올 듯.",
         "그래도 숫자로 보이면 서로 덜 싸울 것 같음.",
         "지난 시즌에도 비슷한 얘기가 나왔는데 결국 흐지부지됐었다.",
+        "[사진 1]",  # 본문 속 그림 자리
     ]
     assert p.images == ["https://dcimg8.dcinside.co.kr/viewimage.php?id=example&no=abc"]
     assert (p.upvotes, p.views, p.comment_count) == (31, 1192, 13)
@@ -36,12 +37,16 @@ def test_deleted_post():
     assert parse_post(fixture("deleted_view.html"), "example", 1).deleted
 
 
-def test_comments_drop_dccon_bot_deleted():
+def test_comments_keep_dccon_drop_bot_deleted():
     comments, total = parse_comments(fixture("comments.json"))
     assert total == 6
-    assert [c.no for c in comments] == [5000001, 5000003, 5000005]
-    assert comments[1].depth == 1
-    assert comments[1].text == "그건 때마다 다르지 케어 못하는 힐러도 많음"
+    assert [c.no for c in comments] == [5000001, 5000002, 5000003, 5000005]
+    con = comments[1]
+    assert con.text == "" and con.dccon and con.dccon["url"].startswith("https://dcimg5")
+    assert con.depth == 1 and con.parent == 5000001  # c_no 가 없으면 앞 댓글
+    reply = comments[2]
+    assert reply.text == "그건 때마다 다르지\n케어 못하는 힐러도 많음"
+    assert reply.ip == "1.2" and reply.icon == "" and reply.nick == "다"
 
 
 def test_comments_bad_payload():

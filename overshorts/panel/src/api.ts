@@ -15,7 +15,7 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export type Event = {type: string; time?: string; message?: string; stage?: string; label?: string;
-  state?: string; level?: string};
+  state?: string; level?: string; kind?: string};
 
 /** WebSocket 구독. 끊기면 3초 뒤 다시 붙는다. */
 export function subscribe(onEvent: (e: Event) => void): () => void {
@@ -47,11 +47,18 @@ export type Status = {
 export type Job = {id: number; status: string; error: string | null; updated_at: string;
   title: string; post_id: number; gall_id: string; post_no: number};
 
-export type ScriptLine = {part: 'hook' | 'body' | 'comment' | 'outro'; text: string; comment_no?: number | null};
+export type ScriptLine = {part: 'hook' | 'body' | 'comment' | 'outro' | 'pause'; text: string;
+  comment_no?: number | null; seg?: number; min_total?: number};
+export type Segment = {kind: 'title' | 'media' | 'body' | 'comments'; subtitle: string; tts: boolean;
+  tts_reason: string; lines: string[]; media: {name: string; display: string; line: number}[];
+  comments: number[]; read: number[]; quote?: string};
+export type Comment = {no?: number; text: string; nick?: string; ip?: string; icon?: string; depth?: number;
+  parent?: number; dccon?: {name: string} | null};
 export type ReviewItem = {
-  job_id: number; post_id: number; title: string; body: string; comments: {text: string}[];
+  job_id: number; post_id: number; title: string; body: string; comments: Comment[]; preset: string;
   gall_name: string; post_url: string; overlap_ratio: number; tone: string; version: number;
   script: {title: string; fact: string; lines: ScriptLine[]; est_seconds: number;
+    segments?: Segment[]; composition?: 'A' | 'B'; composition_reason?: string;
     cringe: {score: number; issues: {line: number; reason: string}[]} | null; warnings: string[]};
   filters: {stage: string; verdict: string; reasons: string[]; fit_score: number | null}[];
   spec: Record<string, unknown> | null; files: string;

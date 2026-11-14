@@ -52,7 +52,7 @@ def detect_gpu() -> GpuInfo:
 def render_args(spec_path: Path, public_dir: Path, out_path: Path, encoder: str,
                 browser: str | None = None, gl: str | None = None) -> list[str]:
     npx = shutil.which("npx") or "npx"
-    args = [npx, "remotion", "render", "src/index.ts", "CardStory", str(out_path),
+    args = [npx, "remotion", "render", "src/index.ts", "Story", str(out_path),
             f"--props={spec_path}", f"--public-dir={public_dir}", "--codec=h264",
             "--crf=18" if encoder != "nvenc" else "--video-bitrate=12M"]
     args.append("--hardware-acceleration=" + ("if-possible" if encoder == "nvenc" else "disable"))

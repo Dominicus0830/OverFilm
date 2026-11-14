@@ -50,10 +50,11 @@ class VoiceTrack:
     wav: str
     duration: float
     sentences: list[TimedSentence]
+    segments: list[dict] = field(default_factory=list)  # [{"seg", "start", "end"}]
 
     def to_json(self) -> dict:
         return {"sample_rate": SAMPLE_RATE, "duration": self.duration, "wav": self.wav,
-                "sentences": [asdict(s) for s in self.sentences]}
+                "sentences": [asdict(s) for s in self.sentences], "segments": self.segments}
 
 
 def split_for_tts(text: str) -> list[str]:
@@ -104,13 +105,34 @@ def _engine_words(words: list[Word], offset: float, length: float) -> list[Timed
 def build_voice(lines: list[dict], out_dir: Path, narrator: str, comment_voice: str | None,
                 engines: dict[str, Engine] | None = None,
                 decode=decode_to_pcm) -> VoiceTrack:
-    """lines: 대본 줄 [{"part", "text"}]. out_dir 에 voice.wav, timing.json 을 쓴다."""
+    """lines: 대본 줄 [{"part", "text", "seg"}]. out_dir 에 voice.wav, timing.json 을 쓴다.
+
+    part = "pause" 줄은 소리 대신 무음을 넣어 그 세그먼트가 적어도 min_total 초 화면에 있게 한다
+    (TTS 를 끈 세그먼트, 댓글·사진을 읽을 시간).
+    """
     engines = dict(engines or {})
     pcm = bytearray()
     sentences: list[TimedSentence] = []
     gap = b"\x00\x00" * int(SAMPLE_RATE * GAP_SEC)
+    spans: dict[int, list[float]] = {}
+
+    def now() -> float:
+        return len(pcm) / 2 / SAMPLE_RATE
+
     for i, line in enumerate(lines):
         part = str(line.get("part") or "body")
+        seg_raw = line.get("seg")
+        seg = int(seg_raw) if isinstance(seg_raw, int) and 0 <= seg_raw < 100 else 0
+        span = spans.setdefault(seg, [now(), now()])
+        if part == "pause":
+            try:
+                want = float(line.get("min_total") or 0)
+            except (TypeError, ValueError):
+                want = 0.0
+            need = min(30.0, max(0.0, want - (now() - span[0])))
+            pcm.extend(b"\x00\x00" * int(SAMPLE_RATE * need))
+            span[1] = now()
+            continue
         speaker = "comment" if part == "comment" and comment_voice else "narrator"
         engine_name, voice = parse_voice(comment_voice if speaker == "comment" else narrator)
         engine = engines.get(engine_name)
@@ -137,8 +159,11 @@ def build_voice(lines: list[dict], out_dir: Path, narrator: str, comment_voice: 
                 timing = "syllable"
             sentences.append(TimedSentence(i, part, speaker, sent, round(start, 3), round(end, 3),
                                            words, timing))
-    if not sentences:
+            span[1] = now()
+    if not pcm:
         raise TtsError("읽을 문장이 없습니다")
+    if len(pcm) > SAMPLE_RATE * 2 * 600:
+        raise TtsError("음성이 10분을 넘습니다")
     out_dir.mkdir(parents=True, exist_ok=True)
     wav_path = out_dir / "voice.wav"
     with wave.open(str(wav_path), "wb") as w:
@@ -146,7 +171,9 @@ def build_voice(lines: list[dict], out_dir: Path, narrator: str, comment_voice: 
         w.setsampwidth(2)
         w.setframerate(SAMPLE_RATE)
         w.writeframes(bytes(pcm))
-    track = VoiceTrack(str(wav_path), round(len(pcm) / 2 / SAMPLE_RATE, 3), sentences)
+    seg_list = [{"seg": k, "start": round(v[0], 3), "end": round(v[1], 3)}
+                for k, v in sorted(spans.items())]
+    track = VoiceTrack(str(wav_path), round(len(pcm) / 2 / SAMPLE_RATE, 3), sentences, seg_list)
     (out_dir / "timing.json").write_text(json.dumps(track.to_json(), ensure_ascii=False, indent=1),
                                          encoding="utf-8")
     return track

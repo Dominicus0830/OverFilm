@@ -108,10 +108,22 @@ class StartIn(BaseModel):
     within_hours: float | None = Field(default=24, ge=0, le=24 * 365)
     max_posts: int = Field(default=5, ge=1, le=50)
     tone: str | None = None
+    confirm: bool = False  # 갤러리 크롤링 확인창에서 '계속'
+    remember: bool = False  # '다시 묻지 않기'
+
+
+class LimitIn(BaseModel):
+    action: str = Field(pattern="^(switch|wait)$")
+    remember: bool = False
+
+
+class SegTtsIn(BaseModel):
+    seg: int = Field(ge=0, le=20)
+    tts: bool
 
 
 class EditIn(BaseModel):
-    lines: list[dict[str, Any]] = Field(max_length=40)
+    lines: list[dict[str, Any]] = Field(max_length=80)
 
 
 class RegenIn(BaseModel):
@@ -205,6 +217,26 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
                               min_upvotes=body.min_upvotes,
                               within_hours=body.within_hours or None, max_posts=body.max_posts)
         tone = body.tone
+        if u.kind != "post":
+            # 기획서 3.7-8: 갤러리 전체 크롤링은 예상 요청 수와 남은 예산을 보여 주고 '계속'을 받는다
+            prefs = _prefs()
+            if body.remember:
+                _save_pref("skip_crawl_confirm", True)
+            elif not body.confirm and not prefs.get("skip_crawl_confirm"):
+                s = db()
+                try:
+                    st = CrawlGuard(s, crawl_limits(cfg)).status()
+                finally:
+                    s.close()
+                crawler = cfg.get("crawler") or {}
+                per_post = 2 + int(crawler.get("max_images") or 6)
+                return {"ok": False, "confirm": {
+                    "requests_min": 1 + body.max_posts * 2,
+                    "requests_max": 3 + body.max_posts * per_post,
+                    "hour_left": max(0, st["hour_limit"] - st["hour_used"]),
+                    "day_left": max(0, st["day_limit"] - st["day_used"]),
+                    "cooldown_until": st.get("cooldown_until"),
+                }}
 
         def run(p: Pipeline) -> None:
             p.ingest(body.url, opts)
@@ -216,6 +248,55 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
 
         worker.submit(f"{u.label} 수집·생성", run)
         return {"ok": True, "label": u.label}
+
+    def _prefs() -> dict[str, Any]:
+        try:
+            got = json.loads((data / "panel_prefs.json").read_text(encoding="utf-8"))
+            return got if isinstance(got, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _save_pref(key: str, value: Any) -> None:
+        prefs = _prefs()
+        prefs[key] = value
+        (data / "panel_prefs.json").write_text(json.dumps(prefs, ensure_ascii=False), encoding="utf-8")
+
+    @app.get("/api/prefs")
+    def prefs() -> dict[str, Any]:
+        return _prefs()
+
+    @app.post("/api/prefs/reset")
+    def prefs_reset() -> dict[str, Any]:
+        """'다시 묻지 않기'를 되돌린다 (설정 화면)."""
+        try:
+            (data / "panel_prefs.json").unlink()
+        except OSError:
+            pass
+        return {"ok": True}
+
+    @app.post("/api/llm/limit")
+    def llm_limit(body: LimitIn) -> dict[str, Any]:
+        """Claude 한도 확인창: 전환 = 로컬 LLM 으로 대본을 이어서 씀, 대기 = 대기열에 그대로."""
+        mode = "fallback" if body.action == "switch" else "wait"
+        if body.remember:
+            _save_pref("on_limit", mode)
+
+        def run(p: Pipeline) -> None:
+            router = p.router()
+            before = router.on_limit
+            router.on_limit = mode
+            try:
+                if mode == "fallback":
+                    p.script()
+                    p.voice()
+                    p.preview()
+            finally:
+                if not body.remember:
+                    router.on_limit = before
+
+        if mode == "fallback" or body.remember:
+            worker.submit("로컬 LLM 으로 대본 이어 쓰기" if mode == "fallback" else "한도 대기 설정", run)
+        return {"ok": True, "mode": mode}
 
     # --- 작업 큐 ---
     @app.get("/api/jobs")
@@ -320,6 +401,15 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
             p.preview()
 
         worker.submit(f"작업 {job_id} 수정 반영", run)
+        return {"ok": True}
+
+    @app.post("/api/review/{job_id}/segment-tts")
+    def segment_tts(job_id: int, body: SegTtsIn) -> dict[str, Any]:
+        """세그먼트별 TTS 켜기/끄기 (기획서 3.3 개정 6) → 음성·미리보기 다시."""
+        _job_status(job_id)
+        worker.submit(f"작업 {job_id} 세그먼트 {body.seg + 1} TTS "
+                      + ("켬" if body.tts else "끔"),
+                      lambda p: p.set_segment_tts(job_id, body.seg, body.tts))
         return {"ok": True}
 
     @app.post("/api/review/{job_id}/regenerate")

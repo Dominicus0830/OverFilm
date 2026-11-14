@@ -26,6 +26,9 @@ _MAX_COMMENT_CHARS = 2000
 _MAX_BODY_CHARS = 50_000
 
 
+MEDIA_MARK = re.compile(r"\[(사진|영상) (\d+)\]")
+
+
 @dataclass
 class ListRow:
     post_no: int
@@ -47,6 +50,7 @@ class Post:
     subject: str
     body: str
     images: list[str] = field(default_factory=list)
+    videos: list[str] = field(default_factory=list)  # 본문 속 동영상 주소 (직접 받을 수 있는 것)
     upvotes: int = 0
     views: int = 0
     comment_count: int = 0
@@ -59,9 +63,14 @@ class Post:
 @dataclass
 class Comment:
     no: int
-    text: str
+    text: str  # 디시콘만 있으면 빈 글자
     depth: int  # 0 = 댓글, 1 = 답글
     posted: str
+    parent: int = 0  # 답글이면 부모 댓글 번호
+    nick: str = ""
+    ip: str = ""  # 유동이면 IP 앞 두 자리 (DC가 뒷자리를 가려서 준다)
+    icon: str = ""  # fix = 고닉, half = 반고닉, "" = 유동
+    dccon: dict | None = None  # {"url", "name"} 디시콘 그림
 
 
 def _int(text: str | None, default: int = 0) -> int:
@@ -137,14 +146,27 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
     deleted = soup.select_one(".delet") is not None
     write = soup.select_one("div.write_div")
     images: list[str] = []
+    videos: list[str] = []
     body = ""
     if write is not None:
+        # 본문 속 자리를 [사진 N]·[영상 N] 표시로 남긴다: 대본이 어느 문장에 어떤 미디어를 둘지 고른다
         for img in write.select("img"):
             src = img.get("data-original") or img.get("src") or ""
             if src.startswith("//"):
                 src = "https:" + src
             if src.startswith("http") and src not in images:
                 images.append(src)
+                img.replace_with(f"\n[사진 {len(images)}]\n")
+        for vid in write.select("video"):
+            srcs = [vid.get("data-src") or vid.get("src") or ""]
+            srcs += [s.get("data-src") or s.get("src") or "" for s in vid.select("source")]
+            for src in srcs:
+                if src.startswith("//"):
+                    src = "https:" + src
+                if src.startswith("http") and src not in videos:
+                    videos.append(src)
+                    vid.replace_with(f"\n[영상 {len(videos)}]\n")
+                    break
         for br in write.select("br"):
             br.replace_with("\n")
         for block in write.select("p, div"):
@@ -164,6 +186,7 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
         subject=_text(soup.select_one(".title_headtext")).strip("[]"),
         body=body,
         images=images,
+        videos=videos,
         upvotes=_int(_text(soup.select_one(".up_num"))),
         views=_int(_text(soup.select_one(".gall_count"))),
         comment_count=_int(_text(soup.select_one(".gall_comment"))),
@@ -175,7 +198,10 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
 
 
 def parse_comments(payload: str) -> tuple[list[Comment], int]:
-    """댓글 JSON → (댓글, 전체 개수). 디시콘만 있는 댓글·댓글돌이·삭제된 댓글은 뺀다."""
+    """댓글 JSON → (댓글, 전체 개수). 댓글돌이·삭제된 댓글은 뺀다.
+
+    답글 관계(c_no), 닉네임·IP·고닉 아이콘, 디시콘(그림 주소·이름)까지 남긴다 (기획서 3.10).
+    """
     try:
         data = json.loads(payload or "{}")
     except (json.JSONDecodeError, TypeError):
@@ -184,22 +210,42 @@ def parse_comments(payload: str) -> tuple[list[Comment], int]:
         return [], 0
     total = _int(str(data.get("total_cnt", "0")))
     out: list[Comment] = []
+    last_root = 0
     for c in data.get("comments") or []:
         if not isinstance(c, dict):
             continue
         no = _int(str(c.get("no", "0")))
         if no <= 0 or c.get("nicktype") == "COMMENT_BOY":
             continue
+        depth = _int(str(c.get("depth", "0")))
+        if depth == 0:
+            last_root = no
         if c.get("del_yn") == "Y" or str(c.get("is_delete", "0")) != "0":
             continue
         memo = str(c.get("memo") or "")
         soup = BeautifulSoup(memo, "html.parser")
+        dccon = None
         for img in soup.select("img"):
+            src = str(img.get("src") or img.get("data-src") or "")
+            if dccon is None and "dccon" in src and src.startswith(("http", "//")):
+                name = str(img.get("conalt") or img.get("title") or img.get("alt") or "")
+                dccon = {"url": "https:" + src if src.startswith("//") else src,
+                         "name": name[:30]}
             img.decompose()
-        text = soup.get_text(" ", strip=True)[:_MAX_COMMENT_CHARS]
-        if not text:
-            continue  # 디시콘·그림만 있는 댓글
-        out.append(Comment(no, text, _int(str(c.get("depth", "0"))), str(c.get("reg_date") or "")))
+        for br in soup.select("br"):
+            br.replace_with("\n")
+        text = "\n".join(ln.strip() for ln in soup.get_text("").splitlines() if ln.strip())
+        text = text[:_MAX_COMMENT_CHARS]
+        if not text and dccon is None:
+            continue  # 그림만 있는 댓글 (디시콘이 아님)
+        parent = _int(str(c.get("c_no") or "0")) if depth > 0 else 0
+        if depth > 0 and parent <= 0:
+            parent = last_root
+        icon_html = str(c.get("gallog_icon") or "")
+        icon = "fix" if "fix_" in icon_html else ("half" if c.get("user_id") else "")
+        out.append(Comment(no, text, depth, str(c.get("reg_date") or ""), parent,
+                           str(c.get("name") or "")[:30], str(c.get("ip") or "")[:20], icon,
+                           dccon))
     return out, total
 
 
