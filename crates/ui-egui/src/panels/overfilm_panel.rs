@@ -12,7 +12,9 @@
 //! `overfilm.panel.tool.<command id>`,
 //! `overfilm.panel.kill.<n>` for each kill in the kill list (click: go there),
 //! `overfilm.panel.name.<player|hero>.<id>` and `overfilm.panel.name.<player|hero>.<id>.save` to
-//! name a player or hero read off the kill feed.
+//! name a player or hero read off the kill feed, `overfilm.panel.heroName.<id>` and `….save` for
+//! a hero on the name plates, and `overfilm.panel.preview.<plate|player|hero>.<id>` to show where
+//! it is (the part of the frame, beside its name; the playhead moves there too).
 
 use egui::{Rect, RichText, vec2};
 use serde_json::{Value, json};
@@ -247,6 +249,8 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     let (mut run, mut stop, mut settings, mut tool) = (false, false, false, None::<&'static str>);
     let (mut seek, mut name) = (None::<i64>, None::<(&'static str, u64, String)>);
     let mut hero_name = None::<(u64, String)>;
+    let mut want_preview = None::<(&'static str, u64)>;
+    let previews: Previews = ctx.data(|m| m.get_temp::<Previews>(previews_id())).unwrap_or_default();
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(10.0, 8.0))));
     let ui = &mut child;
     egui::ScrollArea::vertical().id_salt("overfilm-panel-scroll").auto_shrink([false, false]).show(ui, |ui| {
@@ -441,8 +445,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 ui.end_row();
             }
         });
-        kill_list(ui, &mut elems, &facts.kills, &mut p, &mut seek, &mut name, t);
-        lineup_list(ui, &mut elems, &facts.lineup, &mut p, &mut hero_name, t);
+        let mut look = Look { previews: &previews, want: &mut want_preview, seek: &mut seek };
+        kill_list(ui, &mut elems, &facts.kills, &mut p, &mut name, &mut look, t);
+        lineup_list(ui, &mut elems, &facts.lineup, &mut p, &mut hero_name, &mut look, t);
     });
     for (id, r, l) in elems {
         app.auto.add(&id, r, &l);
@@ -468,6 +473,10 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             }
             Err(e) => app.ui.status = plain_error(&e.to_string()),
         }
+    }
+    if let Some((kind, id)) = want_preview {
+        let templates = p["templates"].as_str().unwrap_or_default().to_string();
+        load_preview(app, &ctx, kind, id, &templates);
     }
     if let Some((id, n)) = hero_name {
         match app.session.execute("overfilm.heroes.name", json!({"id": id, "name": n})) {
@@ -499,7 +508,15 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
 
 /// The teams and players read off the screen, and the heroes on the name plates to name (the
 /// markers "OverFilm 영웅 선택/교체" use the names, and so do OverFilm Captions).
-fn lineup_list(ui: &mut egui::Ui, elems: &mut Elems, lineup: &Value, p: &mut Value, name: &mut Option<(u64, String)>, t: crate::theme::Tokens) {
+fn lineup_list(
+    ui: &mut egui::Ui,
+    elems: &mut Elems,
+    lineup: &Value,
+    p: &mut Value,
+    name: &mut Option<(u64, String)>,
+    look: &mut Look,
+    t: crate::theme::Tokens,
+) {
     let heroes = lineup["heroes"].as_array().cloned().unwrap_or_default();
     let teams: Vec<&str> = lineup["teams"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
     let players: Vec<&str> = lineup["players"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
@@ -527,14 +544,15 @@ fn lineup_list(ui: &mut egui::Ui, elems: &mut Elems, lineup: &Value, p: &mut Val
                 .color(t.text_dim)
                 .size(11.0),
         );
-        egui::Grid::new("overfilm-panel-plate-heroes-grid").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
+        egui::Grid::new("overfilm-panel-plate-heroes-grid").num_columns(5).spacing([8.0, 4.0]).show(ui, |ui| {
             for it in &heroes {
                 let id = it["id"].as_u64().unwrap_or(0);
-                ui.label(it["name"].as_str().unwrap_or_default());
+                look.show(ui, elems, "plate", id, it);
+                name_label(ui, it, t);
                 ui.label(RichText::new(it["first"].as_str().unwrap_or_default()).color(t.text_dim).size(11.0));
                 let key = format!("plate.{id}");
                 let mut v = p["names"][&key].as_str().unwrap_or_default().to_string();
-                let r = ui.add(egui::TextEdit::singleline(&mut v).hint_text(tl!("hero name")).desired_width(120.0));
+                let r = ui.add(egui::TextEdit::singleline(&mut v).hint_text(tl!("hero name")).desired_width(120.0).min_size(vec2(120.0, 0.0)));
                 elems.push((format!("{PRE}.heroName.{id}"), r.rect, v.clone()));
                 let b = ui.add_enabled(!v.trim().is_empty(), egui::Button::new(tl!("Save")));
                 elems.push((format!("{PRE}.heroName.{id}.save"), b.rect, "Save".into()));
@@ -559,8 +577,8 @@ fn kill_list(
     elems: &mut Elems,
     kills: &Value,
     p: &mut Value,
-    seek: &mut Option<i64>,
     name: &mut Option<(&'static str, u64, String)>,
+    look: &mut Look,
     t: crate::theme::Tokens,
 ) {
     let Some(list) = kills["kills"].as_array().filter(|l| !l.is_empty()) else { return };
@@ -580,7 +598,7 @@ fn kill_list(
                 r = r.on_hover_text(c);
             }
             if r.clicked() {
-                *seek = k["time"].as_i64();
+                *look.seek = k["time"].as_i64();
             }
         }
     });
@@ -591,20 +609,20 @@ fn kill_list(
     }
     egui::CollapsingHeader::new(tl!("Name players and heroes")).id_salt("overfilm-panel-names").show(ui, |ui| {
         ui.label(
-            RichText::new(tl!("Click a kill to see it, then type the name. OverFilm knows the name or picture again in later videos."))
+            RichText::new(tl!("See each one (or click a kill), then type the name. OverFilm knows the name or picture again in later videos. A hero named here or on the name plates is named in both; players are named from the plates' text."))
                 .color(t.text_dim)
                 .size(11.0),
         );
         for (kind, items) in [("player", &players), ("hero", &heroes)] {
-            egui::Grid::new(format!("overfilm-panel-names-{kind}")).num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
+            egui::Grid::new(format!("overfilm-panel-names-{kind}")).num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
                 for it in items {
                     let id = it["id"].as_u64().unwrap_or(0);
-                    let shown = it["name"].as_str().unwrap_or_default();
-                    ui.label(shown);
+                    look.show(ui, elems, if kind == "player" { "player" } else { "hero" }, id, it);
+                    name_label(ui, it, t);
                     let key = format!("{kind}.{id}");
                     let mut v = p["names"][&key].as_str().unwrap_or_default().to_string();
                     let hint = if kind == "player" { tl!("player name") } else { tl!("hero name") };
-                    let r = ui.add(egui::TextEdit::singleline(&mut v).hint_text(hint).desired_width(140.0));
+                    let r = ui.add(egui::TextEdit::singleline(&mut v).hint_text(hint).desired_width(140.0).min_size(vec2(140.0, 0.0)));
                     elems.push((format!("{PRE}.name.{key}"), r.rect, v.clone()));
                     let b = ui.add_enabled(!v.trim().is_empty(), egui::Button::new(tl!("Save")));
                     elems.push((format!("{PRE}.name.{key}.save"), b.rect, "Save".into()));
@@ -621,6 +639,98 @@ fn kill_list(
             });
         }
     });
+}
+
+/// Pictures of what is being named, by "kind.id@time" (the time tells a new scan's from an old
+/// one's).
+type Previews = Vec<(String, egui::TextureHandle)>;
+
+fn previews_id() -> egui::Id {
+    egui::Id::unique("overfilm-panel-previews")
+}
+
+/// Most pictures kept.
+const MAX_PREVIEWS: usize = 64;
+
+fn preview_key(kind: &str, id: u64, it: &Value) -> String {
+    format!("{kind}.{id}@{}", it["preview"]["time"].as_i64().unwrap_or(-1))
+}
+
+/// The previews shown so far and the one asked for, and a time to move the playhead to.
+struct Look<'a> {
+    previews: &'a Previews,
+    want: &'a mut Option<(&'static str, u64)>,
+    seek: &'a mut Option<i64>,
+}
+
+impl Look<'_> {
+    /// The picture of `it` when it was looked at, else a button to look at it.
+    fn show(&mut self, ui: &mut egui::Ui, elems: &mut Elems, kind: &'static str, id: u64, it: &Value) {
+        let key = preview_key(kind, id, it);
+        let aid = format!("{PRE}.preview.{kind}.{id}");
+        match self.previews.iter().find(|(k, _)| *k == key) {
+            Some((_, tex)) => {
+                let size = tex.size_vec2();
+                let h = if kind == "plate" { 56.0 } else { 36.0 };
+                let w = (size.x * h / size.y.max(1.0)).min(220.0);
+                let r = ui.add(egui::Image::new((tex.id(), vec2(w, h))).sense(egui::Sense::click())).on_hover_text(tl!("Click to go there"));
+                elems.push((aid, r.rect, "preview".into()));
+                if r.clicked() {
+                    *self.want = Some((kind, id));
+                }
+            }
+            None => {
+                let r =
+                    ui.add_enabled(!it["preview"].is_null(), egui::Button::new(tl!("See it"))).on_hover_text(tl!("Show it here and move the playhead there"));
+                elems.push((aid, r.rect, "See it".into()));
+                if r.clicked() {
+                    *self.want = Some((kind, id));
+                }
+            }
+        }
+    }
+}
+
+/// The name, marked when it was taken from the other reading rather than typed.
+fn name_label(ui: &mut egui::Ui, it: &Value, t: crate::theme::Tokens) {
+    let shown = it["name"].as_str().unwrap_or_default();
+    if it["auto"].as_bool().unwrap_or(false) {
+        ui.label(RichText::new(tlf!("{name} (auto)", name = shown)).color(t.text_dim))
+            .on_hover_text(tl!("Taken from the name plates or the kill feed. Type a name to correct it."));
+    } else {
+        ui.label(shown);
+    }
+}
+
+/// Cut the picture of `kind` `id` out of its frame, keep it for the list and move the playhead
+/// there.
+fn load_preview(app: &mut FilmcraftApp, ctx: &egui::Context, kind: &'static str, id: u64, templates: &str) {
+    let Some(k) = filmcraft_engine::overfilm_names::Kind::parse(kind) else { return };
+    let params = if templates.is_empty() { json!({"kind": kind, "id": id}) } else { json!({"kind": kind, "id": id, "templates": templates}) };
+    let templates = match app.session.execute("overfilm.names.preview", params) {
+        Ok(v) => v["templates"].as_str().unwrap_or_default().to_string(),
+        Err(e) => {
+            app.ui.status = plain_error(&e.to_string());
+            return;
+        }
+    };
+    match filmcraft_engine::overfilm_names::preview_image(&app.session, k, id as usize, &templates) {
+        Ok((px, w, h, time)) => {
+            let key = format!("{kind}.{id}@{}", time.0);
+            let tex = ctx.load_texture(format!("overfilm-preview-{key}"), egui::ColorImage::from_rgba_unmultiplied([w, h], &px), egui::TextureOptions::LINEAR);
+            let mut list: Previews = ctx.data(|m| m.get_temp::<Previews>(previews_id())).unwrap_or_default();
+            list.retain(|(k, _)| *k != key);
+            if list.len() >= MAX_PREVIEWS {
+                drop(list.remove(0));
+            }
+            list.push((key, tex));
+            ctx.data_mut(|m| m.insert_temp(previews_id(), list));
+            if let Err(e) = app.session.execute("playhead.set", json!({"time": time.0})) {
+                app.ui.status = plain_error(&e.to_string());
+            }
+        }
+        Err(e) => app.ui.status = plain_error(&e.to_string()),
+    }
 }
 
 #[cfg(test)]

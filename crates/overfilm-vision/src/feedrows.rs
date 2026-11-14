@@ -546,6 +546,9 @@ pub struct Cluster {
     pub sig: Sig,
     /// The name the user gave it, if any.
     pub label: Option<String>,
+    /// The label was not given by the user but taken from the name plates
+    /// ([`crate::link::fill_names`]).
+    pub auto: bool,
     pub seen: u32,
     /// A player's team colour (a player stays on one side of the feed).
     pub side: Option<Side>,
@@ -597,7 +600,7 @@ fn assign_player(list: &mut Vec<Cluster>, readings: &[FeedSide], names: &FeedNam
                 return None;
             }
             let label = readings.iter().find_map(|s| names.lookup(false, &s.name));
-            list.push(Cluster { sig: first.name.clone(), label, seen: 1, side: Some(first.side), hero: first.hero.clone(), more: Vec::new() });
+            list.push(Cluster { sig: first.name.clone(), label, auto: false, seen: 1, side: Some(first.side), hero: first.hero.clone(), more: Vec::new() });
             list.len() - 1
         }
     };
@@ -623,7 +626,7 @@ fn assign(list: &mut Vec<Cluster>, sig: &Sig, hero: bool, names: &FeedNames) -> 
     if list.len() >= MAX_CLUSTERS {
         return None;
     }
-    list.push(Cluster { sig: sig.clone(), label: names.lookup(hero, sig), seen: 1, side: None, hero: None, more: Vec::new() });
+    list.push(Cluster { sig: sig.clone(), label: names.lookup(hero, sig), auto: false, seen: 1, side: None, hero: None, more: Vec::new() });
     Some(list.len() - 1)
 }
 
@@ -644,6 +647,12 @@ pub struct FeedEvent {
     pub victim: Who,
     /// The row had an ultimate icon.
     pub ult: bool,
+    /// The last sample that showed the row, and where it was then (its centre, as a share of the
+    /// feed rectangle's height): where to look at the kill again.
+    #[serde(default)]
+    pub seen: i64,
+    #[serde(default)]
+    pub y: f32,
 }
 
 /// How far a row's box edges may move between two samples of it on average, in row heights
@@ -931,7 +940,7 @@ impl FeedReader {
             None => {
                 let killer = self.who(&f.killers);
                 let Some(victim) = self.who(&f.victims) else { return };
-                self.events.push(FeedEvent { at: f.first, killer, victim, ult: f.ult });
+                self.events.push(FeedEvent { at: f.first, killer, victim, ult: f.ult, seen: f.seen, y: f.row.y });
                 self.events.len() - 1
             }
         };

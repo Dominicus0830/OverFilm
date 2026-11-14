@@ -30,6 +30,10 @@
 //!   syllables or more allow one more jamo edit (`홈런보` → `홈런볼` would anyway; `우텐` is two
 //!   syllables and still needs `선수` after it). It is a soft preference: every other name is
 //!   corrected exactly as without it, since a hero nobody plays can still be talked about.
+//! - With [`Corrector::fuzzy`], a name of three syllables or more from the name tables written
+//!   with other spacing is written as the glossary spells it, when the word ends there or only a
+//!   particle follows: `홈런 볼이` → `홈런볼이` (a player's name is one word), `오투블래스트` →
+//!   `오투 블래스트`. Long transcripts drift in how they space names; the glossary decides.
 
 use std::collections::HashMap;
 
@@ -148,6 +152,42 @@ impl Preferred {
     }
 }
 
+/// What may follow a name in the same word (particles), for [`Corrector::respaced`].
+const WORD_ENDS: [&str; 32] = [
+    "이",
+    "가",
+    "은",
+    "는",
+    "을",
+    "를",
+    "의",
+    "에",
+    "도",
+    "만",
+    "와",
+    "과",
+    "랑",
+    "로",
+    "으로",
+    "이랑",
+    "하고",
+    "에게",
+    "한테",
+    "께서",
+    "까지",
+    "부터",
+    "처럼",
+    "만큼",
+    "보다",
+    "에서",
+    "이가",
+    "이는",
+    "이도",
+    "이를",
+    "이의",
+    "이에요",
+];
+
 /// Words after a name that say it is a person (`베키 선수`, `러쉬 감독님`).
 const TITLES: [&str; 4] = ["선수", "감독", "코치", "단장"];
 
@@ -171,6 +211,9 @@ pub struct Corrector {
     /// Words of multi-word spellings (`제트팩` of `제트팩 캣`): left alone only as a whole word
     /// (with a particle), so `제트팩켓` can still become `제트팩 캣`.
     parts: std::collections::HashSet<String>,
+    /// Names of three syllables or more by their syllables without spaces, for respacing:
+    /// (syllables, spelling), longest first.
+    spaced: Vec<(Vec<char>, String)>,
     /// Also apply [`crate::ko::tidy`] (Korean spelling and spacing).
     korean: bool,
     /// Also apply [`crate::digits::write_digits`] (spoken numbers before counters as digits).
@@ -314,13 +357,47 @@ impl Corrector {
                     self.parts.extend(s.split_whitespace().filter(|p| !self.known.contains(*p)).map(String::from));
                 }
                 let person = e.category == "players";
+                if name_table && chars.len() >= 3 && !e.has_flag("noeval") && !self.spaced.iter().any(|(c, _)| *c == chars) {
+                    self.spaced.push((chars.clone(), s.clone()));
+                }
                 if name_table && (chars.len() >= 3 || (person && chars.len() == 2)) && !e.has_flag("noeval") && !e.has_flag("verify") {
                     let loose = jamo_with(&chars, true).unwrap_or_default();
                     self.names.push(Name { spelling: s.clone(), syllables: chars.len(), jamo: j, person, loose, preferred: false });
                 }
             }
         }
+        self.spaced.sort_by_key(|(c, _)| std::cmp::Reverse(c.len()));
         self
+    }
+
+    /// A name written with other spacing than the glossary's at the start of `rest` (see the
+    /// module docs): (characters consumed, spelling).
+    fn respaced<'a>(&'a self, rest: &[char]) -> Option<(usize, &'a str)> {
+        let first = *rest.first()?;
+        for (name, spelling) in self.spaced.iter().filter(|(c, _)| c.first() == Some(&first)) {
+            // the name's syllables with at most one space between any two
+            let mut i = 0;
+            let mut ok = true;
+            for (k, c) in name.iter().enumerate() {
+                if k > 0 && rest.get(i).is_some_and(|x| *x == ' ') {
+                    i += 1;
+                }
+                if rest.get(i) != Some(c) {
+                    ok = false;
+                    break;
+                }
+                i += 1;
+            }
+            if !ok || rest.get(..i).is_some_and(|w| w.iter().copied().eq(spelling.chars())) {
+                continue;
+            }
+            // the word ends here, or a particle ends it
+            let tail: String = rest.iter().skip(i).take_while(|c| is_syllable(**c)).collect();
+            if tail.is_empty() || WORD_ENDS.contains(&tail.as_str()) {
+                return Some((i, spelling.as_str()));
+            }
+        }
+        None
     }
 
     /// The best fuzzy match for the word starting at `rest`: (characters consumed, spelling).
@@ -433,6 +510,7 @@ impl Corrector {
             });
             let hit = rule
                 .map(|r| (r.from.len(), r.to.as_str()))
+                .or_else(|| if word_start { self.respaced(rest) } else { None })
                 .or_else(|| if word_start && !(self.names.is_empty() && preferred.is_empty()) { self.fuzzy_match(rest, preferred) } else { None });
             let hit = hit.filter(|(len, to)| rest.iter().take(*len).copied().ne(to.chars()));
             match hit {
@@ -591,6 +669,33 @@ mod preferred_tests {
         // a hero nobody plays is corrected as usual (soft prior), and known words stay
         assert_eq!(c.apply_preferring("모이아로 바꿔야", &p).text, "모이라로 바꿔야");
         assert_eq!(c.apply_preferring("마우가 트레이서", &p).text, "마우가 트레이서");
+    }
+
+    #[test]
+    fn names_keep_the_glossary_spacing() {
+        let g = glossary();
+        let c = Corrector::new(&g).fuzzy(&g);
+        // a player's name is one word, however the transcript spaced it
+        assert_eq!(c.apply("홈런 볼이 들어갑니다").text, "홈런볼이 들어갑니다");
+        assert_eq!(c.apply("홈런 볼 선수 홈런 볼").text, "홈런볼 선수 홈런볼");
+        assert_eq!(c.apply("오투블래스트가 이겼다").text, "오투 블래스트가 이겼다");
+        assert_eq!(c.apply("트레 이서를 꺼냅니다").text, "트레이서를 꺼냅니다");
+        // left alone: already spelt so, or more of a word follows
+        assert_eq!(c.apply("홈런볼 오투 블래스트").replaced, 0);
+        assert_eq!(c.apply("홈런 볼링장").text, "홈런 볼링장");
+        assert_eq!(c.apply("트레이 서버").text, "트레이 서버");
+    }
+
+    #[test]
+    fn wutian_misheard() {
+        let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../packs/overwatch/ko/glossary"));
+        let mut g = Glossary::default();
+        for t in ["players", "heroes", "teams"] {
+            g.add_table(t, &std::fs::read_to_string(dir.join(format!("{t}.tsv"))).unwrap()).unwrap();
+        }
+        let c = Corrector::new(&g).fuzzy(&g);
+        assert_eq!(c.apply("우티언이 들어가고 우티안 트레이서").text, "우톈이 들어가고 우톈 트레이서");
+        assert_eq!(c.apply("홈런 볼 선수가 우 톈한테").text, "홈런볼 선수가 우톈한테");
     }
 
     #[test]
