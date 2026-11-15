@@ -87,6 +87,8 @@ def choose_encoder(setting: str, gpu: GpuInfo) -> str:
 
 def render_job(spec_path: Path, out_path: Path, encoder: str, browser: str | None = None,
                timeout: float = 1800) -> tuple[bool, str]:
+    # node 는 render 폴더에서 돌므로 경로는 모두 절대 경로로 (설치본은 data_dir 가 ./data 상대 경로)
+    spec_path, out_path = Path(spec_path).resolve(), Path(out_path).resolve()
     if not REMOTION_CLI.is_file():
         return False, f"렌더 모듈이 없습니다. render 폴더에서 npm install 을 먼저 하세요 ({RENDER_DIR})"
     if not shutil.which("node"):

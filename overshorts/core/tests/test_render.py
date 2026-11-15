@@ -141,3 +141,26 @@ def test_render_calls_remotion_cli_with_node():
     args = render_args(Path("s.json"), Path("p"), Path("o.mp4"), "cpu")
     if runner.REMOTION_CLI.is_file() and __import__("shutil").which("node"):
         assert args[1].endswith("remotion-cli.js") and args[2] == "render"
+
+
+def test_render_job_passes_absolute_paths(tmp_path, monkeypatch):
+    import os
+    import subprocess
+    from pathlib import Path
+
+    from overshorts.render import runner
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runner, "REMOTION_CLI", tmp_path / "cli.js")
+    (tmp_path / "cli.js").write_text("", encoding="utf-8")
+    monkeypatch.setattr(runner.shutil, "which", lambda name: "/usr/bin/" + name)
+    seen = {}
+
+    def fake_run(args, **kw):
+        seen["args"] = args
+        return subprocess.CompletedProcess(args, 1, b"", b"")
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    runner.render_job(Path("data/jobs/1/spec.json"), Path("data/approved/o.mp4"), "cpu")
+    props = next(a for a in seen["args"] if a.startswith("--props="))
+    public = next(a for a in seen["args"] if a.startswith("--public-dir="))
+    assert os.path.isabs(props.split("=", 1)[1]) and os.path.isabs(public.split("=", 1)[1])
+    assert any(os.path.isabs(a) and a.endswith("o.mp4") for a in seen["args"])
