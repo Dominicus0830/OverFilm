@@ -247,7 +247,7 @@ def _px(value: str) -> int:
         return 0
     if m.group(2) == "pt":
         n = n * 4 / 3
-    return int(round(n)) if 6 <= n <= 200 else 0
+    return round(n) if 6 <= n <= 200 else 0
 
 
 def _font_name(value: str) -> str:
