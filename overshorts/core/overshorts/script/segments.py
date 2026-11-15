@@ -146,7 +146,8 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
         if seg.kind == "body" and not s["lines"]:
             continue
         if seg.kind == "reaction":
-            image, warn = fix_reaction(seg.image, seg.say, source, memes or [])
+            image, warn = fix_reaction(seg.image, seg.say, source, memes or [],
+                                       media_names=[m["name"] for m in media])
             warnings += warn
             s["image"], s["say"], s["say_style"] = image, seg.say.strip()[:40], seg.say_style
             s["lines"] = [s["say"]] if s["say"] else []
@@ -181,7 +182,9 @@ def display_seconds(seg: dict[str, Any], comments: list[dict[str, Any]],
     if kind == "body":
         return min(8.0, sum(_est_read(t) for t in seg.get("lines") or []) or 3.0)
     if kind == "reaction":
-        return max(2.0, min(5.0, _est_read(str(seg.get("say") or "")) + 0.8))
+        # 짤을 보고 자막을 읽고 웃을 시간 (2026-11-15 사용자: 유지 시간이 짧음)
+        n = len(re.sub(r"\s", "", str(seg.get("say") or "")))
+        return max(2.8, min(5.0, n / 10 + 2.0))
     if kind == "comments":
         total = sum(_est_read(comment_label(comments[n])) for n in seg.get("comments") or []
                     if 0 <= n < len(comments))

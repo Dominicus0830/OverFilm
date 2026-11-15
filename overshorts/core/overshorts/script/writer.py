@@ -80,6 +80,7 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
         problems: list[str] = []
         title_issues = check_title(script.title) + check_script_game(
             script.title, [ln["text"] for ln in spoken if ln["part"] != "comment"], source, posted_at)
+        title_issues += missing_lines(body, segs)
         if checks.needs_rewrite or title_issues:
             problems += checks.reasons() + title_issues
         elif settings.cringe_check and spoken:
@@ -93,7 +94,7 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
             if settings.assets_dir is not None:
                 warnings += resolve_segments(segs, style_dir=settings.style_dir,
                                              cache=Path(settings.assets_dir), router=router,
-                                             context=f"{title}\n{body[:1000]}")
+                                             context=f"{title}\n{body[:1000]}", media=media)
             if cringe is not None and cringe.score < settings.min_cringe_score:
                 warnings.append(f"오글 점수 {cringe.score:.1f} 로 기준 미만")
             return ScriptOutcome(script, segs, lines, checks, cringe, model, rewrites, warnings)
@@ -146,6 +147,27 @@ def script_pending(store: Store, router: Router, settings: ScriptSettings,
         counts["scripted"] += 1
         counts["warned"] += 1 if out.warnings else 0
     return counts
+
+
+def missing_lines(body: str, segs: list[dict]) -> list[str]:
+    """짧은 뻘글이면 본문 줄마다 짤 장면이 있어야 한다 (줄을 빼먹으면 정보 전달이 안 됨)."""
+    from difflib import SequenceMatcher
+
+    from .prompts import is_short_post
+
+    if not is_short_post(body):
+        return []
+    says = [str(sg.get("say") or "") for sg in segs if sg.get("kind") == "reaction"]
+    if not says:
+        return []  # 짤 장면 구성을 고르지 않았으면 (나레이션 구성) 줄 검사는 하지 않는다
+    key = lambda t: re.sub(r"[^가-힣a-zA-Z0-9]", "", t)  # noqa: E731
+    out = []
+    lines = [ln.strip() for ln in body.splitlines()
+             if ln.strip() and not re.fullmatch(r"\[(?:사진|영상) \d+\]", ln.strip())]
+    for i, ln in enumerate(lines[:8]):
+        if not any(SequenceMatcher(None, key(ln), key(sy)).ratio() >= 0.55 for sy in says):
+            out.append(f"본문 {i + 1}번째 줄 '{ln[:20]}' 의 짤 장면이 빠졌습니다 (줄마다 하나씩, 순서대로)")
+    return out
 
 
 def check_title(title: str) -> list[str]:

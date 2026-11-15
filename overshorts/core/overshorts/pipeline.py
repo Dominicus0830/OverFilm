@@ -131,8 +131,10 @@ class Pipeline:
         from .render.spec import spec_pending
 
         bg = (self.cfg.get("render") or {}).get("background_dir")
-        c = spec_pending(self.store, self.data / "jobs", Path(str(bg)) if bg else None,
-                         opts=spec_options(self.cfg))
+        opts = spec_options(self.cfg)
+        if isinstance(self.prefs().get("show_source"), bool):
+            opts.show_source = self.prefs()["show_source"]
+        c = spec_pending(self.store, self.data / "jobs", Path(str(bg)) if bg else None, opts=opts)
         self._say("preview", f"검수 대기 {c['ready']}개")
 
     def run_to_review(self) -> None:
@@ -216,6 +218,26 @@ class Pipeline:
         self.preview()
         self.emit({"type": "jobs_changed"})
 
+    def set_show_source(self, show: bool) -> int:
+        """출처 표시 켜기/끄기: 설정에 남기고, 이미 만든 미리보기(spec.json)도 바로 바꾼다."""
+        self.save_pref("show_source", bool(show))
+        n = 0
+        for row in self.store.conn.execute(
+                "SELECT spec_path FROM jobs WHERE spec_path IS NOT NULL AND status IN "
+                "('preview_ready','approved')").fetchall():
+            path = Path(str(row["spec_path"]))
+            try:
+                spec = json.loads(path.read_text(encoding="utf-8"))
+                text = str(spec.get("source_text") or spec.get("source") or "")
+                spec["source_text"] = text
+                spec["source"] = text if show else ""
+                path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+                n += 1
+            except (OSError, json.JSONDecodeError, AttributeError):
+                continue
+        self.emit({"type": "jobs_changed"})
+        return n
+
     def _seg_row(self, job_id: int):
         row = self.store.conn.execute(
             "SELECT j.post_id, s.lines, s.tone, s.overlap_ratio, p.images, p.comments, p.title, p.body "
@@ -233,10 +255,13 @@ class Pipeline:
         payload = json.loads(row["lines"] or "{}")
         segs = payload.get("segments") or []
         say = (say or "").strip()[:40]
+        from .script.segments import media_items
+
+        media = media_items(json.loads(row["images"] or "[]"))
         kind_name = parse_image(image)
         if kind_name is None and not say:
             raise ValueError("그림이나 자막 중 하나는 있어야 합니다")
-        img = {"hero": "영웅", "meme": "짤", "search": "검색"}[kind_name[0]] + ":" + kind_name[1] \
+        img = {"post": "원문", "hero": "영웅", "meme": "짤", "search": "검색"}[kind_name[0]] + ":" + kind_name[1] \
             if kind_name else ""
         seg = {"kind": "reaction", "subtitle": "", "tts": False, "tts_reason": "검수에서 넣은 짤",
                "lines": [say] if say else [], "media": [], "comments": [], "read": [], "quote": "",
@@ -245,7 +270,7 @@ class Pipeline:
         settings = script_settings(self.cfg)
         warn = resolve_segments([seg], style_dir=settings.style_dir, cache=Path(settings.assets_dir or
                                 self.data / "assets"), router=self.router(),
-                                context=f"{row['title']}\n{str(row['body'])[:1000]}")
+                                context=f"{row['title']}\n{str(row['body'])[:1000]}", media=media)
         if warn:
             self._say("script", warn[0])
         segs.insert(max(0, min(after + 1, len(segs))), seg)

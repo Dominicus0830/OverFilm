@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -74,6 +75,13 @@ def filter_task(title: str, body: str, comments: list[str], block_categories: li
     return Task("filter", system, _post_block(title, body, comments))
 
 
+def is_short_post(body: str) -> bool:
+    """짧은 뻘글: [사진 N] 표시를 빼고 300자 이하, 10줄 이하."""
+    text = "\n".join(ln for ln in (body or "").splitlines()
+                     if ln.strip() and not re.fullmatch(r"\s*\[(?:사진|영상) \d+\]\s*", ln))
+    return len(re.sub(r"\s", "", text)) <= 300 and len(text.splitlines()) <= 10
+
+
 def script_task(title: str, body: str, comments: list[dict], media: list[dict], style: Style,
                 tone: str, speech: str, banned_words: list[str], chars_per_sec: float,
                 feedback: list[str] | None = None, composition: str = "auto",
@@ -116,6 +124,10 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
         "쓰지 말 것: 여러분·인사·'알아볼게요', 충격·실화냐·소름·경악, '과연 그 결과는?' 같은 떡밥 질문, "
         "'~했다고 합니다' 반복, ㅋㅋㅋ·ㄹㅇ 남발, ~노 같은 정치색 커뮤 어미, 훈계·교훈, 구독·좋아요 요청.",
     ]
+    if is_short_post(body):
+        parts.append("이 글은 짧은 뻘글이다(본문 몇 줄). 짤 장면 구성으로 짠다: title(원제, 글 머리) → 본문 줄마다 "
+                     "reaction 하나(그 줄 그대로 say + 어울리는 그림 + say_style) → 필요하면 comments. "
+                     "모든 세그먼트 tts=false. 본문을 나레이션으로 풀어 읽지 않는다.")
     if banned_words:
         parts.append("사용자 금지 표현(나레이션): " + ", ".join(banned_words[:100]))
     if style.guide.strip():

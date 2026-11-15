@@ -99,6 +99,7 @@ class SpecOptions:
     nickname: str = "original"  # original | blur | replace
     bgm_dir: Path | None = None
     body: str = ""
+    show_source: bool = True  # 아래 '출처: …' 표시 (검수 화면에서 켜기/끄기)
 
 
 def caption_chunks(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -287,10 +288,10 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
             out["say_style"] = style if style in SAY_STYLES else "calm"
         if out["kind"] == "reaction" and not seg.get("tts") and out["say"].strip():
             # 짤 장면 대사는 소리 없이 자막으로 (다른 장면의 나레이션 줄은 TTS 를 켤 때만 자막이 된다)
-            # 대사는 한 덩어리로 (스타일 자막)
-            silent.append({"start": round(start + 0.1, 3), "end": round(end, 3), "seg": i,
+            # 대사는 한 덩어리로, 짤과 같은 순간에 떴다가 같은 순간에 사라진다 (스타일 자막)
+            silent.append({"start": round(start, 3), "end": round(end, 3), "seg": i,
                            "style": out["say_style"],
-                           "words": [{"text": out["say"], "start": round(start + 0.1, 3), "end": round(end, 3)}]})
+                           "words": [{"text": out["say"], "start": round(start, 3), "end": round(end, 3)}]})
         segments.append(out)
     has_media = any(sg["media"] or sg.get("image") for sg in segments)
     preset = opts.preset if opts.preset in ("frame", "card") else ("frame" if has_media else "card")
@@ -436,7 +437,8 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
                 bg_name = "bg" + bg.suffix.lower()
                 shutil.copyfile(bg, public / bg_name)
             gall = row["gall_name"] or f"{row['gall_id']} 갤러리"
-            source = f"출처: DC인사이드 {gall}"
+            source_text = f"출처: DC인사이드 {gall}"
+            source = source_text if opts.show_source else ""
             # 검수에서 프리셋을 바꿨으면(재생성) 그 작업만 그 프리셋
             preset = row["preset"] if row["preset"] in ("frame", "card") else opts.preset
             if script.get("segments"):
@@ -446,10 +448,12 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
                         "author": json.loads(row["author"] or "{}"), "posted_at": row["posted_at"]}
                 spec = build_frame_spec(timing, script, post, public, source, bg_name,
                                         SpecOptions(preset, opts.nickname, opts.bgm_dir,
-                                                    str(row["body"] or "")), media, comments)
+                                                    str(row["body"] or ""), opts.show_source),
+                                        media, comments)
             else:  # 세그먼트 이전 대본 (썰 카드형)
                 spec = build_spec(timing, str(script.get("title") or ""), str(row["subject"] or ""),
                                   str(script.get("fact") or ""), source, bg_name)
+            spec["source_text"] = source_text  # 출처 끄기/켜기를 다시 만들지 않고 바꿀 수 있게
             spec_path = job_dir / "spec.json"
             spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
         except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as err:

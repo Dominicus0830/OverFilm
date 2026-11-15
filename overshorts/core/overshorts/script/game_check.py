@@ -35,6 +35,10 @@ class Hero:
     ko: str
     names: tuple[str, ...]  # 글에서 찾을 이름 (ko, en, 별명)
     role: str
+    skills: tuple[str, ...] = ()  # 스킬 이름 (글에 '도륙'만 있어도 정커퀸 글로 본다)
+
+    def in_text(self, text: str) -> bool:
+        return any(n in text for n in self.names) or any(k in text for k in self.skills)
 
 
 def glossary_dir() -> Path | None:
@@ -56,6 +60,14 @@ def load_heroes(directory: str | None = None) -> tuple[Hero, ...]:
         rows = (d / "heroes.tsv").read_text(encoding="utf-8").splitlines()
     except OSError:
         return ()
+    skills: dict[str, list[str]] = {}
+    try:
+        for row in (d / "abilities.tsv").read_text(encoding="utf-8").splitlines()[1:]:
+            cols = row.split("\t")
+            if len(cols) >= 2 and "." in cols[0] and len(cols[1].strip()) >= 2:
+                skills.setdefault(cols[0].split(".", 1)[0], []).append(cols[1].strip())
+    except OSError:
+        pass
     out = []
     for row in rows[1:]:
         cols = row.split("\t")
@@ -68,7 +80,8 @@ def load_heroes(directory: str | None = None) -> tuple[Hero, ...]:
         hits = [(note.find(k), v) for k, v in ROLE_OF_NOTE.items() if k in note]
         if hits:
             role = (max(hits) if "부터" in note else min(hits))[1]
-        out.append(Hero(cols[1].strip(), tuple(n for n in names if len(n) >= 2), role))
+        out.append(Hero(cols[1].strip(), tuple(n for n in names if len(n) >= 2), role,
+                        tuple(skills.get(cols[0].strip(), []))))
     return tuple(out)
 
 
@@ -101,7 +114,7 @@ def check_game(text: str, source: str, *, title: bool = False, posted_at: str | 
     where = "제목" if title else "나레이션"
     out: list[str] = []
     for h in _mentioned(heroes, text):
-        if not any(n in source for n in h.names):
+        if not h.in_text(source):
             out.append(f"{where}에 원문에 없는 영웅 '{h.ko}'")
     if not CUSTOM.search(source):
         for h in heroes:

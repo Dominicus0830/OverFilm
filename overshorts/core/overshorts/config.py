@@ -127,7 +127,8 @@ def spec_options(cfg: dict[str, Any]):
     bgm = r.get("bgm_dir")
     return SpecOptions(preset=str(r.get("preset") or "auto"),
                        nickname=str(r.get("nickname") or "original"),
-                       bgm_dir=Path(str(bgm)) if bgm else None)
+                       bgm_dir=Path(str(bgm)) if bgm else None,
+                       show_source=r.get("show_source", True) is not False)
 
 
 def script_settings(cfg: dict[str, Any], tone: str | None = None, default_style: str = "../style"):

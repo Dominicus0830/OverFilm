@@ -122,6 +122,10 @@ class SegTtsIn(BaseModel):
     tts: bool
 
 
+class SourceIn(BaseModel):
+    show: bool
+
+
 class ReactionIn(BaseModel):
     after: int = Field(ge=-1, le=20, description="이 세그먼트 뒤에 넣는다 (-1 = 맨 앞)")
     image: str = Field(default="", max_length=70, description="'영웅:이름' / '짤:이름' / '검색:찾을 짤'")
@@ -277,6 +281,13 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
     @app.get("/api/prefs")
     def prefs() -> dict[str, Any]:
         return _prefs()
+
+    @app.post("/api/prefs/source")
+    def prefs_source(body: SourceIn) -> dict[str, Any]:
+        """영상 아래 '출처: DC인사이드 …' 켜기/끄기. 이미 만든 미리보기도 바로 바뀐다."""
+        _save_pref("show_source", bool(body.show))
+        worker.submit("출처 표시 " + ("켬" if body.show else "끔"), lambda p: p.set_show_source(body.show))
+        return {"ok": True}
 
     @app.post("/api/prefs/reset")
     def prefs_reset() -> dict[str, Any]:

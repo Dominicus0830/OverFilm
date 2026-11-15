@@ -1,7 +1,7 @@
 // 프레임형 (기본 프리셋, 기획서 3.5 개정 5): 검은 배경 + 위 고정 제목 + 가운데 원문 + 노란 2~4단어 자막.
 // 사진·글·댓글은 디시 화면 스크린샷처럼 그린다 (2026-11-15 피드백: 확대 효과·글자별 색 없음,
 // 소제목 자리까지 써서 스크린샷을 28~66% 에 크게).
-// 세로 위치는 화면 높이 비율: 제목 15~26%, 스크린샷 28~66%, 자막 67~72%, 출처 74%, 78% 아래 비움.
+// 세로 위치는 화면 높이 비율: 제목 15~26%, 스크린샷 28~66%, 자막 67~72%, 출처 75.5%, 78% 아래 비움.
 import React from 'react';
 import {
   AbsoluteFill, Audio, Img, Sequence, staticFile, useCurrentFrame, useVideoConfig,
@@ -17,7 +17,7 @@ loadFonts();
 const src = (p: string) => (/^(https?:)?\/\//.test(p) || p.startsWith('/') ? p : staticFile(p));
 const pct = (h: number, p: number) => Math.round((h * p) / 100);
 export const SAFE = {title: [15, 26], tall: [28, 66], caption: [67, 72],
-  source: [73.5, 76.5], bottom: 78} as const;
+  source: [75.5, 77.5], bottom: 78} as const;
 
 function current<T extends {start: number}>(items: T[], t: number): T | null {
   let cur: T | null = null;
@@ -37,19 +37,23 @@ const Title: React.FC<{text: string; height: number}> = ({text, height}) => (
 
 // 짤 장면 대사: 상황에 맞춰 색·크기·글꼴 (2026-11-15 사용자 의견). 흔들기·확대 같은 연출은 없음.
 const SAY_LOOK: Record<SayStyle, React.CSSProperties> = {
-  calm: {fontFamily: FONT_FAMILY, fontWeight: 700, fontSize: 66, color: '#FFFFFF', WebkitTextStroke: '10px #000'},
-  question: {fontFamily: FONT_FAMILY, fontWeight: 800, fontSize: 74, color: '#FFFFFF', WebkitTextStroke: '12px #000'},
-  shout: {fontFamily: SHOUT_FONT, fontWeight: 400, fontSize: 118, color: '#FF3B30', WebkitTextStroke: '16px #000',
+  calm: {fontFamily: FONT_FAMILY, fontWeight: 800, fontSize: 80, color: '#FFFFFF', WebkitTextStroke: '12px #000'},
+  question: {fontFamily: SHOUT_FONT, fontWeight: 400, fontSize: 100, color: '#FFFFFF', WebkitTextStroke: '14px #000'},
+  shout: {fontFamily: SHOUT_FONT, fontWeight: 400, fontSize: 124, color: '#FF3B30', WebkitTextStroke: '16px #000',
     letterSpacing: 2},
-  sad: {fontFamily: HAND_FONT, fontWeight: 700, fontSize: 84, color: '#9CC9FF', WebkitTextStroke: '10px #000'},
-  smug: {fontFamily: SHOUT_FONT, fontWeight: 400, fontSize: 96, color: '#FFD43B', WebkitTextStroke: '14px #000'},
+  sad: {fontFamily: HAND_FONT, fontWeight: 700, fontSize: 100, color: '#9CC9FF', WebkitTextStroke: '12px #000'},
+  smug: {fontFamily: SHOUT_FONT, fontWeight: 400, fontSize: 108, color: '#FFD43B', WebkitTextStroke: '14px #000'},
 };
 
 const SayCaption: React.FC<{text: string; style: SayStyle; height: number}> = ({text, style, height}) => (
-  <div style={{position: 'absolute', left: 30, right: 30, top: pct(height, SAFE.caption[0] - 2),
-    height: pct(height, SAFE.caption[1] - SAFE.caption[0] + 4), display: 'flex', alignItems: 'center',
+  <div style={{position: 'absolute', left: 30, right: 30, top: pct(height, SAFE.tall[1] + 0.5),
+    height: pct(height, SAFE.source[0] - SAFE.tall[1] - 1), display: 'flex', alignItems: 'center',
     justifyContent: 'center', textAlign: 'center'}}>
-    <div style={{lineHeight: 1.1, wordBreak: 'keep-all', paintOrder: 'stroke fill', ...SAY_LOOK[style]}}>{text}</div>
+    <div style={{lineHeight: 1.1, wordBreak: 'keep-all', paintOrder: 'stroke fill', ...SAY_LOOK[style],
+      // 긴 줄은 두 줄 안에 들어가게 줄인다
+      fontSize: Math.max(58, Math.round(Number(SAY_LOOK[style].fontSize)
+        * Math.min(1, 12 / Math.max(1, text.replace(/\s/g, '').length)) ** 0.75))}}>
+      {text}</div>
   </div>
 );
 

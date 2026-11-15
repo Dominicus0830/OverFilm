@@ -40,7 +40,9 @@ REACTION_RULES = """짤 장면 (reaction 세그먼트):
   이 구성에선 글과 상관없는 짤림방지 사진은 media 로 넣지 않는다 (그림 자리는 짤이 맡는다).
 - reaction 세그먼트: image 에 띄울 그림, say 에 그 장면 자막(원문 줄 그대로, 30자 이내), say_style 에 자막 모양
   (무심한 말·질문 calm/question, 버럭·되묻기 shout, 시무룩 sad, 약올림 smug). lines 는 비운다.
-  image 는 '영웅:영웅이름' (공식 프로필 사진), '짤:짤 모음 이름', '검색:찾을 짤 설명' 중 하나.
+  image 는 '원문:사진 N' (그 글의 사진, 미디어 목록 이름), '영웅:영웅이름' (공식 프로필 사진),
+  '짤:짤 모음 이름', '검색:찾을 짤 설명' 중 하나. 원문 사진이 그 줄에 어울리면 원문 사진을 먼저 쓴다.
+  say 의 욕설은 초성으로 바꾼다 (씨발→ㅅㅂ). 늘인 말("씨이바아아알")도 초성으로.
   짤 모음에 맞는 게 있으면 그걸 먼저 쓰고, 없으면 검색 (예: 검색:윈스턴 포효 짤).
 - 펀치라인(예: "몰라서묻나")은 그 말에 맞는 리액션 짤과 함께 보여 준다. 짤 고르기 예:
   되묻기·버럭(몰라서묻나, 그걸 왜 나한테) → 윈스턴 포효 짤 / 어이없음 → 멍한 표정 짤.
@@ -92,11 +94,11 @@ def meme_block(memes: list[Meme]) -> str:
 def politics_target(source: str, heroes: tuple[Hero, ...] | None = None) -> str | None:
     """글에 나온 조합에서 정치 대상 영웅: 아나 > 메르시 > 모이라 > 키리코 > 처음 나온 딜러."""
     heroes = load_heroes() if heroes is None else heroes
-    named = {h.ko: h for h in heroes if any(n in source for n in h.names)}
+    named = {h.ko: h for h in heroes if h.in_text(source)}
     for ko in POLITICS_ORDER:
         if ko in named:
             return ko
-    dps = [(min(source.find(n) for n in h.names if n in source), h.ko)
+    dps = [(min(source.find(n) for n in h.names + h.skills if n in source), h.ko)
            for h in named.values() if h.role == "딜러"]
     return min(dps)[1] if dps else None
 
@@ -106,15 +108,16 @@ def parse_image(image: str) -> tuple[str, str] | None:
     s = (image or "").strip()
     if not s:
         return None
-    m = re.match(r"^(영웅|짤|검색|hero|meme|search)\s*[:：]\s*(.+)$", s)
+    m = re.match(r"^(원문|영웅|짤|검색|post|hero|meme|search)\s*[:：]\s*(.+)$", s)
     if not m:
-        return ("search", s[:60])
-    kind = {"영웅": "hero", "짤": "meme", "검색": "search"}.get(m.group(1), m.group(1))
+        return ("post", s) if re.fullmatch(r"(?:사진|영상) \d+", s) else ("search", s[:60])
+    kind = {"원문": "post", "영웅": "hero", "짤": "meme", "검색": "search"}.get(m.group(1), m.group(1))
     return (kind, m.group(2).strip()[:60])
 
 
 def fix_reaction(image: str, say: str, source: str, memes: list[Meme],
-                 heroes: tuple[Hero, ...] | None = None) -> tuple[str, list[str]]:
+                 heroes: tuple[Hero, ...] | None = None,
+                 media_names: list[str] | None = None) -> tuple[str, list[str]]:
     """AI 가 고른 그림을 검증. 글 조합에 없는 영웅이면 정치 대상 순서로 바꾼다."""
     heroes = load_heroes() if heroes is None else heroes
     warn: list[str] = []
@@ -122,9 +125,14 @@ def fix_reaction(image: str, say: str, source: str, memes: list[Meme],
     if p is None:
         return "", warn
     kind, name = p
+    if kind == "post":
+        if name in (media_names or []):
+            return f"원문:{name}", warn
+        warn.append(f"짤 장면 원문 '{name}' 이 없어 뺐습니다")
+        return "", warn
     if kind == "hero":
         h = next((h for h in heroes if name in h.names or name == h.ko), None)
-        if heroes and (h is None or not any(n in source for n in h.names)):
+        if heroes and (h is None or not h.in_text(source)):
             alt = politics_target(source, heroes) if POLITICS.search(source + say) else None
             warn.append(f"짤 장면 영웅 '{name}' 이 글에 없어 " + (f"'{alt}' 로 바꿨습니다" if alt else "뺐습니다"))
             return (f"영웅:{alt}" if alt else ""), warn
@@ -294,12 +302,18 @@ def search_meme(router: Router, query: str, context: str, found_dir: Path,
 
 
 def resolve_image(image: str, *, style_dir: str | Path | None, cache: Path, router: Router | None,
-                  context: str = "", get: Getter = http_get) -> Path:
-    """'영웅:…/짤:…/검색:…' → 로컬 그림 파일."""
+                  context: str = "", get: Getter = http_get,
+                  media: list[dict[str, Any]] | None = None) -> Path:
+    """'원문:…/영웅:…/짤:…/검색:…' → 로컬 그림 파일."""
     p = parse_image(image)
     if p is None:
         raise LlmError("그림이 비어 있습니다")
     kind, name = p
+    if kind == "post":
+        m = next((m for m in media or [] if m.get("name") == name and m.get("kind") == "image"), None)
+        if m is None:
+            raise LlmError(f"원문 '{name}' 그림이 없습니다")
+        return Path(m["path"])
     memes = list_memes(style_dir)
     if kind == "hero":
         return hero_image(name, cache / "heroes", get)
@@ -316,7 +330,7 @@ def resolve_image(image: str, *, style_dir: str | Path | None, cache: Path, rout
 
 def resolve_segments(segs: list[dict[str, Any]], *, style_dir: str | Path | None, cache: Path,
                      router: Router | None, context: str = "",
-                     get: Getter = http_get) -> list[str]:
+                     get: Getter = http_get, media: list[dict[str, Any]] | None = None) -> list[str]:
     """reaction 세그먼트마다 image_path 를 채운다. 못 구하면 그림 없이 자막만 남기고 경고."""
     warnings = []
     for i, s in enumerate(segs):
@@ -324,8 +338,14 @@ def resolve_segments(segs: list[dict[str, Any]], *, style_dir: str | Path | None
             continue
         try:
             s["image_path"] = str(resolve_image(s["image"], style_dir=style_dir, cache=cache,
-                                                router=router, context=context, get=get))
+                                                router=router, context=context, get=get,
+                                                media=media))
         except Exception as err:  # noqa: BLE001 - 짤 하나 못 구해도 대본은 살린다
             s["image_path"] = ""
-            warnings.append(f"{i + 1}번째 장면 짤({s['image']}): {str(err)[:120]}")
+            asked = s["image"]
+            first = next((m for m in media or [] if m.get("kind") == "image"), None)
+            if first is not None:  # 빈 화면보다는 원문 첫 사진
+                s["image"], s["image_path"] = f"원문:{first['name']}", str(first["path"])
+            warnings.append(f"{i + 1}번째 장면 짤({asked}): {str(err)[:120]}"
+                            + (" → 원문 사진으로 대신" if first is not None else ""))
     return warnings

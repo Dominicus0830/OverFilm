@@ -45,6 +45,7 @@ export type RenderSpec = {
   post: SpecPost;
   subject: string;
   source: string;
+  source_text?: string; // 출처를 꺼도 원래 문구를 기억 (다시 켤 때)
   audio: string | null; // public 폴더 기준 경로
   background: string | null;
   theme: {dark: boolean; accent: string};
@@ -137,7 +138,7 @@ export function sanitize(input: unknown): RenderSpec {
     post: {title: str(s.post?.title), subject: str(s.post?.subject), nick: str(s.post?.nick, 'ㅇㅇ').slice(0, 30),
       ip: str(s.post?.ip).slice(0, 20), icon: str(s.post?.icon).slice(0, 8), date: str(s.post?.date).slice(0, 30)},
     subject: str(s.subject),
-    source: str(s.source),
+    source: str(s.source), source_text: str(s.source_text),
     audio: typeof s.audio === 'string' ? s.audio : null,
     background: typeof s.background === 'string' ? s.background : null,
     theme: {dark: s.theme?.dark !== false, accent: str(s.theme?.accent, '#FFD43B') || '#FFD43B'},

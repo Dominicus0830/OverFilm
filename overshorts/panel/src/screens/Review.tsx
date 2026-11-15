@@ -35,12 +35,14 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
   const [regen, setRegen] = useState(false);
   const [report, setReport] = useState<{line: number; reason: string} | null>(null);
   const [msg, setMsg] = useState('');
+  const [showSource, setShowSource] = useState(true);
   const [react, setReact] = useState<{after: number; image: string; say: string; say_style: string} | null>(null);
   const [library, setLibrary] = useState<{memes: {name: string; use: string}[]; heroes: string[]}>({memes: [], heroes: []});
   const player = useRef<PlayerRef>(null);
 
   useEffect(() => { api<ReviewItem[]>('/api/review').then(setItems).catch((e) => setMsg(e.message)); }, [tick]);
   useEffect(() => { api<typeof library>('/api/memes').then(setLibrary).catch(() => undefined); }, [tick]);
+  useEffect(() => { api<{show_source?: boolean}>('/api/prefs').then((p) => setShowSource(p.show_source !== false)).catch(() => undefined); }, []);
   const item = items[Math.min(pos, Math.max(0, items.length - 1))];
   useEffect(() => { setLines(item?.script.lines ?? []); setDirty(false); setRegen(false); setReport(null); },
     [item?.job_id, item?.version]);
@@ -49,12 +51,12 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
     if (!item?.spec) return null;
     const s = sanitize(item.spec);
     const f = (p: string | null) => (p ? item.files + p : null);
-    return {...s, audio: f(s.audio), background: f(s.background), bgm: f(s.bgm),
+    return {...s, source: showSource ? (s.source_text || s.source) : '', audio: f(s.audio), background: f(s.background), bgm: f(s.bgm),
       segments: s.segments.map((g) => ({...g,
         media: g.media.map((m) => ({...m, src: item.files + m.src})), image: f(g.image),
         comments: g.comments.map((c) => ({...c, dccon: c.dccon ? {...c.dccon, src: f(c.dccon.src)} : null})),
       }))};
-  }, [item]);
+  }, [item, showSource]);
 
   const act = useCallback(async (what: 'approve' | 'edit' | 'discard') => {
     if (!item) return;
@@ -117,6 +119,12 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
       setMsg(`세그먼트 ${seg + 1} TTS ${tts ? '켬' : '끔'}: 음성부터 다시 만듭니다`);
       setItems((old) => old.filter((x) => x.job_id !== item.job_id));
     } catch (e) { setMsg((e as Error).message); }
+  };
+
+  const toggleSource = async () => {
+    const next = !showSource;
+    setShowSource(next); // 미리보기는 바로, 저장된 미리보기·최종 렌더는 서버가 바꾼다
+    try { await api('/api/prefs/source', {show: next}); } catch (e) { setMsg((e as Error).message); }
   };
 
   const sendReaction = async () => {
@@ -187,6 +195,9 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
       <header className="review-head">
         <h1>검수 대기 목록 <span className="muted small">{pos + 1} / {items.length} · J/K</span></h1>
         {msg && <span className="badge">{msg}</span>}
+        <button className={showSource ? 'toggle on' : 'toggle'} data-automation-id="show-source"
+          title="영상 아래 '출처: DC인사이드 …' 표시" onClick={toggleSource}>
+          출처 표시 {showSource ? '켬' : '끔'}</button>
       </header>
       <div className="review-cols">
         <div className="col">
