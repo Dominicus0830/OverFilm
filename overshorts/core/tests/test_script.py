@@ -196,3 +196,24 @@ def test_title_rules_and_check():
     assert check_title("충격! 햄스터 레전드") and not check_title("민간인부터 노린 햄스터 근황 ㄷㄷ")
     assert not check_title("브론즈 아나의 레전드 수면 장면") and check_title("드디어 칼 맞았다는 마우가")
     assert not check_title("윈스 밴하면 딴거 하면 되는거 아님?") and check_title("여러분은 누구 밴함?")
+
+
+def test_game_check_against_source_and_rules():
+    from datetime import datetime
+
+    from overshorts.script.game_check import check_game, load_heroes
+
+    heroes = load_heroes()
+    if not heroes:
+        return  # 단어집이 없는 설치본
+    src = "빠대에서 메르시 하다가 겐지한테 잘림"
+    assert check_game("빠대 메르시의 하루", src, title=True, heroes=heroes) == []
+    assert any("원문에 없는 영웅" in p for p in check_game("메르시와 아나", src, heroes=heroes))
+    assert any("여러 명" in p for p in check_game("겐지 셋 나온 판", src, heroes=heroes))
+    assert any("자리에 올 수 없음" in p for p in check_game("힐러 자리에 겐지", src, heroes=heroes))
+    assert any("경쟁전" in p for p in check_game("경쟁전 메르시", src, heroes=heroes))
+    assert any("숫자" in p for p in check_game("메르시 4킬", src, title=True, heroes=heroes))
+    old = check_game("메르시 근황", src, title=True, posted_at="2026.01.01 10:00:00",
+                     heroes=heroes, now=datetime(2026, 11, 15))
+    assert any("근황" in p for p in old)
+    assert not check_game("겐지 셋 나온 판", "워크샵에서 " + src, heroes=heroes)

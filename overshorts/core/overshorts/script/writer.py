@@ -16,6 +16,7 @@ from pathlib import Path
 from ..db import Store
 from ..llm import LimitReached, LlmError, Router
 from .checks import CheckResult, _no_ending, check_script, load_banned
+from .game_check import check_script_game
 from .models import CringeAnswer, ScriptAnswer
 from .prompts import cringe_task, load_style, script_task
 from .segments import flatten, media_items, validate
@@ -51,10 +52,12 @@ class ScriptOutcome:
 
 
 def write_script(router: Router, title: str, body: str, comments: list[dict],
-                 settings: ScriptSettings, media: list[dict] | None = None) -> ScriptOutcome:
+                 settings: ScriptSettings, media: list[dict] | None = None,
+                 posted_at: str | None = None) -> ScriptOutcome:
     """comments: 수집한 댓글 dict 목록 (text, depth, parent, dccon …). media: segments.media_items."""
     media = media or []
     texts = [str(c.get("text") or "") for c in comments]
+    source = "\n".join([title, body, *texts])
     style = load_style(settings.style_dir)
     banned = load_banned(settings.style_dir)
     user_words = [p for p, why in banned if why == "사용자 금지 목록"]
@@ -72,7 +75,8 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
         checks = check_script(spoken, body, texts, banned, settings.chars_per_sec)
         cringe = None
         problems: list[str] = []
-        title_issues = check_title(script.title)
+        title_issues = check_title(script.title) + check_script_game(
+            script.title, [ln["text"] for ln in spoken if ln["part"] != "comment"], source, posted_at)
         if checks.needs_rewrite or title_issues:
             problems += checks.reasons() + title_issues
         elif settings.cringe_check and spoken:
@@ -93,7 +97,7 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
 def script_pending(store: Store, router: Router, settings: ScriptSettings,
                    post_ids: list[int] | None = None, limit: int = 20) -> dict[str, int]:
     """LLM 필터를 통과한 글(jobs.status = filtered)의 대본을 쓴다."""
-    q = ("SELECT j.id AS job_id, p.id AS post_id, p.title, p.body, p.comments, p.images FROM jobs j "
+    q = ("SELECT j.id AS job_id, p.id AS post_id, p.title, p.body, p.comments, p.images, p.posted_at FROM jobs j "
          "JOIN posts p ON p.id = j.post_id WHERE j.status = 'filtered' AND p.discarded = 0")
     args: list = []
     if post_ids:
@@ -106,7 +110,8 @@ def script_pending(store: Store, router: Router, settings: ScriptSettings,
         comments = [c for c in json.loads(row["comments"] or "[]") if isinstance(c, dict)]
         media = media_items(json.loads(row["images"] or "[]"))
         try:
-            out = write_script(router, row["title"], row["body"], comments, settings, media)
+            out = write_script(router, row["title"], row["body"], comments, settings, media,
+                               row["posted_at"])
         except LlmError as err:
             store.set_job_status(row["job_id"], "filtered", f"대본: {err}")
             counts["failed"] += 1

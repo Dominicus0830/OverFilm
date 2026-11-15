@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..llm import UNTRUSTED_RULE, Task, untrusted
+from .game_check import GAME_RULES
 from .models import CATEGORY_KO
 from .segments import media_block, numbered_comments
 from .title_rules import title_rules
@@ -105,6 +106,7 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
         "'이건 몰랐네' 싶은 구체적 사실을 하나 이상 넣고 fact 에 적는다. 길이를 채우지 않는다: 글이 "
         f"짧으면 25초로 끝나도 된다. 나레이션 전체 {max_chars}자를 넘기지 않는다. 마지막 줄은 질문·"
         "훈계·구독 요청 없이 끝낸다. 원문의 욕설·혐오 표현은 나레이션에 옮기지 않는다.",
+        GAME_RULES,
         title_rules(title_tail) + "\n(ㅋㅋㅋ·ㄷㄷ 금지와 아래 사용자 금지 표현은 나레이션에만 적용한다. 제목은 위 제목 규칙만 따른다.)",
         f"말투: {SPEECH.get(speech, SPEECH['반말'])}로 통일. 톤: {TONES.get(tone, TONES['담백'])}",
         "쓰지 말 것: 여러분·인사·'알아볼게요', 충격·실화냐·소름·경악, '과연 그 결과는?' 같은 떡밥 질문, "
