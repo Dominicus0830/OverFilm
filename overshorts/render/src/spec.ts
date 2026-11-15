@@ -108,7 +108,7 @@ export function sanitize(input: unknown): RenderSpec {
       height: num(m?.height, 0, 0, 20000), muted: m?.muted !== false,
       number: Math.round(num(m?.number, 0, 0, 999)), caption: str(m?.caption),
     })),
-    comments: (Array.isArray(g?.comments) ? g.comments.slice(0, 12) : []).map((c) => ({
+    comments: (Array.isArray(g?.comments) ? g.comments.slice(0, 60) : []).map((c) => ({
       no: num(c?.no, 0, 0, 10000), nick: str(c?.nick).slice(0, 30), ip: str(c?.ip).slice(0, 20),
       icon: c?.icon === 'fix' || c?.icon === 'half' ? c.icon : '', text: str(c?.text),
       depth: num(c?.depth, 0, 0, 3),

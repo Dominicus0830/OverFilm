@@ -74,20 +74,26 @@ export function photoHeight(m: SpecMedia): number {
   return 8 + SKIN_W / aspect + lines * FONT * 1.5 + 10;
 }
 
+// 디시 댓글창 (2026-11-15 사용자 캡처 기준): 왼쪽 닉 칸(약 40%) · 오른쪽 글 칸, 줄마다 옅은 구분선.
+// 답글은 회색 상자 안에서 들여쓰고 글 앞에 파란 'ㄴ'. 디시콘은 글 칸에 그림 그대로.
+const NICK_W = 190;
+const REPLY_INDENT = 58;
+
 const CommentRow: React.FC<{c: SpecComment; blurNick: boolean}> = ({c, blurNick}) => (
-  <div style={{display: 'flex', padding: '7px 8px', borderBottom: '1px solid #eee'}}>
-    <div style={{width: c.depth ? 98 : 118, flexShrink: 0, fontSize: 12, color: '#555', paddingLeft: c.depth ? 0 : 0,
-      filter: blurNick ? 'blur(4px)' : undefined, whiteSpace: 'nowrap', overflow: 'hidden'}}>
+  <div style={{display: 'flex', alignItems: 'flex-start', padding: '8px 10px 9px', borderBottom: '1px solid #eee'}}>
+    <div style={{width: c.depth ? NICK_W - REPLY_INDENT + 8 : NICK_W, flexShrink: 0, fontSize: 12, color: '#666',
+      filter: blurNick ? 'blur(4px)' : undefined, whiteSpace: 'nowrap', overflow: 'hidden', lineHeight: '19px'}}>
       {c.nick}{c.ip ? <span style={{color: '#999'}}>({c.ip})</span> : null}<NickIcon icon={c.icon} />
     </div>
-    <div style={{flex: 1, display: 'flex', gap: 6}}>
-      {c.depth ? <span style={{color: '#8a94c4', fontSize: 12}}>ㄴ</span> : null}
-      <div style={{flex: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-all'}}>
+    <div style={{flex: 1, display: 'flex', gap: 8, minWidth: 0}}>
+      {c.depth ? <span style={{color: '#3b4890', fontSize: 12, fontWeight: 700, lineHeight: '19px'}}>ㄴ</span> : null}
+      <div style={{flex: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 13, color: '#333',
+        lineHeight: '19.5px'}}>
         {c.text ? c.text.split(/(@\S+)/).map((part, i) => (part.startsWith('@')
           ? <span key={i} style={{color: DC_BLUE}}>{part}</span> : <span key={i}>{part}</span>)) : null}
         {c.dccon ? (
           <div style={{marginTop: c.text ? 4 : 0}}>
-            {c.dccon.src ? <Img src={src(c.dccon.src)} style={{width: 90, height: 90, objectFit: 'contain'}} />
+            {c.dccon.src ? <Img src={src(c.dccon.src)} style={{width: 100, height: 100, objectFit: 'contain'}} />
               : <span style={{color: '#999'}}>({c.dccon.name})</span>}
           </div>
         ) : null}
@@ -104,10 +110,14 @@ export const CommentPage: React.FC<{comments: SpecComment[]; blurNick: boolean}>
     else blocks.push([c]);
   }
   return (
-    <div style={{borderTop: `2px solid ${DC_BLUE}`}}>
+    <div style={{background: '#fff'}}>
       {blocks.map((b, i) => (b[0].depth ? (
-        <div key={i} style={{background: '#f8f8f8', border: '1px solid #e3e3e3', margin: '0 0 0 18px'}}>
-          {b.map((c) => <CommentRow key={c.no} c={c} blurNick={blurNick} />)}
+        <div key={i} style={{padding: '0 0 6px', borderBottom: '1px solid #eee'}}>
+          <div style={{background: '#f8f8f8', border: '1px solid #e3e3e3', marginLeft: REPLY_INDENT - 8,
+            marginRight: 6}}>
+            {b.map((c, k) => <div key={c.no} style={k === b.length - 1 ? {} : {}}>
+              <CommentRow c={c} blurNick={blurNick} /></div>)}
+          </div>
         </div>
       ) : <CommentRow key={b[0].no} c={b[0]} blurNick={blurNick} />))}
     </div>

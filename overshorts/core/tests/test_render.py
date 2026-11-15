@@ -93,7 +93,7 @@ def test_frame_spec_media_and_comments(tmp_path):
 
 def test_comment_pages_keep_replies_with_parent():
     from overshorts.render.spec import _paginate
-    long = "가" * 250
+    long = "가" * 150
     rows = [{"no": 0, "depth": 0, "text": long, "read": None},
             {"no": 1, "depth": 0, "text": long, "read": None},
             {"no": 2, "depth": 1, "text": "답글", "read": None},

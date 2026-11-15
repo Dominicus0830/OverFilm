@@ -58,6 +58,13 @@ def _post_block(title: str, body: str, comments: list[str]) -> str:
             + untrusted("comments", numbered or "(댓글 없음)"))
 
 
+# 오버워치 커뮤 밈 (2026-11-15 사용자: '탱장연'을 혐오 표현으로 보는 건 그 밈을 싫어하는 쪽이 만든 말이라
+# 막는 이유가 되지 않는다). 필터가 실존 단체·정치 조롱으로 오해하지 않게 알려 준다.
+COMMUNITY_MEMES = ("오버워치 커뮤 밈: '탱장연'(탱커 유저들의 요구를 시위에 빗댄 밈), '퀸장연'·'○장연'(그 영웅 버전), "
+                   "'탱레반'(탱커들의 과격한 요구를 놀리는 말)은 오버워치 탱커 유저 커뮤 밈이다. "
+                   "이 단어가 있다는 이유만으로 정치·혐오로 막지 않는다. 실존 단체·장애인을 직접 비하하는 문장이 있을 때만 본다.")
+
+
 def filter_task(title: str, body: str, comments: list[str], block_categories: list[str],
                 allow_topics: list[str]) -> Task:
     cats = ", ".join(f"{c}({CATEGORY_KO.get(c, c)})" for c in block_categories)
@@ -66,6 +73,7 @@ def filter_task(title: str, body: str, comments: list[str], block_categories: li
     system = (
         "너는 인터넷 게시글을 세로 쇼츠로 만들어도 되는지 거르는 분류기다. "
         f"{UNTRUSTED_RULE} 막을 범주: {cats}. {allow} "
+        f"{COMMUNITY_MEMES} "
         "판단은 제목·본문 기준이다. 댓글은 영상에 고른 것만 들어가므로 일부 댓글이 거칠다는 이유만으로 "
         "막지 않는다 (참고만). 게임·영화 속 가상 인물·사건 이야기는 실존 인물·정치로 보지 않는다. "
         "확실히 걸리면 block, 애매하면 review, 아니면 pass. "

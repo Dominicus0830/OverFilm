@@ -19,6 +19,8 @@ _RRN = re.compile(r"(?<!\d)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\s?-?\s?
 # 계좌번호처럼 보이는 긴 숫자 묶음 (3덩어리 이상, 합쳐 10자리 이상)
 _ACCOUNT = re.compile(r"(?<!\d)\d{2,6}-\d{2,6}-\d{2,8}(?:-\d{1,6})?(?!\d)")
 _SPACE = re.compile(r"\s+")
+# 옵갤은 '쇼츠싸개'를 싫어한다 (2026-11-15 갤 유형 조사). 글쓴이가 막았으면 만들지 않는다.
+_NO_REPOST = re.compile(r"퍼\s*가지\s*마|퍼가\s*지\s*마|쇼츠\s*(?:금지|싸개|ㄴㄴ)|무단\s*(?:퍼감|전재|사용)\s*금지|펌\s*금지")
 
 
 @dataclass
@@ -58,6 +60,8 @@ def check_post(title: str, body: str, images: list[str] | None = None,
             reasons.append("계좌번호로 보이는 숫자가 있습니다")
             break
 
+    if _NO_REPOST.search(text):
+        reasons.append("글쓴이가 퍼가기·쇼츠를 금지했습니다")
     # 짧은 뻘글도 쇼츠 감이다 (2026-11-15 사용자 편집 규칙: 원제 그대로 + 짤 장면). 제목까지 합쳐 센다.
     total = chars + _visible_len(title)
     if chars == 0 and images and _visible_len(title) < 6:

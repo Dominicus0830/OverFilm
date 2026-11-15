@@ -277,7 +277,7 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                     "dccon": con_out, "appear": start, "page": 0,
                     "read": list(reads[n]) if n in reads else None,
                 })
-            _paginate(out["comments"], start, end)
+            _paginate(out["comments"], start, end, seg.get("pages"))
         elif out["kind"] == "body":
             out["quote"] = _quote(str(seg.get("quote") or ""), opts.body, i, segs_in)
         elif out["kind"] == "reaction":
@@ -322,23 +322,21 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
     return base
 
 
-# 디시 스킨은 실제 디시 크기(가로 480px)로 그린 뒤 화면 폭에 맞게 키운다 (스크린샷처럼).
-SKIN_W = 480
-SKIN_SCALE = 1040 / SKIN_W
-PAGE_H = (0.66 - 0.28) * 1920 / SKIN_SCALE - 30  # 댓글창 머리 줄 빼고
+# 디시 스킨 크기·댓글 높이 어림은 대본 단계와 같은 것을 쓴다 (장 나누기를 대본에서 정함)
+from ..script.segments import PAGE_H, SKIN_SCALE, SKIN_W, comment_height  # noqa: E402,F401
 
 
-def comment_height(c: dict[str, Any]) -> float:
-    """디시 댓글 한 줄의 높이 어림 (가상 480px 기준). 답글은 들여써서 한 줄 글자가 적다."""
-    per_line = 22 if c.get("depth") else 25
-    text = str(c.get("text") or "")
-    lines = sum(max(1, -(-len(p) // per_line)) for p in text.split("\n")) if text else 0
-    return max(lines, 1) * 18 + (96 if c.get("dccon") else 0) + 16
-
-
-def _paginate(rows: list[dict[str, Any]], start: float, end: float) -> None:
-    """댓글을 스크린샷 한 장씩 나눈다. 원댓글과 그 답글은 되도록 같은 장에, 짧으면 여러 묶음을 한 장에.
+def _paginate(rows: list[dict[str, Any]], start: float, end: float,
+              given: list[list[int]] | None = None) -> None:
+    """댓글을 스크린샷 한 장씩 나눈다. 대본 단계에서 장을 정했으면(이어지는 댓글 묶음) 그대로 쓰고,
+    아니면 원댓글과 그 답글은 되도록 같은 장에, 짧으면 여러 묶음을 한 장에.
     장마다 보여 줄 시간은 글 양에 비례하고, TTS 가 읽는 댓글이 있는 장은 읽기 전에 나온다."""
+    if given:
+        by_no = {r["no"]: r for r in rows}
+        pages = [[by_no[n] for n in pg if n in by_no] for pg in given]
+        pages = [pg for pg in pages if pg]
+        _time_pages(pages, start, end)
+        return
     threads: list[list[dict[str, Any]]] = []
     for r in rows:
         if r["depth"] and threads:
@@ -355,6 +353,10 @@ def _paginate(rows: list[dict[str, Any]], start: float, end: float) -> None:
         else:
             pages.append(list(th))
             h = th_h
+    _time_pages(pages, start, end)
+
+
+def _time_pages(pages: list[list[dict[str, Any]]], start: float, end: float) -> None:
     if not pages:
         return
     weight = [sum(comment_height(r) for r in pg) for pg in pages]

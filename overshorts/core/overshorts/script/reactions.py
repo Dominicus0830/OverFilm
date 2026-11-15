@@ -44,6 +44,8 @@ REACTION_RULES = """짤 장면 (reaction 세그먼트):
   '짤:짤 모음 이름', '검색:찾을 짤 설명' 중 하나. 원문 사진이 그 줄에 어울리면 원문 사진을 먼저 쓴다.
   say 의 욕설은 초성으로 바꾼다 (씨발→ㅅㅂ). 늘인 말("씨이바아아알")도 초성으로.
   짤 모음에 맞는 게 있으면 그걸 먼저 쓰고, 없으면 검색 (예: 검색:윈스턴 포효 짤).
+- 그림은 글 주제에 맞춘다: 글의 주인공 영웅이 있으면(예: 정커퀸 스킬 패러디 글) 원문 사진 > 그 영웅 짤
+  (검색:오버워치 정커퀸 ○○ 짤) > 그 영웅 프로필 순. 다른 영웅 짤은 그 줄이 그 영웅 얘기일 때만 (키리코 줄 → 키리코).
 - 펀치라인(예: "몰라서묻나")은 그 말에 맞는 리액션 짤과 함께 보여 준다. 짤 고르기 예:
   되묻기·버럭(몰라서묻나, 그걸 왜 나한테) → 윈스턴 포효 짤 / 어이없음 → 멍한 표정 짤.
   검색어는 '오버워치 윈스턴 포효 짤'처럼 그림이 떠오르게 쓴다 (대사 글자 그대로 검색하지 않는다).
@@ -103,6 +105,26 @@ def politics_target(source: str, heroes: tuple[Hero, ...] | None = None) -> str 
     return min(dps)[1] if dps else None
 
 
+def main_hero(source: str, heroes: tuple[Hero, ...] | None = None) -> str | None:
+    """글의 주인공 영웅: 이름·별명·스킬 이름이 2번 이상, 둘째 영웅의 두 배 이상 나올 때만.
+    여러 영웅이 고루 나오는 글(조합 얘기)은 주인공이 없다."""
+    heroes = load_heroes() if heroes is None else heroes
+    def hits(h: Hero) -> int:  # 겹치지 않게 센다 ('키리코' 안의 '키리'를 두 번 세지 않음)
+        terms = sorted({t for t in h.names + h.skills if t}, key=len, reverse=True)
+        return len(re.findall("|".join(map(re.escape, terms)), source)) if terms else 0
+
+    counts = sorted(((hits(h), h.ko) for h in heroes), reverse=True)
+    if not counts or counts[0][0] < 2:
+        return None
+    if len(counts) > 1 and counts[0][0] < 2 * counts[1][0]:
+        return None
+    return counts[0][1]
+
+
+def heroes_in(text: str, heroes: tuple[Hero, ...]) -> list[Hero]:
+    return [h for h in heroes if any(n in text for n in h.names)]
+
+
 def parse_image(image: str) -> tuple[str, str] | None:
     """'영웅:메르시' → ('hero', '메르시'). 앞말이 없으면 검색으로 본다."""
     s = (image or "").strip()
@@ -137,6 +159,15 @@ def fix_reaction(image: str, say: str, source: str, memes: list[Meme],
             warn.append(f"짤 장면 영웅 '{name}' 이 글에 없어 " + (f"'{alt}' 로 바꿨습니다" if alt else "뺐습니다"))
             return (f"영웅:{alt}" if alt else ""), warn
         return f"영웅:{h.ko if h else name}", warn
+    # 짤은 글 주제(주인공 영웅)에 맞춘다 (2026-11-15 사용자: 퀸 글이면 퀸 짤).
+    # 다른 영웅 짤은 그 줄이나 글에 그 영웅이 나올 때만.
+    main = main_hero(source, heroes) if heroes else None
+    named = heroes_in(name, heroes)
+    if main and named and not any(h.in_text(source + say) for h in named):
+        warn.append(f"짤 '{name}' 이 글 주제와 달라 '{main}' 짤로 바꿨습니다")
+        return f"검색:오버워치 {main} 짤 {re.sub(r'[^가-힣 ]', '', say)[:12].strip()}".strip(), warn
+    if kind == "search" and main and not named:
+        name = f"오버워치 {main} {name.replace('오버워치', '').strip()}".strip()
     if kind == "meme" and not any(m.name == name for m in memes):
         return f"검색:{name}", warn
     return f"{'짤' if kind == 'meme' else '검색'}:{name}", warn
@@ -343,9 +374,21 @@ def resolve_segments(segs: list[dict[str, Any]], *, style_dir: str | Path | None
         except Exception as err:  # noqa: BLE001 - 짤 하나 못 구해도 대본은 살린다
             s["image_path"] = ""
             asked = s["image"]
+            used = {sg.get("image_path") for sg in segs if sg is not s}
             first = next((m for m in media or [] if m.get("kind") == "image"), None)
-            if first is not None:  # 빈 화면보다는 원문 첫 사진
-                s["image"], s["image_path"] = f"원문:{first['name']}", str(first["path"])
+            hero = main_hero(context)
+            done = ""
+            # 빈 화면 대신: 아직 안 쓴 원문 사진 → 글 주인공 영웅 프로필 → 원문 사진 (같은 그림 반복은 피함)
+            if first is not None and str(first["path"]) not in used:
+                s["image"], s["image_path"], done = f"원문:{first['name']}", str(first["path"]), "원문 사진"
+            elif hero:
+                try:
+                    s["image_path"] = str(hero_image(hero, cache / "heroes", get))
+                    s["image"], done = f"영웅:{hero}", f"{hero} 프로필"
+                except Exception:  # noqa: BLE001
+                    done = ""
+            if not done and first is not None:
+                s["image"], s["image_path"], done = f"원문:{first['name']}", str(first["path"]), "원문 사진"
             warnings.append(f"{i + 1}번째 장면 짤({asked}): {str(err)[:120]}"
-                            + (" → 원문 사진으로 대신" if first is not None else ""))
+                            + (f" → {done}으로 대신" if done else ""))
     return warnings

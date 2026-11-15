@@ -263,3 +263,31 @@ def test_validate_reaction_segment():
     assert segs[1]["image"] == "검색:윈스턴 포효 짤" and segs[1]["say"] == "몰라서묻나"
     assert display_seconds(segs[1], [], []) >= 2.0
     assert all(ln["part"] == "pause" for ln in flatten(segs, [], []))  # TTS 끔 → 읽지 않음
+
+
+def test_comment_windows_are_contiguous_and_fill_page():
+    from overshorts.script.segments import PAGE_H, comment_height, comment_windows
+
+    cm = [{"text": f"댓글 {i}", "depth": 1 if i % 4 == 3 else 0} for i in range(40)]
+    cm[5]["dccon"] = {"name": "x"}
+    pages = comment_windows([2, 6, 30], cm)
+    assert pages[0][0] == 2 and pages[0] == list(range(pages[0][0], pages[0][-1] + 1))  # 건너뛰지 않음
+    assert 5 in pages[0]  # 디시콘 댓글도 그대로
+    assert sum(comment_height(cm[n]) for n in pages[0]) > PAGE_H * 0.8  # 칸을 채움
+    assert not set(pages[0]) & set(pages[1]) and 30 in pages[-1]
+    assert comment_windows([3], cm)[0][0] == 2  # 답글이면 원댓글부터
+
+
+def test_memes_follow_main_hero():
+    from overshorts.script.game_check import load_heroes
+    from overshorts.script.reactions import fix_reaction, main_hero
+
+    if not load_heroes():
+        return
+    queen = "퀸장연 기습시위\n도륙 부상 지속시간 동안\n톱니칼 명중 시\n전 맵 키리코 유저 컴퓨터 폭발"
+    assert main_hero(queen) == "정커퀸"
+    img, warn = fix_reaction("짤:윈스턴 포효", "도륙 부상", queen, [])
+    assert img.startswith("검색:오버워치 정커퀸") and warn
+    assert fix_reaction("영웅:키리코", "전 맵 키리코 유저 컴퓨터 폭발", queen, [])[0] == "영웅:키리코"
+    comp = "거점전 몰표하고 엠레 위도우 메르시 키리코 고르고\n우리탱 왜던짐?\n몰라서묻나"
+    assert main_hero(comp) is None  # 조합 얘기엔 주인공이 없다 → 리액션 짤 그대로
