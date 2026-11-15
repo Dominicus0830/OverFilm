@@ -130,6 +130,9 @@ def main(argv: list[str] | None = None) -> int:
     ap_ = sub.add_parser("approve", help="작업 승인 (패널 전 임시)")
     ap_.add_argument("job", type=int)
     sub.add_parser("render", help="승인된 작업 최종 렌더 (Remotion)")
+    of = sub.add_parser("overfilm", help="검수한 작업을 OverFilm 편집기로 넘기기 (.overshorts 장면 파일)")
+    of.add_argument("job", type=int)
+    of.add_argument("--no-open", action="store_true", help="파일만 만들고 편집기는 열지 않음")
     sv = sub.add_parser("serve", help="패널 열기 (브라우저 자동)")
     sv.add_argument("--port", type=int, default=8765)
     sv.add_argument("--no-browser", action="store_true")
@@ -204,6 +207,19 @@ def main(argv: list[str] | None = None) -> int:
                                    str(v.get("narrator") or "edge:ko-KR-SunHiNeural"),
                                    str(v.get("comment") or "") or None)
             print(f"음성 {counts['voiced']}개, 실패 {counts['failed']}")
+            return 0
+        if args.cmd == "overfilm":
+            from .pipeline import Pipeline
+
+            try:
+                out = Pipeline(cfg, store, data).export_overfilm(args.job, open_editor=not args.no_open)
+            except (OSError, RuntimeError, ValueError) as err:
+                print(f"넘기기 실패: {err}", file=sys.stderr)
+                return 1
+            print(out["path"])
+            if not out["opened"] and not args.no_open:
+                print("OverFilm 편집기를 못 찾았습니다: 편집기에서 파일 ▸ OverShorts 쇼츠 열기로 위 파일을 여세요"
+                      " (또는 config.yaml 의 overfilm.editor 에 OverFilm.exe 경로)", file=sys.stderr)
             return 0
         if args.cmd in ("filter", "script"):
             return _llm_stage(args, cfg, store)

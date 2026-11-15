@@ -96,6 +96,7 @@ export const CardStory: React.FC<Record<string, unknown>> = (props) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const scene = useScene(spec, frame / fps);
+  const stage = spec.layers === 'stage';
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY, background: spec.theme.dark ? '#0d0f12' : '#fff'}}>
       <AbsoluteFill style={{top: 960}}>
@@ -108,12 +109,15 @@ export const CardStory: React.FC<Record<string, unknown>> = (props) => {
           <AbsoluteFill style={{background: 'linear-gradient(180deg, #1b2330 0%, #0b0d10 100%)'}} />
         )}
       </AbsoluteFill>
-      <TitleBar spec={spec} />
+      {/* layers=stage: OverFilm 편집기로 넘길 장면만 (제목 글자·자막·출처·소리는 편집기 클립으로) */}
+      <TitleBar spec={stage ? {...spec, title: ''} : spec} />
       <PostCard spec={spec} scene={scene} />
-      <Captions spec={spec} scene={scene} />
-      <div style={{position: 'absolute', bottom: 70, left: 0, right: 0, textAlign: 'center',
-        fontSize: 30, color: 'rgba(255,255,255,0.75)'}}>{spec.source}</div>
-      {spec.audio ? <Audio src={src(spec.audio)} /> : null}
+      {stage ? null : <Captions spec={spec} scene={scene} />}
+      {stage ? null : (
+        <div style={{position: 'absolute', bottom: 70, left: 0, right: 0, textAlign: 'center',
+          fontSize: 30, color: 'rgba(255,255,255,0.75)'}}>{spec.source}</div>
+      )}
+      {spec.audio && !stage ? <Audio src={src(spec.audio)} /> : null}
     </AbsoluteFill>
   );
 };

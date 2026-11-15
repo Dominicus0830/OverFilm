@@ -30,6 +30,9 @@ render:
   background_dir: ./assets/bg   # 직접 녹화했거나 라이선스 있는 배경 영상만
   out_dir: ./data/approved
   browser_executable: null      # 비우면 Remotion 이 받은 Chrome
+overfilm:
+  editor: null            # OverFilm.exe 경로. 비우면 설치본(%LOCALAPPDATA%\Programs\OverFilm)·PATH 에서 찾음
+  open: true              # 넘기면 편집기를 바로 띄움 (false = .overshorts 파일만 만듦)
 style:
   dir: ../style
   speech: 반말            # 반말 | 해요체 (채널당 하나)
