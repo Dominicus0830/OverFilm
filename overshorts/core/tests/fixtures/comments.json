@@ -1,0 +1,8 @@
+{"total_cnt":6,"comment_cnt":0,"comments":[
+{"no":"5000001","parent":"1000200","name":"가","ip":"","reg_date":"11.14 17:44:07","nicktype":"00","depth":0,"del_yn":"N","is_delete":"0","memo":"이거 진짜 필요했음"},
+{"no":"5000002","parent":"1000200","name":"나","ip":"","reg_date":"11.14 17:45:31","nicktype":"00","depth":1,"del_yn":"N","is_delete":"0","memo":"<img class=\"written_dccon \" src=\"https:\/\/dcimg5.dcinside.com\/dccon.php?no=x\">"},
+{"no":"5000003","parent":"1000200","name":"다","ip":"1.2","reg_date":"11.14 17:46:00","nicktype":"01","depth":1,"del_yn":"N","is_delete":"0","memo":"그건 때마다 다르지<br>케어 못하는 힐러도 많음"},
+{"no":0,"parent":"1000200","name":"댓글돌이","ip":"","reg_date":"","nicktype":"COMMENT_BOY","depth":0,"del_yn":"N","is_delete":"0","memo":"<div class=\"comment_dory\">광고</div>"},
+{"no":"5000004","parent":"1000200","name":"라","ip":"","reg_date":"11.14 17:50:00","nicktype":"00","depth":0,"del_yn":"Y","is_delete":"1","memo":"삭제된 댓글"},
+{"no":"5000005","parent":"1000200","name":"마","ip":"","reg_date":"11.14 18:00:00","nicktype":"00","depth":0,"del_yn":"N","is_delete":"0","memo":"숫자로 보이면 덜 싸울 듯"}
+],"pagination":"","allow_reply":1,"comment_view_cnt":6,"nft":false}
