@@ -67,6 +67,9 @@ class Segment(BaseModel):
     image: str = Field(default="", max_length=70,
                        description="reaction 일 때 띄울 그림: '영웅:이름' / '짤:짤 모음 이름' / '검색:찾을 짤'")
     say: str = Field(default="", max_length=40, description="reaction 일 때 화면 자막 (원문 대사 그대로)")
+    say_style: Literal["calm", "shout", "question", "sad", "smug"] = Field(
+        default="calm", description="reaction 자막 모양: calm=무심한 흰 글자, shout=크고 굵은 빨강(버럭), "
+                                    "question=흰 굵은 글자(되묻기), sad=손글씨 파랑(시무룩), smug=노랑 굵게(약올림)")
 
 
 class ScriptAnswer(BaseModel):

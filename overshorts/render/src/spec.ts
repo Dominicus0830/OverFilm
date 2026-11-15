@@ -27,7 +27,8 @@ export type SpecSegment = {
   media: SpecMedia[]; comments: SpecComment[]; quote: string;
   image: string | null; say: string; // reaction: 짤·영웅 프로필 + 대사 (자막은 captions 에)
 };
-export type SpecCaption = {start: number; end: number; seg: number; words: SpecWord[]};
+export type SayStyle = 'calm' | 'shout' | 'question' | 'sad' | 'smug';
+export type SpecCaption = {start: number; end: number; seg: number; words: SpecWord[]; style: SayStyle | null};
 export type RenderSpec = {
   version: 1 | 2;
   preset: 'frame' | 'card';
@@ -118,6 +119,7 @@ export function sanitize(input: unknown): RenderSpec {
   }));
   const captions: SpecCaption[] = (Array.isArray(s.captions) ? s.captions.slice(0, 400) : []).map((c) => ({
     start: t(c?.start), end: t(c?.end), seg: num(c?.seg, 0, 0, 20), words: words(c?.words).slice(0, 8),
+    style: (['calm', 'shout', 'question', 'sad', 'smug'] as readonly unknown[]).includes(c?.style) ? c.style as SayStyle : null,
   }));
   return {
     version: s.version === 2 ? 2 : 1,

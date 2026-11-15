@@ -225,7 +225,7 @@ class Pipeline:
             raise ValueError("작업을 찾지 못했습니다")
         return row
 
-    def add_reaction(self, job_id: int, after: int, image: str, say: str) -> None:
+    def add_reaction(self, job_id: int, after: int, image: str, say: str, say_style: str = "calm") -> None:
         """검수 화면에서 짤 장면 넣기 (after 번째 세그먼트 뒤). 그림을 구한 뒤 음성·미리보기 다시."""
         from .script.reactions import parse_image, resolve_segments
 
@@ -240,7 +240,8 @@ class Pipeline:
             if kind_name else ""
         seg = {"kind": "reaction", "subtitle": "", "tts": False, "tts_reason": "검수에서 넣은 짤",
                "lines": [say] if say else [], "media": [], "comments": [], "read": [], "quote": "",
-               "image": img, "say": say}
+               "image": img, "say": say,
+               "say_style": say_style if say_style in ("calm", "shout", "question", "sad", "smug") else "calm"}
         settings = script_settings(self.cfg)
         warn = resolve_segments([seg], style_dir=settings.style_dir, cache=Path(settings.assets_dir or
                                 self.data / "assets"), router=self.router(),

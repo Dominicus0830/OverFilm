@@ -167,6 +167,9 @@ def _silences(spans: list[tuple[float, float]], duration: float) -> float:
     return max(longest, duration - t)
 
 
+SAY_STYLES = ("calm", "shout", "question", "sad", "smug")
+
+
 def silent_captions(texts: list[str], start: float, end: float, seg: int) -> list[dict[str, Any]]:
     """TTS 를 끈 장면의 자막: 글자 수에 비례해 시간을 나눠 같은 2~4단어 묶음으로 보여 준다."""
     words = [w for t in texts for w in t.split()]
@@ -280,9 +283,14 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
             path = str(seg.get("image_path") or "")
             out["image"] = _copy(path, public, f"r{i}") if path else None
             out["say"] = str(seg.get("say") or "")
+            style = str(seg.get("say_style") or "calm")
+            out["say_style"] = style if style in SAY_STYLES else "calm"
         if out["kind"] == "reaction" and not seg.get("tts") and out["say"].strip():
             # 짤 장면 대사는 소리 없이 자막으로 (다른 장면의 나레이션 줄은 TTS 를 켤 때만 자막이 된다)
-            silent += silent_captions([out["say"]], start, end, i)
+            # 대사는 한 덩어리로 (스타일 자막)
+            silent.append({"start": round(start + 0.1, 3), "end": round(end, 3), "seg": i,
+                           "style": out["say_style"],
+                           "words": [{"text": out["say"], "start": round(start + 0.1, 3), "end": round(end, 3)}]})
         segments.append(out)
     has_media = any(sg["media"] or sg.get("image") for sg in segments)
     preset = opts.preset if opts.preset in ("frame", "card") else ("frame" if has_media else "card")

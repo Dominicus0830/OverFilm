@@ -35,7 +35,7 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
   const [regen, setRegen] = useState(false);
   const [report, setReport] = useState<{line: number; reason: string} | null>(null);
   const [msg, setMsg] = useState('');
-  const [react, setReact] = useState<{after: number; image: string; say: string} | null>(null);
+  const [react, setReact] = useState<{after: number; image: string; say: string; say_style: string} | null>(null);
   const [library, setLibrary] = useState<{memes: {name: string; use: string}[]; heroes: string[]}>({memes: [], heroes: []});
   const player = useRef<PlayerRef>(null);
 
@@ -256,7 +256,7 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
               })}
               {item.script.segments && (
                 <button className="small-btn" data-automation-id={`seg-add-reaction-${seg}`}
-                  onClick={() => setReact({after: seg, image: '', say: ''})}>＋ 이 뒤에 짤</button>
+                  onClick={() => setReact({after: seg, image: '', say: '', say_style: 'calm'})}>＋ 이 뒤에 짤</button>
               )}
             </div>
           ))}
@@ -279,6 +279,16 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
                 <input value={react.say} maxLength={40} data-automation-id="reaction-say"
                   onChange={(e) => setReact({...react, say: e.target.value})}
                   onKeyDown={(e) => { if (e.key === 'Enter') sendReaction(); }} />
+              </label>
+              <label className="small">자막 모양
+                <select value={react.say_style} data-automation-id="reaction-style"
+                  onChange={(e) => setReact({...react, say_style: e.target.value})}>
+                  <option value="calm">무심하게 (흰 글자)</option>
+                  <option value="question">되묻기 (흰 굵은 글자)</option>
+                  <option value="shout">버럭 (크고 굵은 빨강)</option>
+                  <option value="sad">시무룩 (손글씨 파랑)</option>
+                  <option value="smug">약올림 (노랑 굵게)</option>
+                </select>
               </label>
               <div className="actions"><button className="primary" onClick={sendReaction}>넣기</button>
                 <button onClick={() => setReact(null)}>취소</button></div>

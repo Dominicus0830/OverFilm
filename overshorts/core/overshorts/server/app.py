@@ -126,6 +126,7 @@ class ReactionIn(BaseModel):
     after: int = Field(ge=-1, le=20, description="이 세그먼트 뒤에 넣는다 (-1 = 맨 앞)")
     image: str = Field(default="", max_length=70, description="'영웅:이름' / '짤:이름' / '검색:찾을 짤'")
     say: str = Field(default="", max_length=40)
+    say_style: str = Field(default="calm", pattern="^(calm|shout|question|sad|smug)$")
 
 
 class MemeIn(BaseModel):
@@ -431,7 +432,8 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
     def add_reaction(job_id: int, body: ReactionIn) -> dict[str, Any]:
         """짤 장면 넣기 (2026-11-15 사용자 편집 규칙) → 음성·미리보기 다시."""
         _job_status(job_id)
-        worker.submit(f"작업 {job_id} 짤 넣기", lambda p: p.add_reaction(job_id, body.after, body.image, body.say))
+        worker.submit(f"작업 {job_id} 짤 넣기", lambda p: p.add_reaction(job_id, body.after, body.image, body.say,
+                                                                     body.say_style))
         return {"ok": True}
 
     @app.delete("/api/review/{job_id}/segment/{seg}")

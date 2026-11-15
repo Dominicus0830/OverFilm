@@ -9,8 +9,8 @@ import {
 import {
   BodyText, CommentPage, PhotoBlock, PostHead, SKIN_W, Scaled, photoHeight, textHeight, useScroll,
 } from './DcSkin';
-import {FONT_FAMILY, loadFonts} from './fonts';
-import {RenderSpec, SpecMedia, SpecSegment, sanitize} from './spec';
+import {FONT_FAMILY, HAND_FONT, SHOUT_FONT, loadFonts} from './fonts';
+import {RenderSpec, SayStyle, SpecMedia, SpecSegment, sanitize} from './spec';
 
 loadFonts();
 
@@ -35,12 +35,31 @@ const Title: React.FC<{text: string; height: number}> = ({text, height}) => (
   </div>
 );
 
+// 짤 장면 대사: 상황에 맞춰 색·크기·글꼴 (2026-11-15 사용자 의견). 흔들기·확대 같은 연출은 없음.
+const SAY_LOOK: Record<SayStyle, React.CSSProperties> = {
+  calm: {fontFamily: FONT_FAMILY, fontWeight: 700, fontSize: 66, color: '#FFFFFF', WebkitTextStroke: '10px #000'},
+  question: {fontFamily: FONT_FAMILY, fontWeight: 800, fontSize: 74, color: '#FFFFFF', WebkitTextStroke: '12px #000'},
+  shout: {fontFamily: SHOUT_FONT, fontWeight: 400, fontSize: 118, color: '#FF3B30', WebkitTextStroke: '16px #000',
+    letterSpacing: 2},
+  sad: {fontFamily: HAND_FONT, fontWeight: 700, fontSize: 84, color: '#9CC9FF', WebkitTextStroke: '10px #000'},
+  smug: {fontFamily: SHOUT_FONT, fontWeight: 400, fontSize: 96, color: '#FFD43B', WebkitTextStroke: '14px #000'},
+};
+
+const SayCaption: React.FC<{text: string; style: SayStyle; height: number}> = ({text, style, height}) => (
+  <div style={{position: 'absolute', left: 30, right: 30, top: pct(height, SAFE.caption[0] - 2),
+    height: pct(height, SAFE.caption[1] - SAFE.caption[0] + 4), display: 'flex', alignItems: 'center',
+    justifyContent: 'center', textAlign: 'center'}}>
+    <div style={{lineHeight: 1.1, wordBreak: 'keep-all', paintOrder: 'stroke fill', ...SAY_LOOK[style]}}>{text}</div>
+  </div>
+);
+
 const Caption: React.FC<{spec: RenderSpec; height: number}> = ({spec, height}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const t = frame / fps;
   const cap = spec.captions.find((c) => t >= c.start && t < c.end);
   if (!cap) return null;
+  if (cap.style) return <SayCaption text={cap.words.map((w) => w.text).join(' ')} style={cap.style} height={height} />;
   // 한 색으로 2~4단어를 통째로 보여 준다 (글자별 색 바뀜·확대 없음)
   return (
     <div style={{position: 'absolute', left: 40, right: 40, top: pct(height, SAFE.caption[0]),
@@ -121,7 +140,14 @@ const SegmentStage: React.FC<{spec: RenderSpec; seg: SpecSegment; next: SpecSegm
     : (next?.media.length ? [{...next.media[0], start: seg.start, end: seg.end, muted: true}] : []);
   const m = current(items, t);
   if (!m) {
-    return wrap(<TextPage spec={spec} text="" head view={box.h} start={seg.start} end={seg.end} />);
+    // 사진 없는 글: 디시 글 머리만 스크린샷처럼 (아래를 흰 칸으로 채우지 않음)
+    const k = 1080 / SKIN_W;
+    const hh = Math.round(64 * k);
+    return wrap(
+      <div style={{position: 'absolute', left: 0, right: 0, top: Math.round((box.h - hh) / 2), height: hh}}>
+        <Scaled width={1080} height={hh}><PostHead post={spec.post} /></Scaled>
+      </div>,
+    );
   }
   const head = seg.kind === 'title' || m.number === 1;
   return wrap(<PhotoPage key={m.src + m.start} spec={spec} m={m} head={head} view={box.h}

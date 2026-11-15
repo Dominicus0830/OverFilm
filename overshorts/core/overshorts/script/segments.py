@@ -148,7 +148,7 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
         if seg.kind == "reaction":
             image, warn = fix_reaction(seg.image, seg.say, source, memes or [])
             warnings += warn
-            s["image"], s["say"] = image, seg.say.strip()[:40]
+            s["image"], s["say"], s["say_style"] = image, seg.say.strip()[:40], seg.say_style
             s["lines"] = [s["say"]] if s["say"] else []
             if not image and not s["say"]:
                 continue
