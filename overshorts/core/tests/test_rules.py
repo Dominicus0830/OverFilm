@@ -35,3 +35,23 @@ def test_length_and_image_only():
 def test_block_words():
     r = check_post("제목", LONG + " 광고문의", cfg=RuleConfig(block_words=["광고문의"]))
     assert r.reasons == ["금지어: 광고문의"]
+
+
+def test_settings_save_and_complete(tmp_path):
+    import pytest
+    import yaml
+
+    from overshorts.config import check_settings, complete_config_file, load_config, save_settings
+
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("style:\n  dir: ./style\ndata_dir: ./data\n", encoding="utf-8")
+    assert "llm" in complete_config_file(cfg)
+    assert complete_config_file(cfg) == []  # 두 번째엔 그대로
+    assert load_config(cfg)["llm"]["filter"] == "ollama"
+    save_settings(cfg, check_settings({"llm": {"filter": "claude_code", "fallback": "claude_code"}}))
+    data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+    assert data["llm"]["filter"] == "claude_code" and data["style"]["dir"] == "./style"
+    with pytest.raises(ValueError):
+        check_settings({"llm": {"filter": "gpt"}})
+    with pytest.raises(ValueError):
+        check_settings({"data_dir": {"x": "y"}})

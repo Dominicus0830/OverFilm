@@ -100,6 +100,11 @@ def _serve(args) -> int:
 
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     print(f"OverShorts 패널: {url}")
+    from .config import complete_config_file
+
+    added = complete_config_file(args.config)
+    if added:
+        print(f"설정 파일에 기본값을 채웠습니다: {', '.join(added)} ({args.config})")
     uvicorn.run(create_app(args.config), host="127.0.0.1", port=port, log_level="warning")
     return 0
 
