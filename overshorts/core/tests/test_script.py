@@ -195,3 +195,4 @@ def test_title_rules_and_check():
     assert "틀이 서로 다른 후보 3개" in task.system and "붙이지 않는다" in task.system
     assert check_title("충격! 햄스터 레전드") and not check_title("민간인부터 노린 햄스터 근황 ㄷㄷ")
     assert not check_title("브론즈 아나의 레전드 수면 장면") and check_title("드디어 칼 맞았다는 마우가")
+    assert not check_title("윈스 밴하면 딴거 하면 되는거 아님?") and check_title("여러분은 누구 밴함?")
