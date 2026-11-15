@@ -4,6 +4,7 @@ import {Home} from './screens/Home';
 import {NewJob} from './screens/NewJob';
 import {Queue} from './screens/Queue';
 import {Review} from './screens/Review';
+import {Settings} from './screens/Settings';
 
 const SCREENS = ['홈', '새로 만들기', '작업 큐', '검수', '보이스', '스타일', '소스', '설정'] as const;
 export type Screen = (typeof SCREENS)[number];
@@ -47,7 +48,8 @@ export function App() {
         {screen === '새로 만들기' && <NewJob go={setScreen} />}
         {screen === '작업 큐' && <Queue tick={tick} events={events} />}
         {screen === '검수' && <Review tick={tick} go={setScreen} />}
-        {['보이스', '스타일', '소스', '설정'].includes(screen) && (
+        {screen === '설정' && <Settings />}
+        {['보이스', '스타일', '소스'].includes(screen) && (
           <section className="empty">
             <h1>{screen}</h1>
             <p>이 화면은 다음 단계(M8)에서 만듭니다. 지금은 <code>config.yaml</code> 로 설정합니다.</p>
