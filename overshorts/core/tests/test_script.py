@@ -194,3 +194,4 @@ def test_title_rules_and_check():
     task = script_task("t", "b", [], [], load_style(None), "담백", "반말", [], 7.0, title_tail="none")
     assert "틀이 서로 다른 후보 3개" in task.system and "붙이지 않는다" in task.system
     assert check_title("충격! 햄스터 레전드") and not check_title("민간인부터 노린 햄스터 근황 ㄷㄷ")
+    assert not check_title("브론즈 아나의 레전드 수면 장면") and check_title("드디어 칼 맞았다는 마우가")

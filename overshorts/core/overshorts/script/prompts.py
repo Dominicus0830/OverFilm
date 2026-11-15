@@ -105,13 +105,13 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
         "'이건 몰랐네' 싶은 구체적 사실을 하나 이상 넣고 fact 에 적는다. 길이를 채우지 않는다: 글이 "
         f"짧으면 25초로 끝나도 된다. 나레이션 전체 {max_chars}자를 넘기지 않는다. 마지막 줄은 질문·"
         "훈계·구독 요청 없이 끝낸다. 원문의 욕설·혐오 표현은 나레이션에 옮기지 않는다.",
-        title_rules(title_tail) + "\n(ㅋㅋㅋ·ㄷㄷ 금지는 나레이션에만 적용, 제목 꼬리표는 위 5번을 따른다.)",
+        title_rules(title_tail) + "\n(ㅋㅋㅋ·ㄷㄷ 금지와 아래 사용자 금지 표현은 나레이션에만 적용한다. 제목은 위 제목 규칙만 따른다.)",
         f"말투: {SPEECH.get(speech, SPEECH['반말'])}로 통일. 톤: {TONES.get(tone, TONES['담백'])}",
         "쓰지 말 것: 여러분·인사·'알아볼게요', 충격·실화냐·소름·경악, '과연 그 결과는?' 같은 떡밥 질문, "
         "'~했다고 합니다' 반복, ㅋㅋㅋ·ㄹㅇ 남발, ~노 같은 정치색 커뮤 어미, 훈계·교훈, 구독·좋아요 요청.",
     ]
     if banned_words:
-        parts.append("사용자 금지 표현: " + ", ".join(banned_words[:100]))
+        parts.append("사용자 금지 표현(나레이션): " + ", ".join(banned_words[:100]))
     if style.guide.strip():
         parts.append("스타일 가이드:\n" + style.guide.strip())
     for i, g in enumerate(style.good):
