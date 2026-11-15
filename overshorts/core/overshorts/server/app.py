@@ -444,6 +444,19 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         hub.emit({"type": "jobs_changed"})
         return {"ok": True}
 
+    @app.post("/api/review/{job_id}/overfilm")
+    def to_overfilm(job_id: int) -> dict[str, Any]:
+        """OverFilm 편집기로 넘기기: 장면 파일을 만들고 편집기를 띄운다 (타임라인에서 사람이 더 고침)."""
+        if _job_status(job_id) not in ("preview_ready", "approved", "rendered"):
+            raise HTTPException(409, "미리보기가 준비된 작업만 넘길 수 있습니다")
+
+        def run(p: Pipeline) -> None:
+            out = p.export_overfilm(job_id)
+            hub.emit({"type": "overfilm", "job_id": job_id, **out})
+
+        worker.submit(f"작업 {job_id} OverFilm 편집기로", run)
+        return {"ok": True}
+
     @app.post("/api/review/{job_id}/edit")
     def edit(job_id: int, body: EditIn) -> dict[str, Any]:
         _job_status(job_id)

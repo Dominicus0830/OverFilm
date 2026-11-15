@@ -53,6 +53,8 @@ DEFAULTS: dict[str, Any] = {
         "max_images": 6,
         "proxy": None,
     },
+    # OverFilm 편집기로 넘기기: editor 비우면 설치본(%LOCALAPPDATA%\\Programs\\OverFilm)·PATH 에서 찾음
+    "overfilm": {"editor": None, "open": True},
     "gpu_tier": "auto",
     # 라데온도 지원 (사용자 결정 2026-11-14): auto 는 NVIDIA면 nvenc, AMD면 amf, 없으면 cpu.
     "encoder": "auto",

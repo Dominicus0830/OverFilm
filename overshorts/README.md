@@ -132,6 +132,28 @@ pytest                                                                # 저장 H
 아직 없음: 원문 미디어 분석(VLM·OCR 닉네임 흐림·장면 분할·물체 따라 크롭)은 표시 방식 이름만 받고
 크롭은 가운데 기준, 동영상 프레임 검사, Playwright 실제 댓글 캡처 모드, M9 양산(배치·변주·루프·효과음·메타데이터·썸네일·플랫폼).
 
+## OverFilm 편집기로 넘기기 (2026-11-15)
+
+검수 화면의 **OverFilm 편집기로 (O)** 버튼(또는 `overshorts overfilm <작업 번호>`)을 누르면 미리보기 그대로를
+OverFilm 편집기 타임라인으로 넘겨 사람이 더 고칠 수 있다. 작업 폴더 `data/jobs/<id>/overfilm/` 에
+`<제목>.overshorts` 장면 파일과 그 옆에 쓰는 파일(`stage/`, `media/`)을 만들고, 편집기를 찾으면 바로 띄운다.
+
+| 편집기 트랙 | 무엇 | 편집기에서 |
+|---|---|---|
+| 장면 | 디시 화면처럼 그린 글 머리·사진·본문·댓글창 (바뀌는 시각마다 투명 PNG, 천천히 내려가는 등 움직이는 구간만 H.264), 짤 원본 그림 | 그림 클립: 바꾸기·자르기·옮기기 |
+| 자막 | 노란 2~4단어 자막, 짤 장면 대사 (버럭·시무룩 등 색·크기·글꼴) | 글자 클립: 다시 쓰기·스타일 |
+| 제목 / 출처 | 위 고정 제목, 출처 표시 (끄면 없음) | 글자 클립 |
+| TTS / BGM / 원본 소리 | 나레이션, BGM (말할 때 −12dB 덕킹 = 볼륨 키프레임, 짧으면 반복), 원문 동영상 소리 | 소리 클립 |
+
+세그먼트마다 시퀀스 마커(‘3. 댓글’ 등)도 붙는다. 장면 그림은 Remotion 으로 그리므로(`render/scripts/stage-export.mjs`,
+`layers: 'stage'` = 제목·자막·출처·소리 없이) `render` 폴더에 `npm install` 이 돼 있어야 한다. 30초 시험 작업 기준 약 30초.
+
+- 편집기 찾는 순서: `config.yaml` 의 `overfilm.editor` → 설치본 `%LOCALAPPDATA%\Programs\OverFilm\OverFilm.exe` → PATH.
+  못 찾으면 파일만 만들고, 편집기에서 **파일 ▸ OverShorts 쇼츠 열기…**(또는 OverFilm 패널 ‘쇼츠’, 파일 끌어 놓기)로 연다.
+- 글꼴: Pretendard·Black Han Sans·Gaegu 를 PC 에 설치해 두면 렌더와 같은 모양, 없으면 편집기 기본 글꼴.
+- 원문 꾸밈(조각마다 다른 색)은 편집기 글자 클립에서 가장 긴 조각의 한 색으로 들어간다.
+- 편집기 쪽 형식·동작은 저장소 최상위 `OVERFILM.md` 의 ‘OverShorts shorts in the editor’.
+
 ## 다음
 
 - M6 클로닝(GPT-SoVITS, AMD 는 CPU), M7 OverFilm MCP·`doctor`, M8 설정 화면 전부

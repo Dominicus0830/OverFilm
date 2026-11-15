@@ -156,6 +156,35 @@ class Pipeline:
         self._say("render", f"렌더 {c['rendered']}개, 실패 {c['failed']}")
         self.emit({"type": "jobs_changed"})
 
+    def export_overfilm(self, job_id: int, open_editor: bool | None = None) -> dict[str, Any]:
+        """검수 화면 그대로를 OverFilm 편집기 장면 파일로 → 편집기에서 열기 (2026-11-15)."""
+        from .export.overfilm import export_job, find_editor, open_in_editor
+
+        job_dir = self.data / "jobs" / str(job_id)
+        if not (job_dir / "spec.json").is_file():
+            raise RuntimeError("미리보기가 아직 없는 작업입니다")
+        o = self.cfg.get("overfilm") or {}
+        r = self.cfg.get("render") or {}
+        self._say("overfilm", f"작업 {job_id}: 편집기로 넘길 장면 그리는 중")
+        path = export_job(job_dir, browser=r.get("browser_executable"))
+        try:
+            warnings = json.loads(path.read_text(encoding="utf-8")).get("warnings") or []
+        except (OSError, ValueError):
+            warnings = []
+        opened = False
+        editor = find_editor(o.get("editor"))
+        want = bool(o.get("open", True)) if open_editor is None else open_editor
+        if want and editor is not None:
+            open_in_editor(path, editor)
+            opened = True
+        msg = f"작업 {job_id}: {path.name} 만듦" + (" · OverFilm 편집기에서 엽니다" if opened else
+                                                  " · 편집기에서 파일 ▸ OverShorts 쇼츠 열기로 여세요")
+        if warnings:
+            msg += f" · 장면 {len(warnings)}개는 못 그림(편집기에서 빈자리): {warnings[0]}"
+        self._say("overfilm", msg, path=str(path))
+        return {"path": str(path), "opened": opened, "editor": str(editor) if editor else None,
+                "warnings": warnings}
+
     def _unload_ollama(self) -> None:
         for client in {id(c): c for c in getattr(self._router, "clients", {}).values()}.values():
             unload = getattr(client, "unload", None)

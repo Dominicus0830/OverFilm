@@ -1682,6 +1682,10 @@ fn build() -> Vec<CommandSpec> {
             if paths.is_empty() {
                 return Err(bad("file.import", "need `paths`"));
             }
+            // OverFilm: OverShorts shorts (dropped, picked or given at launch) open as sequences
+            if paths.iter().all(|x| crate::overfilm_shorts::is_scene_file(x)) {
+                return crate::overfilm_shorts::import_all(s, &paths);
+            }
             if bool_p(p, "replace").unwrap_or(false) {
                 let name = s.project.name.clone();
                 s.execute("file.newProject", json!({ "name": name }))?;
@@ -4055,6 +4059,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::overfilm_transcribe::commands());
     v.extend(crate::overfilm_assist::commands());
     v.extend(crate::overfilm_reel::commands());
+    v.extend(crate::overfilm_shorts::commands());
     v.extend(crate::overfilm_kills::commands());
     v.extend(crate::overfilm_lineup::commands());
     v.extend(crate::overfilm_style::commands());

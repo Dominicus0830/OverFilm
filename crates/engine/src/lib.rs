@@ -44,6 +44,7 @@ pub mod overfilm_kills;
 pub mod overfilm_lineup;
 pub mod overfilm_reel;
 pub mod overfilm_review;
+pub mod overfilm_shorts;
 pub mod overfilm_style;
 pub mod overfilm_transcribe;
 mod palette;

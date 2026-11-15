@@ -815,6 +815,33 @@ called with parameters, over the control channel or MCP, the command runs direct
 The labels are in English in the code and Korean in `crates/ui-egui/src/i18n/ko.tsv` (Edit ▸
 Language ▸ 한국어).
 
+## OverShorts shorts in the editor
+
+OverShorts (`overshorts/`, the DC gallery → shorts tool) hands a reviewed short to the editor so a
+person can keep editing it on the timeline. OverShorts writes `<title>.overshorts` (JSON, format
+`overshorts.scenes`, version 1) beside the files it names; `overfilm.shorts.import {path, open=true}`
+(File ▸ Open OverShorts Short…, the OverFilm panel's "Shorts" group, or any `.overshorts` given to
+File ▸ Import, dropped on the window or passed on the command line) makes from it, in one undo step:
+
+- a bin "OverShorts · <title>" with the files, and a sequence of the file's size and rate (1080×1920)
+  with the tracks it lists, first video track at the bottom: 장면 (pictures), 자막, 제목, 출처;
+  TTS, BGM, 원본 소리;
+- **texts** (title, captions, the source line) as graphic text clips: retyped, restyled and moved like
+  any title. Each has its text height, colours, outer stroke, font family and style, and the centre of
+  its block in frame pixels; it is wrapped at `maxWidth` and made smaller (down to 55 %) to stay
+  within `maxLines`;
+- **pictures** as clips scaled (`contain`, `cover` or `width`) and moved into their rectangle with
+  Motion: the DC-style pages OverShorts drew (full-frame transparent PNGs, or H.264 for a stretch
+  that moves) and the reaction pictures, which stay the original file so they are easy to swap;
+- **sounds** on their tracks, a looped one (BGM) repeated to its end, its `levels` (the ducking
+  under the narration) as Volume keyframes;
+- **markers**, one per segment.
+
+The editor does not lay anything out itself: positions come worked out from OverShorts
+(`overshorts/core/overshorts/export/overfilm.py`, matching `render/src/FrameStory.tsx`). Files that
+are missing or can't be opened are skipped and listed; numbers are clamped and lists capped, so a
+damaged file can't crash the editor. Code: `crates/engine/src/overfilm_shorts.rs` (+ `_tests.rs`).
+
 ## Name and icon
 
 The program shows itself as **OverFilm**: the window title (taskbar, Alt-Tab), the exe's
@@ -900,3 +927,4 @@ Settings → Code security; dependency updates come in through upstream merges.
 | `crates/ui-egui/src/i18n/ko.tsv` (values) | Korean labels say OverFilm where they said FilmCraft, except the FilmCraft website links |
 | `crates/engine/src/overfilm_autocut.rs` (+ `tests.rs`) | new file: Auto Cut commands (frames in, cuts out); `dissolve_at` is shared with the reel |
 | `crates/engine/src/overfilm_captions.rs` | new file: styled captions, Premiere styles in, and the Premiere Pro export |
+| `crates/engine/src/overfilm_shorts.rs` (+ `_tests.rs`) | new file: OverShorts shorts as sequences; registered in `commands.rs`, `mod` in `lib.rs`; `file.import` hands `.overshorts` files to it |

@@ -69,6 +69,15 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
     } catch (e) { setMsg((e as Error).message); }
   }, [item, lines]);
 
+  // OverFilm 편집기로: 지금 미리보기 그대로를 타임라인 클립(제목·자막·출처 글자, 장면 그림, 짤, 소리)으로 넘긴다
+  const toEditor = useCallback(async () => {
+    if (!item || dirty) return;
+    try {
+      await api(`/api/review/${item.job_id}/overfilm`, {});
+      setMsg('편집기로 넘길 장면을 그리는 중입니다 (작업 큐에서 진행 확인). 끝나면 OverFilm 편집기가 열립니다');
+    } catch (e) { setMsg((e as Error).message); }
+  }, [item, dirty]);
+
   const regenerate = async (body: {tone?: string; preset?: string}) => {
     if (!item) return;
     try {
@@ -79,7 +88,7 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
     setRegen(false);
   };
 
-  // 단축키: J/K 다음·이전, A 승인, E 수정 반영, R 재생성, D 폐기 (입력 중에는 끔)
+  // 단축키: J/K 다음·이전, A 승인, E 수정 반영, R 재생성, D 폐기, O 편집기로 (입력 중에는 끔)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -91,12 +100,13 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
       else if (k === 'e' && dirty) act('edit');
       else if (k === 'r') setRegen((r) => !r);
       else if (k === 'd') act('discard');
+      else if (k === 'o') toEditor();
       else return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [items.length, act, dirty]);
+  }, [items.length, act, dirty, toEditor]);
 
   const playLine = (i: number) => {
     const sc = spec?.scenes.filter((s) => s.line === i);
@@ -350,6 +360,9 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
               </div>
             )}
           </div>
+          <button disabled={dirty} onClick={toEditor} data-automation-id="review-overfilm"
+            title={dirty ? '고친 대본을 먼저 반영(E)하세요' : '제목·자막·짤·댓글 장·출처를 OverFilm 편집기 타임라인으로 넘겨 더 고칩니다'}>
+            OverFilm 편집기로 (O)</button>
           <button onClick={() => act('discard')} data-automation-id="review-discard">폐기 (D)</button>
         </div>
       </footer>

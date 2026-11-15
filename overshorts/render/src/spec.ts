@@ -56,6 +56,8 @@ export type RenderSpec = {
   background: string | null;
   theme: {dark: boolean; accent: string};
   scenes: SpecScene[];
+  /** 'stage' = 장면만 (제목·자막·출처·소리 없이, 투명 바탕): OverFilm 편집기로 넘길 그림을 그릴 때 */
+  layers?: 'all' | 'stage';
 };
 
 export const EMPTY_SPEC: RenderSpec = {
@@ -175,6 +177,7 @@ export function sanitize(input: unknown): RenderSpec {
     audio: typeof s.audio === 'string' ? s.audio : null,
     background: typeof s.background === 'string' ? s.background : null,
     theme: {dark: s.theme?.dark !== false, accent: str(s.theme?.accent, '#FFD43B') || '#FFD43B'},
+    layers: s.layers === 'stage' ? 'stage' : 'all',
     scenes: scenes.map((sc) => ({
       line: Math.round(num(sc?.line, 0, 0, 1000)),
       part: (['hook', 'body', 'comment', 'outro'] as const).includes(sc?.part) ? sc.part : 'body',

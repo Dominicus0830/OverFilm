@@ -45,6 +45,7 @@ const TOOL_GROUPS: &[(&str, &[(&str, &str)])] = &[
         ],
     ),
     ("Export", &[("file.exportMedia", "Export Media…"), ("overfilm.premiere.export", "Export for Premiere Pro…")]),
+    ("Shorts", &[("overfilm.shorts.import", "Open OverShorts Short…")]),
 ];
 
 /// The tools of all groups, in order.
@@ -60,6 +61,7 @@ fn group_label(group: &str) -> &'static str {
         "Read the match" => tl!("Read the match"),
         "Captions" => tl!("Captions"),
         "Export" => tl!("Export"),
+        "Shorts" => tl!("Shorts"),
         _ => "",
     }
 }

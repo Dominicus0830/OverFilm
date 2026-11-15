@@ -67,6 +67,25 @@ pub fn route(app: &mut FilmcraftApp, ctx: &egui::Context, id: &str, params: &Val
         app.show_panel(crate::dock::PanelKind::OverFilm);
         return Some(Ok(json!({"panel": "OverFilm"})));
     }
+    // Open OverShorts Short without a file: pick one
+    if id == "overfilm.shorts.import" && params.get("path").is_none() {
+        app.pick_ui(crate::native_dialogs::FileDialog::open_file("OverShorts", &[filmcraft_engine::overfilm_shorts::EXTENSION]), |app, paths| {
+            let Some(path) = paths.into_iter().next() else { return };
+            app.ui.status = match app.session.execute("overfilm.shorts.import", json!({"path": path})) {
+                Ok(v) => {
+                    let lost = v["missing"].as_array().map_or(0, Vec::len) + v["failed"].as_array().map_or(0, Vec::len);
+                    let mut msg = tlf!("Opened \"{name}\" as a sequence ({n} clips)", name = v["name"].as_str().unwrap_or_default(), n = v["clips"]);
+                    if lost > 0 {
+                        msg.push_str(" · ");
+                        msg.push_str(&tlf!("{n} file(s) not found", n = lost));
+                    }
+                    msg
+                }
+                Err(e) => plain_error(&e.to_string()),
+            };
+        });
+        return Some(Ok(json!({"dialog": "openShort"})));
+    }
     let command = COMMANDS.iter().copied().find(|c| *c == id)?;
     if !params.as_object().is_none_or(|m| m.is_empty()) {
         return None;

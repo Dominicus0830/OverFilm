@@ -196,6 +196,15 @@ export const FrameStory: React.FC<Record<string, unknown>> = (props) => {
   const seg = idx >= 0 ? spec.segments[idx] : null;
   const next = idx >= 0 && idx + 1 < spec.segments.length ? spec.segments[idx + 1] : null;
   const speaking = (f: number) => spec.scenes.some((s) => f / fps >= s.start && f / fps <= s.end);
+  if (spec.layers === 'stage') {
+    // OverFilm 편집기로 넘길 장면 그림: 제목·자막·출처·소리는 편집기에서 글자·소리 클립으로 따로 놓는다.
+    // 짤 장면은 원본 그림을 편집기에 그대로 놓으므로 그리지 않는다.
+    return (
+      <AbsoluteFill style={{fontFamily: FONT_FAMILY, background: 'transparent'}}>
+        {seg && seg.kind !== 'reaction' ? <SegmentStage spec={spec} seg={seg} next={next} height={height} /> : null}
+      </AbsoluteFill>
+    );
+  }
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY, background: '#000'}}>
       {seg ? <SegmentStage spec={spec} seg={seg} next={next} height={height} /> : null}
