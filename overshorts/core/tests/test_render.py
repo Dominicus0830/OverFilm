@@ -124,3 +124,20 @@ def test_rich_lines_follow_writer_styles():
     assert rich_lines("크아아아아악 ㅅㅂ 퀸장연 기습시위!!!", styles)[0][0]["color"] == "#ff0000"
     assert rich_lines("우리탱 왜던짐?", styles) is None
     assert rich_lines("아무 글", []) is None
+
+
+def test_decode_output_reads_cp949_errors():
+    from overshorts.proc import decode_output
+    msg = "'remotion'은(는) 내부 또는 외부 명령, 실행할 수 있는 프로그램, 또는 배치 파일이 아닙니다."
+    assert decode_output(msg.encode("cp949")) == msg
+    assert decode_output("렌더 완료".encode()) == "렌더 완료"
+    assert decode_output(None) == ""
+
+
+def test_render_calls_remotion_cli_with_node():
+    from pathlib import Path
+
+    from overshorts.render import runner
+    args = render_args(Path("s.json"), Path("p"), Path("o.mp4"), "cpu")
+    if runner.REMOTION_CLI.is_file() and __import__("shutil").which("node"):
+        assert args[1].endswith("remotion-cli.js") and args[2] == "render"

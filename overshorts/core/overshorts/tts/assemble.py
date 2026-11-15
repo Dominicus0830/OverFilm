@@ -17,6 +17,7 @@ import wave
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from ..proc import decode_output
 from .engines import Engine, Synth, TtsError, Word, get_engine, parse_voice
 
 SAMPLE_RATE = 48_000
@@ -75,7 +76,7 @@ def decode_to_pcm(audio: bytes, ffmpeg: str | None = None) -> bytes:
     except (OSError, subprocess.TimeoutExpired) as err:
         raise TtsError(f"FFmpeg 실행 실패: {err}") from err
     if proc.returncode != 0 or not proc.stdout:
-        raise TtsError(f"음성을 풀지 못했습니다: {proc.stderr.decode('utf-8', 'replace')[:200]}")
+        raise TtsError(f"음성을 풀지 못했습니다: {decode_output(proc.stderr)[:200]}")
     return proc.stdout
 
 
