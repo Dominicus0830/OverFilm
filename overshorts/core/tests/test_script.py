@@ -186,3 +186,11 @@ def test_validate_drops_missing_media_and_hostile_warns():
     assert [s["kind"] for s in segs] == ["title", "body", "comments"]
     assert segs[2]["comments"] == [0] and any("욕설" in w for w in warn)
     assert [s["kind"] for s in validate(ans, cm, [], "B")[0]] == ["title", "body"]
+
+
+def test_title_rules_and_check():
+    from overshorts.script.prompts import load_style, script_task
+    from overshorts.script.writer import check_title
+    task = script_task("t", "b", [], [], load_style(None), "담백", "반말", [], 7.0, title_tail="none")
+    assert "틀이 서로 다른 후보 3개" in task.system and "붙이지 않는다" in task.system
+    assert check_title("충격! 햄스터 레전드") and not check_title("민간인부터 노린 햄스터 근황 ㄷㄷ")

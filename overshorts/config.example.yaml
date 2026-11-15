@@ -34,6 +34,7 @@ style:
   dir: ../style
   speech: 반말            # 반말 | 해요체 (채널당 하나)
   min_cringe_score: 7
+  title_tail: auto        # 제목 꼬리표: none | ㄷㄷ | ㅋㅋㅋ | auto (글 분위기에 맞춰 0~1개)
 crawler:
   delay_sec: [1.5, 4]     # 요청마다 랜덤 간격 (1초 미만은 차단 위험)
   rest_every: 10          # 글 N개마다

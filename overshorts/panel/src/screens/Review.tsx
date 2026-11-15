@@ -175,6 +175,9 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
         <div className="col">
           <h3>대본 (문장별 편집)</h3>
           <p className="muted small">▶ 누르면 그 문장만 듣기 · 예상 {item.script.est_seconds}초</p>
+          <p className="small">화면 제목: <b>{item.script.title}</b>
+            {(item.script.title_alts ?? []).length > 0 && (
+              <span className="muted"> · 다른 후보: {(item.script.title_alts ?? []).join(' / ')}</span>)}</p>
           {item.script.composition && (
             <p className="muted small">구성 {item.script.composition}
               {item.script.composition === 'A' ? ' (제목 → 본문 → 댓글)' : ' (제목 → 본문)'}

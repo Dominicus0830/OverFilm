@@ -40,7 +40,7 @@ DEFAULTS: dict[str, Any] = {
     "render": {"preset": "auto", "tone": "담백", "background_dir": "./assets/bg",
                "composition": "auto", "max_comments": 6, "max_media": 6, "nickname": "original",
                "bgm_dir": None},
-    "style": {"dir": "../style", "min_cringe_score": 7, "speech": "반말"},
+    "style": {"dir": "../style", "min_cringe_score": 7, "speech": "반말", "title_tail": "auto"},
     "crawler": {
         "delay_sec": [1.5, 4],
         "rest_every": 10,
@@ -143,4 +143,5 @@ def script_settings(cfg: dict[str, Any], tone: str | None = None, default_style:
         composition=str(render.get("composition") or "auto"),
         max_comments=max(1, min(int(render.get("max_comments") or 6), 10)),
         max_media=max(1, min(int(render.get("max_media") or 6), 6)),
+        title_tail=str(style.get("title_tail") or "auto"),
     )

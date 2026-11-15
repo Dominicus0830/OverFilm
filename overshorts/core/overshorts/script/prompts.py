@@ -8,6 +8,7 @@ from pathlib import Path
 from ..llm import UNTRUSTED_RULE, Task, untrusted
 from .models import CATEGORY_KO
 from .segments import media_block, numbered_comments
+from .title_rules import title_rules
 
 TONES = {
     "담백": "담백하게. 사실을 그대로, 꾸밈말 없이.",
@@ -74,7 +75,7 @@ def filter_task(title: str, body: str, comments: list[str], block_categories: li
 def script_task(title: str, body: str, comments: list[dict], media: list[dict], style: Style,
                 tone: str, speech: str, banned_words: list[str], chars_per_sec: float,
                 feedback: list[str] | None = None, composition: str = "auto",
-                max_comments: int = 6) -> Task:
+                max_comments: int = 6, title_tail: str = "auto") -> Task:
     """세그먼트 대본 (기획서 3.3 개정 6): 구성 A/B, 세그먼트별 TTS 판단, 실제 댓글은 번호로만."""
     max_chars = int(55 * chars_per_sec)
     comp = {"A": "구성은 A 로 정해져 있다.", "B": "구성은 B 로 정해져 있다 (댓글 세그먼트 없음)."}.get(
@@ -104,12 +105,7 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
         "'이건 몰랐네' 싶은 구체적 사실을 하나 이상 넣고 fact 에 적는다. 길이를 채우지 않는다: 글이 "
         f"짧으면 25초로 끝나도 된다. 나레이션 전체 {max_chars}자를 넘기지 않는다. 마지막 줄은 질문·"
         "훈계·구독 요청 없이 끝낸다. 원문의 욕설·혐오 표현은 나레이션에 옮기지 않는다.",
-        "title(화면 위 고정 제목, 24자 안팎 1~2줄): 커뮤니티 글 제목 같은 말맛으로 짓는다. 눈길을 끄는 "
-        "자극적인 한 방(반전·핵심 장면·웃긴 지점)을 담되 보는 사람이 거부감을 느끼지 않게 쓴다. "
-        "내용 요약형('~의 과정', '~에 대한 이야기')·뉴스 제목 투·밋밋한 설명은 쓰지 않는다. 원문 제목의 "
-        "말맛이 좋으면 살리고, 욕설·비하는 순한 커뮤 말(녀석, 놈, 악질 등)로 바꾼다. 낚시 감탄(충격·경악)은 "
-        "금지. 예: '햄스터 이 녀석 생각보다 훨씬 악질이었음', '예고편 그 장면, 알고 보니 일부러 쏜 거였음', "
-        "'힐러 받은 힐량 뜨면 벌어질 일'.",
+        title_rules(title_tail) + "\n(ㅋㅋㅋ·ㄷㄷ 금지는 나레이션에만 적용, 제목 꼬리표는 위 5번을 따른다.)",
         f"말투: {SPEECH.get(speech, SPEECH['반말'])}로 통일. 톤: {TONES.get(tone, TONES['담백'])}",
         "쓰지 말 것: 여러분·인사·'알아볼게요', 충격·실화냐·소름·경악, '과연 그 결과는?' 같은 떡밥 질문, "
         "'~했다고 합니다' 반복, ㅋㅋㅋ·ㄹㅇ 남발, ~노 같은 정치색 커뮤 어미, 훈계·교훈, 구독·좋아요 요청.",

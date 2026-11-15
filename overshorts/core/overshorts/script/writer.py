@@ -9,15 +9,17 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..db import Store
 from ..llm import LimitReached, LlmError, Router
-from .checks import CheckResult, check_script, load_banned
+from .checks import CheckResult, _no_ending, check_script, load_banned
 from .models import CringeAnswer, ScriptAnswer
 from .prompts import cringe_task, load_style, script_task
 from .segments import flatten, media_items, validate
+from .title_rules import TITLE_BANNED
 
 MAX_REWRITES = 2
 
@@ -33,6 +35,7 @@ class ScriptSettings:
     composition: str = "auto"  # auto | A | B
     max_comments: int = 6
     max_media: int = 6
+    title_tail: str = "auto"  # none | ㄷㄷ | ㅋㅋㅋ | auto (제목 꼬리표, 채널 말투)
 
 
 @dataclass
@@ -60,7 +63,7 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
     while True:
         task = script_task(title, body, comments, media, style, settings.tone, settings.speech,
                            user_words, settings.chars_per_sec, feedback, settings.composition,
-                           settings.max_comments)
+                           settings.max_comments, settings.title_tail)
         script, model = router.ask(task, ScriptAnswer)
         segs, seg_warn = validate(script, comments, media, settings.composition,
                                   settings.max_comments, settings.max_media)
@@ -69,8 +72,9 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
         checks = check_script(spoken, body, texts, banned, settings.chars_per_sec)
         cringe = None
         problems: list[str] = []
-        if checks.needs_rewrite:
-            problems += checks.reasons()
+        title_issues = check_title(script.title)
+        if checks.needs_rewrite or title_issues:
+            problems += checks.reasons() + title_issues
         elif settings.cringe_check and spoken:
             pairs = [(ln["part"], ln["text"]) for ln in spoken]
             cringe, _ = router.ask(cringe_task(pairs), CringeAnswer)
@@ -78,7 +82,7 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
                 problems.append(f"오글 점수 {cringe.score:.1f} (기준 {settings.min_cringe_score:g})")
                 problems += [f"{i.line + 1}번째 나레이션 줄: {i.reason}" for i in cringe.issues]
         if not problems or rewrites >= MAX_REWRITES:
-            warnings = seg_warn + checks.reasons()
+            warnings = seg_warn + checks.reasons() + title_issues
             if cringe is not None and cringe.score < settings.min_cringe_score:
                 warnings.append(f"오글 점수 {cringe.score:.1f} 로 기준 미만")
             return ScriptOutcome(script, segs, lines, checks, cringe, model, rewrites, warnings)
@@ -113,6 +117,7 @@ def script_pending(store: Store, router: Router, settings: ScriptSettings,
         version = store.next_script_version(row["post_id"])
         payload = {
             "title": out.script.title,
+            "title_alts": [t for t in out.script.title_alts if t.strip() and t != out.script.title][:2],
             "fact": out.script.fact,
             "composition": "A" if any(sg["kind"] == "comments" for sg in out.segments) else "B",
             "composition_reason": out.script.composition_reason,
@@ -129,3 +134,14 @@ def script_pending(store: Store, router: Router, settings: ScriptSettings,
         counts["scripted"] += 1
         counts["warned"] += 1 if out.warnings else 0
     return counts
+
+
+def check_title(title: str) -> list[str]:
+    """제목 규칙 중 기계로 볼 수 있는 것: 금지어, 길이(12~24자 안팎)."""
+    out = [f"제목 금지어 '{w}'" for w in TITLE_BANNED if w in title]
+    n = len(title.replace(" ", ""))
+    if n > 28:
+        out.append(f"제목이 깁니다 ({n}자, 12~24자)")
+    if re.search(r"[가-힣]+노[\s?!.~]*$", title) and _no_ending(title):
+        out.append("제목에 ~노 어미")
+    return out
