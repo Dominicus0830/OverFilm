@@ -11,6 +11,7 @@ import random
 import re
 import shutil
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +87,7 @@ def build_spec(timing: dict[str, Any], title: str, subject: str, fact: str, sour
 # --- 프레임형 (기획서 3.5 개정 5·6) -------------------------------------------
 
 MAX_CAPTION_WORDS = 4
+MAX_CAPTION_CHARS = 13  # 74px 글씨로 한 줄
 _END_PUNCT = re.compile(r"[.?!,…~]$")
 SILENCE_LIMIT = 5.0
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".ogg", ".aac"}
@@ -107,12 +109,17 @@ def caption_chunks(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         groups: list[list[dict[str, Any]]] = []
         cur: list[dict[str, Any]] = []
         for w in words:
+            # 한 줄에 들어가게: 글자가 많으면 4단어 전에 끊는다
+            if len(cur) >= 2 and sum(len(str(x["text"])) for x in cur) + len(str(w["text"])) > MAX_CAPTION_CHARS:
+                groups.append(cur)
+                cur = []
             cur.append(w)
             if len(cur) >= MAX_CAPTION_WORDS or (_END_PUNCT.search(str(w["text"])) and len(cur) >= 2):
                 groups.append(cur)
                 cur = []
         if cur:
-            if len(cur) == 1 and groups and len(groups[-1]) < MAX_CAPTION_WORDS + 1:
+            if (len(cur) == 1 and groups and len(groups[-1]) < MAX_CAPTION_WORDS
+                    and sum(len(str(x["text"])) for x in groups[-1] + cur) <= MAX_CAPTION_CHARS + 3):
                 groups[-1].append(cur[0])
             else:
                 groups.append(cur)
@@ -208,7 +215,10 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                 if srcf is None:
                     continue
                 m_end = starts[k + 1] if k + 1 < len(starts) else end
+                number = int(m["name"].split()[-1]) if m["name"].split()[-1].isdigit() else 0
                 item = {"src": srcf, "kind": m["kind"], "display": pick.get("display", "fill"),
+                        "number": number,
+                        "caption": media_caption(opts.body, number) if m["kind"] == "image" else "",
                         "start": round(starts[k], 3), "end": round(max(m_end, starts[k] + 0.5), 3),
                         "width": m.get("width") or 0, "height": m.get("height") or 0,
                         "muted": True}
@@ -223,12 +233,8 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
             reads = {sc.get("comment_no"): (sc["start"], sc["end"]) for sc in base["scenes"]
                      if sc["seg"] == i and sc["part"] == "comment"}
             idx = [n for n in seg.get("comments") or [] if 0 <= n < len(comments)]
-            step = min(0.9, (end - start) * 0.6 / max(1, len(idx)))
-            for k, n in enumerate(idx):
+            for n in idx:
                 c = comments[n]
-                appear = start + 0.3 + k * step
-                if n in reads:
-                    appear = min(appear, reads[n][0] - 0.2)
                 con = c.get("dccon") or None
                 con_out = None
                 if con:
@@ -244,14 +250,10 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                 out["comments"].append({
                     "no": n, "nick": nick, "ip": ip, "icon": str(c.get("icon") or ""),
                     "text": str(c.get("text") or ""), "depth": int(c.get("depth") or 0),
-                    "dccon": con_out, "appear": round(max(start, appear), 3),
+                    "dccon": con_out, "appear": start, "page": 0,
                     "read": list(reads[n]) if n in reads else None,
                 })
-            # 위에서부터 차례로 쌓이게: 읽는 댓글 때문에 앞당긴 시각보다 앞 댓글이 늦지 않게
-            for k in range(len(out["comments"]) - 2, -1, -1):
-                nxt = out["comments"][k + 1]["appear"]
-                if out["comments"][k]["appear"] > nxt:
-                    out["comments"][k]["appear"] = round(max(start, nxt - 0.15), 3)
+            _paginate(out["comments"], start, end)
         elif out["kind"] == "body":
             out["quote"] = _quote(str(seg.get("quote") or ""), opts.body, i, segs_in)
         segments.append(out)
@@ -270,10 +272,91 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
     silence = _silences(sound, base["duration"])
     if bgm is None and silence > SILENCE_LIMIT:
         warnings.append(f"무음이 {silence:.1f}초 이어집니다 (BGM 폴더를 정하면 깔립니다)")
+    author = post.get("author") or {}
+    if opts.nickname == "replace":
+        author = {"nick": "ㅇㅇ", "ip": "", "icon": ""}
+    base.update(post={"title": str(post.get("title") or ""), "subject": str(post.get("subject") or ""),
+                      "nick": str(author.get("nick") or "ㅇㅇ"), "ip": str(author.get("ip") or ""),
+                      "icon": str(author.get("icon") or ""), "date": _dc_date(post.get("posted_at"))})
     base.update(version=2, preset=preset, post_title=str(post.get("title") or ""), segments=segments, captions=caption_chunks([sc for sc in base["scenes"] if sc["part"] != "comment"]),
                 bgm=bgm, nickname=opts.nickname if opts.nickname in ("original", "blur", "replace")
                 else "original", warnings=warnings)
     return base
+
+
+# 디시 스킨은 실제 디시 크기(가로 480px)로 그린 뒤 화면 폭에 맞게 키운다 (스크린샷처럼).
+SKIN_W = 480
+SKIN_SCALE = 1040 / SKIN_W
+PAGE_H = (0.66 - 0.28) * 1920 / SKIN_SCALE - 30  # 댓글창 머리 줄 빼고
+
+
+def comment_height(c: dict[str, Any]) -> float:
+    """디시 댓글 한 줄의 높이 어림 (가상 480px 기준). 답글은 들여써서 한 줄 글자가 적다."""
+    per_line = 22 if c.get("depth") else 25
+    text = str(c.get("text") or "")
+    lines = sum(max(1, -(-len(p) // per_line)) for p in text.split("\n")) if text else 0
+    return max(lines, 1) * 18 + (96 if c.get("dccon") else 0) + 16
+
+
+def _paginate(rows: list[dict[str, Any]], start: float, end: float) -> None:
+    """댓글을 스크린샷 한 장씩 나눈다. 원댓글과 그 답글은 되도록 같은 장에, 짧으면 여러 묶음을 한 장에.
+    장마다 보여 줄 시간은 글 양에 비례하고, TTS 가 읽는 댓글이 있는 장은 읽기 전에 나온다."""
+    threads: list[list[dict[str, Any]]] = []
+    for r in rows:
+        if r["depth"] and threads:
+            threads[-1].append(r)
+        else:
+            threads.append([r])
+    pages: list[list[dict[str, Any]]] = []
+    h = PAGE_H + 1
+    for th in threads:
+        th_h = sum(comment_height(r) for r in th) + (8 if len(th) > 1 else 0)
+        if pages and h + th_h <= PAGE_H:
+            pages[-1] += th
+            h += th_h
+        else:
+            pages.append(list(th))
+            h = th_h
+    if not pages:
+        return
+    weight = [sum(comment_height(r) for r in pg) for pg in pages]
+    total = sum(weight) or 1.0
+    t = start
+    starts = []
+    for w in weight:
+        starts.append(t)
+        t += (end - start) * w / total
+    for k, pg in enumerate(pages):
+        reads = [r["read"][0] for r in pg if r.get("read")]
+        if reads and k > 0:
+            starts[k] = min(starts[k], max(starts[k - 1] + 1.0, min(reads) - 0.3))
+    for k, pg in enumerate(pages):
+        for r in pg:
+            r["page"] = k
+            r["appear"] = round(starts[k], 3)
+
+
+def _dc_date(iso: Any) -> str:
+    try:
+        return datetime.fromisoformat(str(iso)).strftime("%Y.%m.%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return ""
+
+
+def media_caption(body: str, number: int) -> str:
+    """본문에서 [사진 N] 바로 아래 글 (다음 사진 전까지). 스크린샷처럼 사진 밑에 보인다."""
+    out: list[str] = []
+    on = False
+    for ln in (body or "").splitlines():
+        m = re.fullmatch(r"\s*\[(사진|영상) (\d+)\]\s*", ln)
+        if m:
+            if on:
+                break
+            on = m.group(1) == "사진" and int(m.group(2)) == number
+            continue
+        if on and ln.strip():
+            out.append(ln.strip())
+    return "\n".join(out)[:300]
 
 
 def _quote(quote: str, body: str, i: int, segs: list[dict[str, Any]]) -> str:
@@ -297,6 +380,7 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
     opts = opts or SpecOptions()
     rows = store.conn.execute(
         "SELECT j.id AS job_id, p.gall_id, p.gall_name, p.title, p.subject, p.body, p.images, p.comments, "
+        "p.author, p.posted_at, "
         "s.lines, j.preset FROM jobs j JOIN posts p ON p.id = j.post_id JOIN scripts s ON s.id = j.script_id "
         "WHERE j.status = 'aligned' ORDER BY j.id LIMIT ?", (max(1, min(limit, 1000)),),
     ).fetchall()
@@ -321,7 +405,8 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
             if script.get("segments"):
                 media = media_items(json.loads(row["images"] or "[]"))
                 comments = [c for c in json.loads(row["comments"] or "[]") if isinstance(c, dict)]
-                post = {"subject": row["subject"], "title": row["title"]}
+                post = {"subject": row["subject"], "title": row["title"],
+                        "author": json.loads(row["author"] or "{}"), "posted_at": row["posted_at"]}
                 spec = build_frame_spec(timing, script, post, public, source, bg_name,
                                         SpecOptions(preset, opts.nickname, opts.bgm_dir,
                                                     str(row["body"] or "")), media, comments)

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS posts (
     post_no INTEGER NOT NULL,
     gall_type TEXT NOT NULL DEFAULT 'board',
     gall_name TEXT NOT NULL DEFAULT '',
+    author TEXT NOT NULL DEFAULT '{}',
     title TEXT NOT NULL DEFAULT '',
     subject TEXT NOT NULL DEFAULT '',
     body TEXT NOT NULL DEFAULT '',
@@ -137,6 +138,8 @@ class Store:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(posts)").fetchall()}
         if "gall_name" not in cols:
             self.conn.execute("ALTER TABLE posts ADD COLUMN gall_name TEXT NOT NULL DEFAULT ''")
+        if "author" not in cols:
+            self.conn.execute("ALTER TABLE posts ADD COLUMN author TEXT NOT NULL DEFAULT '{}'")
 
     def close(self) -> None:
         self.conn.close()
@@ -188,6 +191,7 @@ class Store:
             "post_no": int(record["post_no"]),
             "gall_type": record.get("gall_type", "board"),
             "gall_name": record.get("gall_name", ""),
+            "author": json.dumps(record.get("author") or {}, ensure_ascii=False),
             "title": record.get("title", ""),
             "subject": record.get("subject", ""),
             "body": record.get("body", ""),

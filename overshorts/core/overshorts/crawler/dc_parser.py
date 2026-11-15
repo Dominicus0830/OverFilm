@@ -58,6 +58,7 @@ class Post:
     deleted: bool = False
     e_s_n_o: str = ""  # 댓글 요청에 필요한 값
     gall_name: str = ""  # 출처 표기용 갤러리 이름 ("오버워치 2 마이너 갤러리")
+    author: dict = field(default_factory=dict)  # {"nick", "ip", "icon"} 글 머리 화면용
 
 
 @dataclass
@@ -179,6 +180,14 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
     page_title = _text(soup.title)
     gall_name = page_title.rsplit(" - ", 1)[-1].strip() if " - " in page_title else ""
     date = soup.select_one(".gallview_head .gall_date") or soup.select_one(".gall_date")
+    writer = soup.select_one(".gallview_head .gall_writer") or soup.select_one(".gall_writer[data-nick]")
+    author: dict = {}
+    if writer is not None:
+        icon_img = writer.select_one("img[src*='nik']")
+        icon_src = str(icon_img.get("src") or "") if icon_img is not None else ""
+        author = {"nick": str(writer.get("data-nick") or "")[:30],
+                  "ip": str(writer.get("data-ip") or "")[:20],
+                  "icon": "fix" if "fix_" in icon_src else ("half" if writer.get("data-uid") else "")}
     return Post(
         gall_id=gall_id,
         post_no=post_no,
@@ -194,6 +203,7 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
         deleted=deleted,
         e_s_n_o=(esno.get("value") or "") if esno is not None else "",
         gall_name=gall_name[:60] if gall_name.endswith("갤러리") else "",
+        author=author,
     )
 
 

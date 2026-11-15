@@ -89,3 +89,18 @@ def test_frame_spec_media_and_comments(tmp_path):
     assert [c["nick"] for c in cs] == ["ㅇㅇ", "ㅇㅇ"] and cs[1]["read"] == [6.0, 6.5]
     assert cs[0]["appear"] <= cs[1]["appear"] <= 5.8
     assert spec["captions"] == []  # 단어 시각이 없으면 자막 없음, 읽는 댓글은 자막으로 안 띄움
+
+
+def test_comment_pages_keep_replies_with_parent():
+    from overshorts.render.spec import _paginate
+    long = "가" * 250
+    rows = [{"no": 0, "depth": 0, "text": long, "read": None},
+            {"no": 1, "depth": 0, "text": long, "read": None},
+            {"no": 2, "depth": 1, "text": "답글", "read": None},
+            {"no": 3, "depth": 1, "text": "답글 둘", "read": [9.0, 9.5]},
+            {"no": 4, "depth": 0, "text": "짧음", "read": None}]
+    _paginate(rows, 0.0, 12.0)
+    page = {r["no"]: r["page"] for r in rows}
+    assert page[1] == page[2] == page[3]  # 원댓글과 답글은 같은 장
+    assert page[4] == page[3]  # 짧으면 다른 댓글도 같은 장에
+    assert all(r["appear"] <= 8.7 for r in rows if r["page"] == page[3])

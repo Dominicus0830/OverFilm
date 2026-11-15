@@ -1,129 +1,136 @@
-// 디시 화면처럼 다시 그린 본문 글 카드·댓글창 (기획서 3.10). 캡처 대신 수집한 데이터로 그린다.
+// 디시 화면 스크린샷처럼 다시 그린 글 머리·사진·본문·댓글창 (기획서 3.10, 2026-11-15 사용자 피드백).
+// 실제 디시 크기(가로 480px, 글자 13px)로 그린 뒤 화면 폭에 맞게 통째로 키운다. 연출(확대·글자별 색) 없음.
 import React from 'react';
-import {Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
-import {SpecComment} from './spec';
+import {Img, OffthreadVideo, interpolate, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
+import {SpecComment, SpecMedia, SpecPost} from './spec';
 
+export const SKIN_W = 480;
 const DC_BLUE = '#3b4890';
+const FONT = 13;
 const src = (p: string) => (/^(https?:)?\/\//.test(p) || p.startsWith('/') ? p : staticFile(p));
 
-// 글자 수로 줄 수를 어림한다 (넘치면 위로 스크롤할 양 계산용)
-const lines = (text: string, perLine: number) =>
-  text.split('\n').reduce((n, p) => n + Math.max(1, Math.ceil(p.length / perLine)), 0);
+/** 가상 480px 화면을 width(실제 px)에 맞게 키운다. */
+export const Scaled: React.FC<{width: number; height: number; children: React.ReactNode; scrollY?: number}> = ({
+  width, height, children, scrollY = 0,
+}) => {
+  const k = width / SKIN_W;
+  return (
+    <div style={{position: 'absolute', inset: 0, overflow: 'hidden', background: '#fff'}}>
+      <div style={{width: SKIN_W, height: height / k, transform: `scale(${k})`, transformOrigin: 'top left'}}>
+        <div style={{transform: `translateY(${-scrollY}px)`, color: '#333', fontSize: FONT, lineHeight: 1.5}}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+};
 
-const COMMENT_FONT = 34;
-const NICK_W = 250;
-
-export function commentHeight(c: SpecComment): number {
-  const perLine = Math.floor((1080 - 48 - NICK_W - (c.depth ? 52 : 0) - 40) / (COMMENT_FONT * 0.95));
-  const textH = c.text ? lines(c.text, perLine) * COMMENT_FONT * 1.45 : 0;
-  const conH = c.dccon ? 230 : 0;
-  return Math.max(textH + conH, COMMENT_FONT * 1.45) + 36;
-}
-
-const Mention: React.FC<{text: string}> = ({text}) => (
-  <>
-    {text.split(/(@\S+)/).map((part, i) => (part.startsWith('@')
-      ? <span key={i} style={{color: DC_BLUE}}>{part}</span> : <span key={i}>{part}</span>))}
-  </>
-);
-
-const NickIcon: React.FC<{icon: SpecComment['icon']}> = ({icon}) => (icon ? (
-  <span style={{
-    display: 'inline-block', width: 22, height: 22, marginLeft: 6, borderRadius: 4, verticalAlign: -2,
-    background: icon === 'fix' ? '#5a6bd1' : '#b7c0ea', border: '1px solid rgba(0,0,0,0.15)',
-  }} />
+const NickIcon: React.FC<{icon: string}> = ({icon}) => (icon ? (
+  <span style={{display: 'inline-block', width: 12, height: 11, marginLeft: 3, verticalAlign: -1, borderRadius: 2,
+    background: icon === 'fix' ? '#6b79c8' : '#c4c9de', border: '1px solid #9aa'}} />
 ) : null);
 
-const CommentRow: React.FC<{c: SpecComment; blurNick: boolean; reading: boolean}> = ({c, blurNick, reading}) => {
-  const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const pop = spring({frame: frame - Math.round(c.appear * fps), fps, config: {damping: 200}, durationInFrames: 10});
+/** 글 머리: [말머리] 제목 / 닉 · 날짜 */
+export const PostHead: React.FC<{post: SpecPost}> = ({post}) => (
+  <div style={{padding: '10px 10px 8px', borderBottom: '1px solid #ddd', borderTop: `2px solid ${DC_BLUE}`}}>
+    <div style={{fontSize: 15, fontWeight: 700, color: '#333', lineHeight: 1.4, wordBreak: 'keep-all'}}>
+      {post.subject ? `[${post.subject}] ` : ''}{post.title}
+    </div>
+    <div style={{fontSize: 12, color: '#777', marginTop: 4}}>
+      {post.nick}{post.ip ? `(${post.ip})` : ''}<NickIcon icon={post.icon} />
+      {post.date ? <span style={{marginLeft: 8, paddingLeft: 8, borderLeft: '1px solid #ccc'}}>{post.date}</span> : null}
+    </div>
+  </div>
+);
+
+/** 본문 속 사진: 오른쪽 위 번호, 오른쪽 아래 '댓글 열기', 아래에 그 사진 다음 본문 줄 */
+export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
+  const aspect = m.width && m.height ? m.width / m.height : 16 / 9;
+  const h = Math.round(SKIN_W / aspect);
+  const style: React.CSSProperties = {width: SKIN_W, height: h, objectFit: 'cover', display: 'block'};
   return (
-    <div style={{
-      display: 'flex', padding: '18px 20px', borderBottom: '1px solid #e6e6e6',
-      marginLeft: c.depth ? 52 : 0, background: c.depth ? '#f6f6f6' : '#fff',
-      outline: reading ? '5px solid #FFD43B' : 'none', outlineOffset: -5,
-      opacity: pop, transform: `translateY(${interpolate(pop, [0, 1], [30, 0])}px)`,
-    }}>
-      <div style={{width: NICK_W, flexShrink: 0, fontSize: 30, color: '#555', lineHeight: 1.5,
-        filter: blurNick ? 'blur(9px)' : undefined}}>
-        {c.depth ? <span style={{color: '#999', marginRight: 6}}>└</span> : null}
-        <span style={{fontWeight: 600}}>{c.nick}</span>
-        {c.ip ? <span style={{color: '#888'}}>({c.ip})</span> : null}
-        <NickIcon icon={c.icon} />
+    <div style={{padding: '8px 0 0'}}>
+      <div style={{position: 'relative'}}>
+        {m.kind === 'video' ? <OffthreadVideo src={src(m.src)} muted={m.muted} style={style} />
+          : <Img src={src(m.src)} style={style} />}
+        {m.number ? (
+          <span style={{position: 'absolute', top: 6, right: 6, minWidth: 16, height: 16, fontSize: 11,
+            lineHeight: '16px', textAlign: 'center', background: '#fff', color: '#555', border: '1px solid #ccc',
+            fontWeight: 700}}>{m.number}</span>
+        ) : null}
+        <span style={{position: 'absolute', right: 8, bottom: 8, fontSize: 11, color: '#fff', padding: '4px 9px',
+          background: 'rgba(40,40,40,0.85)', borderRadius: 3, fontWeight: 700}}>댓글 열기 ▾</span>
       </div>
-      <div style={{flex: 1, fontSize: COMMENT_FONT, color: '#222', lineHeight: 1.45, whiteSpace: 'pre-wrap',
-        wordBreak: 'break-all'}}>
-        {c.text ? <Mention text={c.text} /> : null}
+      {m.caption ? (
+        <div style={{padding: '4px 2px 6px', whiteSpace: 'pre-wrap', wordBreak: 'break-all'}}>{m.caption}</div>
+      ) : null}
+    </div>
+  );
+};
+
+export function photoHeight(m: SpecMedia): number {
+  const aspect = m.width && m.height ? m.width / m.height : 16 / 9;
+  const lines = m.caption ? m.caption.split('\n').reduce((n, p) => n + Math.max(1, Math.ceil(p.length / 36)), 0) : 0;
+  return 8 + SKIN_W / aspect + lines * FONT * 1.5 + 10;
+}
+
+const CommentRow: React.FC<{c: SpecComment; blurNick: boolean}> = ({c, blurNick}) => (
+  <div style={{display: 'flex', padding: '7px 8px', borderBottom: '1px solid #eee'}}>
+    <div style={{width: c.depth ? 98 : 118, flexShrink: 0, fontSize: 12, color: '#555', paddingLeft: c.depth ? 0 : 0,
+      filter: blurNick ? 'blur(4px)' : undefined, whiteSpace: 'nowrap', overflow: 'hidden'}}>
+      {c.nick}{c.ip ? <span style={{color: '#999'}}>({c.ip})</span> : null}<NickIcon icon={c.icon} />
+    </div>
+    <div style={{flex: 1, display: 'flex', gap: 6}}>
+      {c.depth ? <span style={{color: '#8a94c4', fontSize: 12}}>ㄴ</span> : null}
+      <div style={{flex: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-all'}}>
+        {c.text ? c.text.split(/(@\S+)/).map((part, i) => (part.startsWith('@')
+          ? <span key={i} style={{color: DC_BLUE}}>{part}</span> : <span key={i}>{part}</span>)) : null}
         {c.dccon ? (
-          <div style={{marginTop: c.text ? 10 : 0}}>
-            {c.dccon.src ? <Img src={src(c.dccon.src)} style={{width: 150, height: 150, objectFit: 'contain'}} />
-              : <div style={{width: 150, height: 150, background: '#eee', borderRadius: 8}} />}
-            <div style={{display: 'flex', gap: 10, alignItems: 'center', marginTop: 6, fontSize: 24, color: '#777'}}>
-              <span>{c.dccon.name}</span>
-              <span style={{border: '1px solid #ccc', borderRadius: 4, padding: '1px 8px', fontSize: 22}}>디시콘 보기</span>
-            </div>
+          <div style={{marginTop: c.text ? 4 : 0}}>
+            {c.dccon.src ? <Img src={src(c.dccon.src)} style={{width: 90, height: 90, objectFit: 'contain'}} />
+              : <span style={{color: '#999'}}>({c.dccon.name})</span>}
           </div>
         ) : null}
       </div>
     </div>
-  );
-};
+  </div>
+);
 
-/** 댓글이 하나씩 아래로 쌓이고 넘치면 위로 스크롤된다. TTS 가 읽는 댓글은 강조 테두리. */
-export const CommentBox: React.FC<{comments: SpecComment[]; height: number; blurNick: boolean}> = ({
-  comments, height, blurNick,
-}) => {
-  const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const t = frame / fps;
-  const shown = comments.filter((c) => t + 0.2 >= c.appear);
-  const total = shown.reduce((h, c) => h + commentHeight(c), 0) + 60;
-  const target = Math.max(0, total - height);
-  const last = shown[shown.length - 1];
-  const ease = last ? spring({frame: frame - Math.round(last.appear * fps), fps, config: {damping: 200},
-    durationInFrames: 14}) : 1;
-  const prev = Math.max(0, total - (last ? commentHeight(last) : 0) - height);
-  const scroll = interpolate(ease, [0, 1], [prev, target]);
+/** 댓글창 한 장 (스크린샷처럼 한 번에). 원댓글 밑 답글은 회색 상자 안에. */
+export const CommentPage: React.FC<{comments: SpecComment[]; blurNick: boolean}> = ({comments, blurNick}) => {
+  const blocks: SpecComment[][] = [];
+  for (const c of comments) {
+    if (c.depth && blocks.length && blocks[blocks.length - 1][0].depth) blocks[blocks.length - 1].push(c);
+    else blocks.push([c]);
+  }
   return (
-    <div style={{position: 'absolute', inset: 0, background: '#fff', overflow: 'hidden', borderRadius: 18}}>
-      <div style={{height: 6, background: DC_BLUE}} />
-      <div style={{padding: '12px 22px', fontSize: 28, color: '#333', borderBottom: '2px solid ' + DC_BLUE,
-        fontWeight: 700}}>
-        전체 댓글 <span style={{color: '#d31900'}}>{comments.length}</span>개
-      </div>
-      <div style={{transform: `translateY(${-scroll}px)`}}>
-        {shown.map((c) => (
-          <CommentRow key={c.no} c={c} blurNick={blurNick}
-            reading={!!c.read && t >= c.read[0] && t <= c.read[1]} />
-        ))}
-      </div>
-    </div>
-  );
-};
-
-/** 디시 본문처럼 그린 글 카드. 글이 길면 세그먼트 동안 천천히 아래로. */
-export const BodyCard: React.FC<{title: string; subject: string; text: string; height: number;
-  start: number; end: number}> = ({title, subject, text, height, start, end}) => {
-  const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const t = frame / fps;
-  const textH = lines(text, 25) * 40 * 1.65 + 200;
-  const over = Math.max(0, textH - height);
-  const y = over ? interpolate(t, [start + 1.2, Math.max(start + 1.3, end - 0.5)], [0, over],
-    {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}) : 0;
-  return (
-    <div style={{position: 'absolute', inset: 0, background: '#fff', overflow: 'hidden', borderRadius: 18}}>
-      <div style={{height: 6, background: DC_BLUE}} />
-      <div style={{transform: `translateY(${-y}px)`}}>
-        <div style={{padding: '22px 30px 16px', borderBottom: '1px solid #ddd'}}>
-          <div style={{fontSize: 38, fontWeight: 700, color: '#222', lineHeight: 1.3, wordBreak: 'keep-all'}}>
-            {subject ? <span style={{color: '#666', fontWeight: 500}}>[{subject}] </span> : null}{title}
-          </div>
+    <div style={{borderTop: `2px solid ${DC_BLUE}`}}>
+      {blocks.map((b, i) => (b[0].depth ? (
+        <div key={i} style={{background: '#f8f8f8', border: '1px solid #e3e3e3', margin: '0 0 0 18px'}}>
+          {b.map((c) => <CommentRow key={c.no} c={c} blurNick={blurNick} />)}
         </div>
-        <div style={{padding: '24px 30px', fontSize: 40, lineHeight: 1.65, color: '#222', whiteSpace: 'pre-wrap',
-          wordBreak: 'break-all'}}>{text}</div>
-      </div>
+      ) : <CommentRow key={b[0].no} c={b[0]} blurNick={blurNick} />))}
     </div>
   );
 };
+
+/** 사진·글이 화면보다 길면 세그먼트 동안 천천히 아래로 (페이지를 읽어 내려가듯). */
+export function useScroll(contentH: number, viewH: number, start: number, end: number): number {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const over = Math.max(0, contentH - viewH);
+  if (!over) return 0;
+  // 앞부분(글 머리)을 충분히 보여 준 뒤 내려간다
+  const from = start + Math.max(1.5, (end - start) * 0.4);
+  return interpolate(frame / fps, [from, Math.max(from + 0.1, end - 0.4)], [0, over],
+    {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+}
+
+/** 본문 글만 있는 장면 (사진 없는 부분). */
+export const BodyText: React.FC<{text: string}> = ({text}) => (
+  <div style={{padding: '10px 6px', whiteSpace: 'pre-wrap', wordBreak: 'break-all'}}>{text}</div>
+);
+
+export function textHeight(text: string): number {
+  return 20 + text.split('\n').reduce((n, p) => n + Math.max(1, Math.ceil(p.length / 36)), 0) * FONT * 1.5;
+}

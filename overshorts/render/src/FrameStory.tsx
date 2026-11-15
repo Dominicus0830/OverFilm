@@ -1,12 +1,14 @@
-// 프레임형 (기본 프리셋, 기획서 3.5 개정 5): 검은 배경 + 위 고정 제목 + 소제목 + 가운데 원문 미디어
-// + 노란 2~4단어 자막. 원문 미디어가 비는 장면은 디시 스킨 글 카드·댓글창으로 채운다.
-// 세로 위치는 화면 높이 비율: 제목 15~26%, 소제목 33~38%, 미디어 39~66%, 자막 67~72%, 78% 아래 비움.
+// 프레임형 (기본 프리셋, 기획서 3.5 개정 5): 검은 배경 + 위 고정 제목 + 가운데 원문 + 노란 2~4단어 자막.
+// 사진·글·댓글은 디시 화면 스크린샷처럼 그린다 (2026-11-15 피드백: 확대 효과·글자별 색 없음,
+// 소제목 자리까지 써서 스크린샷을 28~66% 에 크게).
+// 세로 위치는 화면 높이 비율: 제목 15~26%, 스크린샷 28~66%, 자막 67~72%, 출처 74%, 78% 아래 비움.
 import React from 'react';
 import {
-  AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, interpolate, spring, staticFile, useCurrentFrame,
-  useVideoConfig,
+  AbsoluteFill, Audio, Sequence, staticFile, useCurrentFrame, useVideoConfig,
 } from 'remotion';
-import {BodyCard, CommentBox} from './DcSkin';
+import {
+  BodyText, CommentPage, PhotoBlock, PostHead, SKIN_W, Scaled, photoHeight, textHeight, useScroll,
+} from './DcSkin';
 import {FONT_FAMILY, loadFonts} from './fonts';
 import {RenderSpec, SpecMedia, SpecSegment, sanitize} from './spec';
 
@@ -14,7 +16,7 @@ loadFonts();
 
 const src = (p: string) => (/^(https?:)?\/\//.test(p) || p.startsWith('/') ? p : staticFile(p));
 const pct = (h: number, p: number) => Math.round((h * p) / 100);
-export const SAFE = {title: [15, 26], sub: [33, 38], media: [39, 66], tall: [28, 66], caption: [67, 72],
+export const SAFE = {title: [15, 26], tall: [28, 66], caption: [67, 72],
   source: [73.5, 76.5], bottom: 78} as const;
 
 function current<T extends {start: number}>(items: T[], t: number): T | null {
@@ -33,74 +35,48 @@ const Title: React.FC<{text: string; height: number}> = ({text, height}) => (
   </div>
 );
 
-const Subtitle: React.FC<{text: string; height: number; start: number}> = ({text, height, start}) => {
-  const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const a = spring({frame: frame - Math.round(start * fps), fps, config: {damping: 200}, durationInFrames: 10});
-  if (!text) return null;
-  return (
-    <div style={{position: 'absolute', left: 0, right: 0, top: pct(height, SAFE.sub[0]),
-      height: pct(height, SAFE.sub[1] - SAFE.sub[0]), display: 'flex', alignItems: 'center',
-      justifyContent: 'center', opacity: a}}>
-      <span style={{fontSize: 44, fontWeight: 700, color: '#fff', background: 'rgba(255,255,255,0.14)',
-        borderRadius: 999, padding: '8px 34px', letterSpacing: -1}}>{text}</span>
-    </div>
-  );
-};
-
-const MediaView: React.FC<{m: SpecMedia; box: {w: number; h: number}}> = ({m, box}) => {
-  const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const t = frame / fps;
-  const life = Math.max(0.5, m.end - m.start);
-  const k = Math.min(1, Math.max(0, (t - m.start) / life));
-  const fade = spring({frame: frame - Math.round(m.start * fps), fps, config: {damping: 200}, durationInFrames: 8});
-  const aspect = m.width && m.height ? m.width / m.height : 16 / 9;
-  const fit = m.display === 'tall' || m.display === 'full' ? 'contain' : 'cover';
-  const common: React.CSSProperties = {position: 'absolute', inset: 0, width: '100%', height: '100%'};
-  let inner: React.CSSProperties = {...common, objectFit: fit,
-    transform: fit === 'cover' ? `scale(${1 + 0.06 * k})` : undefined};
-  if (m.display === 'scroll') {
-    const h = box.w / aspect;
-    const over = Math.max(0, h - box.h);
-    inner = {position: 'absolute', left: 0, top: 0, width: '100%', height: h,
-      transform: `translateY(${-over * Math.min(1, Math.max(0, (t - m.start - 0.6) / Math.max(0.5, life - 1)))}px)`};
-  }
-  const media = (style: React.CSSProperties, muted: boolean) => (m.kind === 'video'
-    ? <OffthreadVideo src={src(m.src)} muted={muted} style={style} />
-    : <Img src={src(m.src)} style={style} />);
-  return (
-    <div style={{...common, overflow: 'hidden', opacity: fade}}>
-      {fit === 'contain' ? media({...common, objectFit: 'cover', filter: 'blur(28px) brightness(0.45)',
-        transform: 'scale(1.15)'}, true) : null}
-      {media(inner, m.muted)}
-    </div>
-  );
-};
-
 const Caption: React.FC<{spec: RenderSpec; height: number}> = ({spec, height}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const t = frame / fps;
   const cap = spec.captions.find((c) => t >= c.start && t < c.end);
   if (!cap) return null;
-  const pop = spring({frame: frame - Math.round(cap.start * fps), fps, config: {damping: 14, stiffness: 240},
-    durationInFrames: 8});
+  // 한 색으로 2~4단어를 통째로 보여 준다 (글자별 색 바뀜·확대 없음)
   return (
     <div style={{position: 'absolute', left: 40, right: 40, top: pct(height, SAFE.caption[0]),
       height: pct(height, SAFE.caption[1] - SAFE.caption[0]), display: 'flex', alignItems: 'center',
       justifyContent: 'center', textAlign: 'center'}}>
       <div style={{fontSize: 74, fontWeight: 900, letterSpacing: -2, lineHeight: 1.1, wordBreak: 'keep-all',
-        transform: `scale(${interpolate(pop, [0, 1], [0.85, 1])})`}}>
-        {cap.words.map((w, i) => {
-          const on = t >= w.start - 0.03;
-          return (
-            <span key={i} style={{color: w.emphasis ? '#FF7A45' : '#FFD43B', opacity: on ? 1 : 0.55,
-              WebkitTextStroke: '12px #000', paintOrder: 'stroke fill', marginRight: 18}}>{w.text}</span>
-          );
-        })}
+        color: '#FFD43B', WebkitTextStroke: '12px #000', paintOrder: 'stroke fill'}}>
+        {cap.words.map((w) => w.text).join(' ')}
       </div>
     </div>
+  );
+};
+
+/** 사진 장면: 디시 글 스크린샷처럼 (첫 사진이면 글 머리도 같이). 화면보다 길면 천천히 내려감. */
+const PhotoPage: React.FC<{spec: RenderSpec; m: SpecMedia; head: boolean; view: number; start: number;
+  end: number}> = ({spec, m, head, view, start, end}) => {
+  const k = 1080 / SKIN_W;
+  const contentH = (head ? 52 : 0) + photoHeight(m);
+  const y = useScroll(contentH, view / k, start, end);
+  return (
+    <Scaled width={1080} height={view} scrollY={y}>
+      {head ? <PostHead post={spec.post} /> : null}
+      <PhotoBlock m={m} />
+    </Scaled>
+  );
+};
+
+const TextPage: React.FC<{spec: RenderSpec; text: string; head: boolean; view: number; start: number;
+  end: number}> = ({spec, text, head, view, start, end}) => {
+  const k = 1080 / SKIN_W;
+  const y = useScroll((head ? 52 : 0) + textHeight(text), view / k, start, end);
+  return (
+    <Scaled width={1080} height={view} scrollY={y}>
+      {head ? <PostHead post={spec.post} /> : null}
+      <BodyText text={text} />
+    </Scaled>
   );
 };
 
@@ -110,42 +86,38 @@ const SegmentStage: React.FC<{spec: RenderSpec; seg: SpecSegment; next: SpecSegm
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const t = frame / fps;
-  const mediaBox = {top: pct(height, SAFE.media[0]), h: pct(height, SAFE.media[1] - SAFE.media[0])};
-  const tallBox = {top: pct(height, SAFE.tall[0]), h: pct(height, SAFE.tall[1] - SAFE.tall[0])};
+  const box = {top: pct(height, SAFE.tall[0]), h: pct(height, SAFE.tall[1] - SAFE.tall[0])};
+  const wrap = (child: React.ReactNode) => (
+    <div style={{position: 'absolute', left: 0, right: 0, top: box.top, height: box.h, overflow: 'hidden'}}>
+      {child}
+    </div>
+  );
   if (seg.kind === 'comments') {
-    return (
-      <div style={{position: 'absolute', left: 24, right: 24, top: tallBox.top, height: tallBox.h}}>
-        <CommentBox comments={seg.comments} height={tallBox.h} blurNick={spec.nickname === 'blur'} />
-      </div>
+    const pages = [...new Set(seg.comments.map((c) => c.page))];
+    let page = pages[0] ?? 0;
+    for (const p of pages) {
+      const first = seg.comments.find((c) => c.page === p);
+      if (first && first.appear <= t + 0.02) page = p;
+    }
+    return wrap(
+      <Scaled width={1080} height={box.h}>
+        <CommentPage comments={seg.comments.filter((c) => c.page === page)} blurNick={spec.nickname === 'blur'} />
+      </Scaled>,
     );
   }
   if (seg.kind === 'body') {
-    return (
-      <div style={{position: 'absolute', left: 24, right: 24, top: tallBox.top, height: tallBox.h}}>
-        <BodyCard title={spec.post_title || spec.title} subject={spec.subject} text={seg.quote}
-          height={tallBox.h} start={seg.start} end={seg.end} />
-      </div>
-    );
+    return wrap(<TextPage spec={spec} text={seg.quote} head={false} view={box.h} start={seg.start} end={seg.end} />);
   }
-  // title 장면: 다음 장면의 첫 미디어를 미리 보여 주고, 없으면 본문 카드 머리만
+  // 제목 장면: 글 머리 + 다음 장면 첫 사진 (실제 글 첫 화면처럼)
   const items = seg.kind === 'media' ? seg.media
     : (next?.media.length ? [{...next.media[0], start: seg.start, end: seg.end, muted: true}] : []);
   const m = current(items, t);
   if (!m) {
-    return (
-      <div style={{position: 'absolute', left: 24, right: 24, top: mediaBox.top, height: mediaBox.h}}>
-        <BodyCard title={spec.post_title || spec.title} subject={spec.subject} text="" height={mediaBox.h}
-          start={seg.start} end={seg.end} />
-      </div>
-    );
+    return wrap(<TextPage spec={spec} text="" head view={box.h} start={seg.start} end={seg.end} />);
   }
-  const full = m.display === 'full';
-  const box = full ? {top: 0, h: height} : (m.display === 'tall' || m.display === 'scroll') ? tallBox : mediaBox;
-  return (
-    <div style={{position: 'absolute', left: 0, right: 0, top: box.top, height: box.h}}>
-      <MediaView key={m.src + m.start} m={m} box={{w: 1080, h: box.h}} />
-    </div>
-  );
+  const head = seg.kind === 'title' || m.number === 1;
+  return wrap(<PhotoPage key={m.src + m.start} spec={spec} m={m} head={head} view={box.h}
+    start={m.start} end={m.end} />);
 };
 
 export const FrameStory: React.FC<Record<string, unknown>> = (props) => {
@@ -157,16 +129,11 @@ export const FrameStory: React.FC<Record<string, unknown>> = (props) => {
     && (i === spec.segments.length - 1 || spec.segments[i + 1].start > t + 0.02));
   const seg = idx >= 0 ? spec.segments[idx] : null;
   const next = idx >= 0 && idx + 1 < spec.segments.length ? spec.segments[idx + 1] : null;
-  const m = seg?.kind === 'media' ? current(seg.media, t) : null;
-  const fullScreen = m?.display === 'full';
-  const hideSub = !seg || seg.kind === 'comments' || seg.kind === 'body' || fullScreen
-    || m?.display === 'tall' || m?.display === 'scroll';
   const speaking = (f: number) => spec.scenes.some((s) => f / fps >= s.start && f / fps <= s.end);
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY, background: '#000'}}>
       {seg ? <SegmentStage spec={spec} seg={seg} next={next} height={height} /> : null}
-      {fullScreen ? null : <Title text={spec.title} height={height} />}
-      {!hideSub && seg ? <Subtitle text={seg.subtitle} height={height} start={seg.start} /> : null}
+      <Title text={spec.title} height={height} />
       <Caption spec={spec} height={height} />
       <div style={{position: 'absolute', left: 0, right: 0, top: pct(height, SAFE.source[0]), textAlign: 'center',
         fontSize: 28, color: 'rgba(255,255,255,0.6)'}}>{spec.source}</div>

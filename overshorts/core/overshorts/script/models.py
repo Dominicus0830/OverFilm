@@ -68,7 +68,7 @@ class Segment(BaseModel):
 
 class ScriptAnswer(BaseModel):
     title: str = Field(min_length=1, max_length=34,
-                       description="화면 위 고정 제목, 1~2줄. 원문 제목 그대로이거나 다듬은 것")
+                       description="화면 위 고정 제목, 1~2줄. 커뮤 제목 말맛, 눈길 끌되 거부감 없게")
     fact: str = Field(default="", max_length=120, description="영상에 넣은 '이건 몰랐네' 구체적 사실")
     composition: Literal["A", "B"] = Field(
         description="A=제목→본문→댓글 반응(댓글이 재밌거나 내용을 더할 때), B=제목→본문")

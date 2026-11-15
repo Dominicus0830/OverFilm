@@ -290,6 +290,7 @@ def _record(url: DcUrl, post: Post, comments: list[Comment], images: list[dict])
         "post_no": post.post_no,
         "gall_type": url.gall_type,
         "gall_name": post.gall_name,
+        "author": post.author,
         "title": post.title,
         "subject": post.subject,
         "body": post.body,

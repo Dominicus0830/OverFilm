@@ -13,10 +13,13 @@ export type SpecMedia = {
   src: string; kind: 'image' | 'video';
   display: 'fill' | 'crop' | 'full' | 'tall' | 'scroll';
   start: number; end: number; width: number; height: number; muted: boolean;
+  number: number; caption: string; // 원문 사진 번호, 사진 바로 아래 본문 줄 (스크린샷처럼)
 };
+export type SpecPost = {title: string; subject: string; nick: string; ip: string; icon: string; date: string};
 export type SpecComment = {
   no: number; nick: string; ip: string; icon: '' | 'fix' | 'half'; text: string; depth: number;
   dccon: {src: string | null; name: string} | null; appear: number; read: [number, number] | null;
+  page: number; // 스크린샷 한 장 번호 (원댓글과 답글은 같은 장)
 };
 export type SpecSegment = {
   kind: 'title' | 'media' | 'body' | 'comments';
@@ -37,6 +40,7 @@ export type RenderSpec = {
   duration: number; // 초
   title: string;
   post_title: string; // 원문 제목 (디시 스킨 글 카드)
+  post: SpecPost;
   subject: string;
   source: string;
   audio: string | null; // public 폴더 기준 경로
@@ -58,6 +62,7 @@ export const EMPTY_SPEC: RenderSpec = {
   duration: 6,
   title: '받은 힐량 표시',
   post_title: '',
+  post: {title: '', subject: '', nick: 'ㅇㅇ', ip: '', icon: '', date: ''},
   subject: '일반',
   source: '출처: DC인사이드 예시 갤러리',
   audio: null,
@@ -97,6 +102,7 @@ export function sanitize(input: unknown): RenderSpec {
       display: (['fill', 'crop', 'full', 'tall', 'scroll'] as const).includes(m?.display) ? m.display : 'fill',
       start: t(m?.start), end: t(m?.end), width: num(m?.width, 0, 0, 20000),
       height: num(m?.height, 0, 0, 20000), muted: m?.muted !== false,
+      number: Math.round(num(m?.number, 0, 0, 999)), caption: str(m?.caption),
     })),
     comments: (Array.isArray(g?.comments) ? g.comments.slice(0, 12) : []).map((c) => ({
       no: num(c?.no, 0, 0, 10000), nick: str(c?.nick).slice(0, 30), ip: str(c?.ip).slice(0, 20),
@@ -105,6 +111,7 @@ export function sanitize(input: unknown): RenderSpec {
       dccon: c?.dccon ? {src: typeof c.dccon.src === 'string' ? c.dccon.src : null, name: str(c.dccon.name)} : null,
       appear: t(c?.appear),
       read: Array.isArray(c?.read) && c.read.length === 2 ? [t(c.read[0]), t(c.read[1])] : null,
+      page: Math.round(num(c?.page, 0, 0, 50)),
     })),
   }));
   const captions: SpecCaption[] = (Array.isArray(s.captions) ? s.captions.slice(0, 400) : []).map((c) => ({
@@ -123,6 +130,8 @@ export function sanitize(input: unknown): RenderSpec {
     duration: num(s.duration, 6, 1, 180),
     title: str(s.title),
     post_title: str(s.post_title),
+    post: {title: str(s.post?.title), subject: str(s.post?.subject), nick: str(s.post?.nick, 'ㅇㅇ').slice(0, 30),
+      ip: str(s.post?.ip).slice(0, 20), icon: str(s.post?.icon).slice(0, 8), date: str(s.post?.date).slice(0, 30)},
     subject: str(s.subject),
     source: str(s.source),
     audio: typeof s.audio === 'string' ? s.audio : null,
