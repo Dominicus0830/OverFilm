@@ -110,7 +110,7 @@ fn text_wraps_at_spaces_and_shrinks_to_fit() {
     // a word wider than the line breaks between characters
     assert_eq!(wrap("가나다라", 2.0).len(), 2);
     let (text, size) = fit_text("가나다라마바사아자차카타파하 가나다라마바사아자차카타파하 가나다라", 84.0, 960.0, 2);
-    assert!(text.lines().count() <= 3 && size < 84.0 && size >= 84.0 * 0.55);
+    assert!(text.lines().count() <= 3 && (84.0 * 0.55..84.0).contains(&size));
 }
 
 #[test]
