@@ -48,9 +48,9 @@ class MediaPick(BaseModel):
 
 
 class Segment(BaseModel):
-    kind: Literal["title", "media", "body", "comments"] = Field(
+    kind: Literal["title", "media", "body", "comments", "reaction"] = Field(
         description="title=제목, media=원문 사진·영상, body=디시 본문처럼 그린 글 카드, "
-                    "comments=디시 댓글 화면")
+                    "comments=디시 댓글 화면, reaction=짤·영웅 프로필 + 대사 자막")
     subtitle: str = Field(default="", max_length=20, description="소제목: 이 장면 한 줄 요약 (12자 안팎)")
     tts: bool = Field(description="나레이션을 읽을지")
     tts_reason: str = Field(default="", max_length=80, description="tts 를 켜거나 끈 이유")
@@ -64,6 +64,9 @@ class Segment(BaseModel):
                        description="body 일 때 글 카드에 보일 원문 부분 (원문 그대로 복사, 300자 이내)")
     read: list[int] = Field(default_factory=list, max_length=2,
                             description="그중 TTS 가 원문 그대로 읽을 핵심 댓글 번호 (0~2개)")
+    image: str = Field(default="", max_length=70,
+                       description="reaction 일 때 띄울 그림: '영웅:이름' / '짤:짤 모음 이름' / '검색:찾을 짤'")
+    say: str = Field(default="", max_length=40, description="reaction 일 때 화면 자막 (원문 대사 그대로)")
 
 
 class ScriptAnswer(BaseModel):

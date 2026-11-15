@@ -122,6 +122,18 @@ class SegTtsIn(BaseModel):
     tts: bool
 
 
+class ReactionIn(BaseModel):
+    after: int = Field(ge=-1, le=20, description="이 세그먼트 뒤에 넣는다 (-1 = 맨 앞)")
+    image: str = Field(default="", max_length=70, description="'영웅:이름' / '짤:이름' / '검색:찾을 짤'")
+    say: str = Field(default="", max_length=40)
+
+
+class MemeIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    use: str = Field(default="", max_length=80, description="언제 쓰는 짤인지 (AI 가 참고)")
+    data: str = Field(max_length=12_000_000, description="그림 파일 base64")
+
+
 class EditIn(BaseModel):
     lines: list[dict[str, Any]] = Field(max_length=80)
 
@@ -368,6 +380,9 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         finally:
             s.close()
 
+    def _style_dir() -> Path:
+        return Path(str((cfg.get("style") or {}).get("dir") or "../style"))
+
     def _job_status(job_id: int) -> str:
         s = db()
         try:
@@ -411,6 +426,56 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
                       + ("켬" if body.tts else "끔"),
                       lambda p: p.set_segment_tts(job_id, body.seg, body.tts))
         return {"ok": True}
+
+    @app.post("/api/review/{job_id}/reaction")
+    def add_reaction(job_id: int, body: ReactionIn) -> dict[str, Any]:
+        """짤 장면 넣기 (2026-11-15 사용자 편집 규칙) → 음성·미리보기 다시."""
+        _job_status(job_id)
+        worker.submit(f"작업 {job_id} 짤 넣기", lambda p: p.add_reaction(job_id, body.after, body.image, body.say))
+        return {"ok": True}
+
+    @app.delete("/api/review/{job_id}/segment/{seg}")
+    def remove_segment(job_id: int, seg: int) -> dict[str, Any]:
+        _job_status(job_id)
+        worker.submit(f"작업 {job_id} 짤 빼기", lambda p: p.remove_segment(job_id, seg))
+        return {"ok": True}
+
+    @app.get("/api/memes")
+    def memes() -> dict[str, Any]:
+        from ..script.game_check import load_heroes
+        from ..script.reactions import list_memes
+
+        return {"memes": [{"name": m.name, "use": m.use} for m in list_memes(_style_dir())],
+                "heroes": [h.ko for h in load_heroes()]}
+
+    @app.post("/api/memes")
+    def add_meme(body: MemeIn) -> dict[str, Any]:
+        """짤 모음에 그림 추가 (style/memes/). 이름이 같으면 덮어쓴다."""
+        import base64
+        import binascii
+
+        from ..script.reactions import MAX_IMAGE_BYTES, _safe, image_ext, memes_dir
+
+        try:
+            data = base64.b64decode(body.data.split(",")[-1], validate=True)
+        except (binascii.Error, ValueError) as err:
+            raise HTTPException(400, "그림을 읽지 못했습니다") from err
+        ext = image_ext(data)
+        if ext is None or len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(400, "png·jpg·webp·gif 그림만 (8MB 까지)")
+        d = memes_dir(_style_dir())
+        if d is None:
+            raise HTTPException(500, "스타일 폴더가 없습니다")
+        d.mkdir(parents=True, exist_ok=True)
+        name = _safe(body.name)
+        for old in d.glob(f"{name}.*"):
+            if old.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+                old.unlink(missing_ok=True)
+        (d / f"{name}{ext}").write_bytes(data)
+        if body.use.strip():
+            with open(d / "memes.tsv", "a", encoding="utf-8") as f:
+                f.write(f"{name}\t{body.use.strip()}\n")
+        return {"ok": True, "name": name}
 
     @app.post("/api/review/{job_id}/regenerate")
     def regenerate(job_id: int, body: RegenIn) -> dict[str, Any]:

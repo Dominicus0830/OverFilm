@@ -144,4 +144,5 @@ def script_settings(cfg: dict[str, Any], tone: str | None = None, default_style:
         max_comments=max(1, min(int(render.get("max_comments") or 6), 10)),
         max_media=max(1, min(int(render.get("max_media") or 6), 6)),
         title_tail=str(style.get("title_tail") or "auto"),
+        assets_dir=Path(str(cfg.get("data_dir") or "./data")) / "assets",
     )

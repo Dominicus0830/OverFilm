@@ -216,6 +216,61 @@ class Pipeline:
         self.preview()
         self.emit({"type": "jobs_changed"})
 
+    def _seg_row(self, job_id: int):
+        row = self.store.conn.execute(
+            "SELECT j.post_id, s.lines, s.tone, s.overlap_ratio, p.images, p.comments, p.title, p.body "
+            "FROM jobs j JOIN scripts s ON s.id=j.script_id JOIN posts p ON p.id=j.post_id WHERE j.id=?",
+            (job_id,)).fetchone()
+        if row is None:
+            raise ValueError("작업을 찾지 못했습니다")
+        return row
+
+    def add_reaction(self, job_id: int, after: int, image: str, say: str) -> None:
+        """검수 화면에서 짤 장면 넣기 (after 번째 세그먼트 뒤). 그림을 구한 뒤 음성·미리보기 다시."""
+        from .script.reactions import parse_image, resolve_segments
+
+        row = self._seg_row(job_id)
+        payload = json.loads(row["lines"] or "{}")
+        segs = payload.get("segments") or []
+        say = (say or "").strip()[:40]
+        kind_name = parse_image(image)
+        if kind_name is None and not say:
+            raise ValueError("그림이나 자막 중 하나는 있어야 합니다")
+        img = {"hero": "영웅", "meme": "짤", "search": "검색"}[kind_name[0]] + ":" + kind_name[1] \
+            if kind_name else ""
+        seg = {"kind": "reaction", "subtitle": "", "tts": False, "tts_reason": "검수에서 넣은 짤",
+               "lines": [say] if say else [], "media": [], "comments": [], "read": [], "quote": "",
+               "image": img, "say": say}
+        settings = script_settings(self.cfg)
+        warn = resolve_segments([seg], style_dir=settings.style_dir, cache=Path(settings.assets_dir or
+                                self.data / "assets"), router=self.router(),
+                                context=f"{row['title']}\n{str(row['body'])[:1000]}")
+        if warn:
+            self._say("script", warn[0])
+        segs.insert(max(0, min(after + 1, len(segs))), seg)
+        self._resave_segments(job_id, row, payload, segs)
+
+    def remove_segment(self, job_id: int, seg: int) -> None:
+        """짤 장면 빼기 (다른 종류는 TTS 끄기·대본 편집으로)."""
+        row = self._seg_row(job_id)
+        payload = json.loads(row["lines"] or "{}")
+        segs = payload.get("segments") or []
+        if not 0 <= seg < len(segs) or segs[seg].get("kind") != "reaction":
+            raise ValueError("짤 장면만 뺄 수 있습니다")
+        segs.pop(seg)
+        self._resave_segments(job_id, row, payload, segs)
+
+    def _resave_segments(self, job_id: int, row, payload: dict[str, Any], segs: list[dict]) -> None:
+        from .script.segments import flatten, media_items
+
+        comments = [c for c in json.loads(row["comments"] or "[]") if isinstance(c, dict)]
+        payload["segments"] = segs
+        payload["lines"] = flatten(segs, comments, media_items(json.loads(row["images"] or "[]")))
+        self._save_script(job_id, row, payload, float(row["overlap_ratio"] or 0))
+        self.voice()
+        self.preview()
+        self.emit({"type": "jobs_changed"})
+
     def _save_script(self, job_id: int, row, payload: dict[str, Any], overlap: float) -> None:
         version = self.store.next_script_version(row["post_id"])
         sid = self.store.add_script(row["post_id"], version, row["tone"], payload, overlap, "사람")

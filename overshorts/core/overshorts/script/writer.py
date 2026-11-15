@@ -17,6 +17,7 @@ from ..db import Store
 from ..llm import LimitReached, LlmError, Router
 from .checks import CheckResult, _no_ending, check_script, load_banned
 from .game_check import check_script_game
+from .reactions import list_memes, meme_block, resolve_segments
 from .models import CringeAnswer, ScriptAnswer
 from .prompts import cringe_task, load_style, script_task
 from .segments import flatten, media_items, validate
@@ -37,6 +38,7 @@ class ScriptSettings:
     max_comments: int = 6
     max_media: int = 6
     title_tail: str = "auto"  # none | ㄷㄷ | ㅋㅋㅋ | auto (제목 꼬리표, 채널 말투)
+    assets_dir: str | Path | None = None  # 영웅 프로필 캐시 (없으면 짤 그림을 받지 않음)
 
 
 @dataclass
@@ -63,13 +65,14 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
     user_words = [p for p, why in banned if why == "사용자 금지 목록"]
     feedback: list[str] | None = None
     rewrites = 0
+    memes = list_memes(settings.style_dir)
     while True:
         task = script_task(title, body, comments, media, style, settings.tone, settings.speech,
                            user_words, settings.chars_per_sec, feedback, settings.composition,
-                           settings.max_comments, settings.title_tail)
+                           settings.max_comments, settings.title_tail, meme_block(memes))
         script, model = router.ask(task, ScriptAnswer)
         segs, seg_warn = validate(script, comments, media, settings.composition,
-                                  settings.max_comments, settings.max_media)
+                                  settings.max_comments, settings.max_media, source, memes)
         lines = flatten(segs, comments, media)
         spoken = [ln for ln in lines if ln["part"] != "pause"]
         checks = check_script(spoken, body, texts, banned, settings.chars_per_sec)
@@ -87,6 +90,10 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
                 problems += [f"{i.line + 1}번째 나레이션 줄: {i.reason}" for i in cringe.issues]
         if not problems or rewrites >= MAX_REWRITES:
             warnings = seg_warn + checks.reasons() + title_issues
+            if settings.assets_dir is not None:
+                warnings += resolve_segments(segs, style_dir=settings.style_dir,
+                                             cache=Path(settings.assets_dir), router=router,
+                                             context=f"{title}\n{body[:1000]}")
             if cringe is not None and cringe.score < settings.min_cringe_score:
                 warnings.append(f"오글 점수 {cringe.score:.1f} 로 기준 미만")
             return ScriptOutcome(script, segs, lines, checks, cringe, model, rewrites, warnings)

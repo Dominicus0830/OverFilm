@@ -51,6 +51,7 @@ def build_router(cfg: dict, ask: bool = False):
     clients = {"filter": pick(str(llm.get("filter") or "ollama")),
                "script": pick(str(llm.get("script") or "claude_code"))}
     clients["cringe"] = clients["script"]
+    clients["meme"] = clients["script"]  # 짤 웹 검색 (Claude Code 만 검색 도구가 있음)
     fallback = pick(str(llm.get("fallback") or "ollama"))
     mode = str(llm.get("on_limit") or "ask")
     on_limit = mode if mode in ("wait", "fallback") else ("ask" if ask else "fallback")

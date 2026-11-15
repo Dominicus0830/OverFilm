@@ -19,7 +19,7 @@ from typing import Any
 from ..media import file_image_size, video_info
 from .models import ScriptAnswer
 
-PART = {"title": "hook", "media": "body", "body": "body", "comments": "body"}
+PART = {"title": "hook", "media": "body", "body": "body", "comments": "body", "reaction": "body"}
 MAX_CLIP_SEC = 8.0
 _HOSTILE = re.compile(r"조센|쥐센|짱깨|틀딱|한남|김치녀|좆간|안락사|병신|씨발|시발|개새|좆|ㅅㅂ|ㅂㅅ")
 
@@ -92,8 +92,11 @@ def _est_read(text: str) -> float:
 
 def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict[str, Any]],
              composition: str = "auto", max_comments: int = 6,
-             max_media: int = 6) -> tuple[list[dict[str, Any]], list[str]]:
+             max_media: int = 6, source: str = "",
+             memes: list[Any] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     """AI 답 → 검증한 세그먼트 목록 + 경고. 없는 댓글·미디어 번호는 버린다."""
+    from .reactions import fix_reaction
+
     warnings: list[str] = []
     by_name = {m["name"]: m for m in media}
     index = {int(c.get("no") or 0): i for i, c in enumerate(comments)}
@@ -142,6 +145,13 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
             s["lines"] = []
         if seg.kind == "body" and not s["lines"]:
             continue
+        if seg.kind == "reaction":
+            image, warn = fix_reaction(seg.image, seg.say, source, memes or [])
+            warnings += warn
+            s["image"], s["say"] = image, seg.say.strip()[:40]
+            s["lines"] = [s["say"]] if s["say"] else []
+            if not image and not s["say"]:
+                continue
         segs.append(s)
     kinds = [s["kind"] for s in segs]
     if not kinds or kinds[0] != "title":
@@ -170,6 +180,8 @@ def display_seconds(seg: dict[str, Any], comments: list[dict[str, Any]],
         return min(total, 24.0)
     if kind == "body":
         return min(8.0, sum(_est_read(t) for t in seg.get("lines") or []) or 3.0)
+    if kind == "reaction":
+        return max(2.0, min(5.0, _est_read(str(seg.get("say") or "")) + 0.8))
     if kind == "comments":
         total = sum(_est_read(comment_label(comments[n])) for n in seg.get("comments") or []
                     if 0 <= n < len(comments))

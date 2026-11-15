@@ -30,9 +30,10 @@ class LimitReached(LlmError):
 
 @dataclass
 class Task:
-    name: str  # filter | script | cringe
+    name: str  # filter | script | cringe | meme
     system: str
     prompt: str
+    tools: str = ""  # Claude Code 에 허용할 도구 (짤 검색만 'WebSearch,WebFetch'). 기본은 도구 없음
 
 
 class Client(Protocol):
@@ -102,7 +103,7 @@ class Router:
         prompt = task.prompt
         last = ""
         for _ in range(self.retries + 1):
-            raw = client.complete(Task(task.name, task.system, prompt), schema)
+            raw = client.complete(Task(task.name, task.system, prompt, task.tools), schema)
             try:
                 return model.model_validate(raw)
             except ValidationError as err:

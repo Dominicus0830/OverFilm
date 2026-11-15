@@ -22,9 +22,10 @@ export type SpecComment = {
   page: number; // 스크린샷 한 장 번호 (원댓글과 답글은 같은 장)
 };
 export type SpecSegment = {
-  kind: 'title' | 'media' | 'body' | 'comments';
+  kind: 'title' | 'media' | 'body' | 'comments' | 'reaction';
   start: number; end: number; subtitle: string; tts: boolean;
   media: SpecMedia[]; comments: SpecComment[]; quote: string;
+  image: string | null; say: string; // reaction: 짤·영웅 프로필 + 대사 (자막은 captions 에)
 };
 export type SpecCaption = {start: number; end: number; seg: number; words: SpecWord[]};
 export type RenderSpec = {
@@ -94,7 +95,8 @@ export function sanitize(input: unknown): RenderSpec {
     text: str(w?.text), start: t(w?.start), end: t(w?.end), emphasis: w?.emphasis === true,
   }));
   const segments: SpecSegment[] = (Array.isArray(s.segments) ? s.segments.slice(0, 20) : []).map((g) => ({
-    kind: (['title', 'media', 'body', 'comments'] as const).includes(g?.kind) ? g.kind : 'body',
+    kind: (['title', 'media', 'body', 'comments', 'reaction'] as const).includes(g?.kind) ? g.kind : 'body',
+    image: typeof g?.image === 'string' && g.image ? g.image : null, say: str(g?.say).slice(0, 60),
     start: t(g?.start), end: t(g?.end), subtitle: str(g?.subtitle).slice(0, 40), tts: g?.tts === true,
     quote: str(g?.quote).slice(0, 800),
     media: (Array.isArray(g?.media) ? g.media.slice(0, 6) : []).map((m) => ({

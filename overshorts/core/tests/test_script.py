@@ -217,3 +217,49 @@ def test_game_check_against_source_and_rules():
                      heroes=heroes, now=datetime(2026, 11, 15))
     assert any("근황" in p for p in old)
     assert not check_game("겐지 셋 나온 판", "워크샵에서 " + src, heroes=heroes)
+
+
+def test_reaction_politics_target_and_fix(tmp_path):
+    from overshorts.script.game_check import load_heroes
+    from overshorts.script.reactions import fix_reaction, parse_image, politics_target
+
+    heroes = load_heroes()
+    if not heroes:
+        return
+    src = "거점전 몰표하고 엠레 위도우 메르시 키리코 고르고 우리탱 왜던짐?"
+    assert politics_target(src, heroes) == "메르시"
+    assert politics_target(src + " 아나", heroes) == "아나"  # 아나 > 메르시 (사용자 지정)
+    assert politics_target("위도우 겐지", heroes) == "위도우메이커" or politics_target("위도우 겐지", heroes)
+    assert parse_image("영웅:아나") == ("hero", "아나") and parse_image("윈스턴 포효") == ("search", "윈스턴 포효")
+    img, warn = fix_reaction("영웅:아나", "우리탱 왜던짐?", src, [], heroes)
+    assert img == "영웅:메르시" and warn  # 글에 없는 아나 → 조합 순서대로
+    assert fix_reaction("짤:없는짤", "", src, [], heroes)[0] == "검색:없는짤"
+
+
+def test_hero_portrait_from_official_page(tmp_path):
+    from overshorts.script.reactions import hero_image
+
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 20
+    page = ('<a class="hero-card" id="ana"><blz-image class="heroCardPortrait" alt="ana" slot="media" '
+            'src="https://cdn.example/ana.png"></blz-image><h2 slot="heading">아나</h2></a>')
+    calls = []
+
+    def get(url):
+        calls.append(url)
+        return (page.encode() if "heroes" in url else png), ""
+
+    p = hero_image("아나", tmp_path, get)
+    assert p.read_bytes() == png and hero_image("아나", tmp_path, get) == p and len(calls) == 2
+
+
+def test_validate_reaction_segment():
+    from overshorts.script.models import ScriptAnswer
+    from overshorts.script.segments import display_seconds, flatten, validate
+
+    ans = ScriptAnswer.model_validate({"title": "거점전 몰표하고 엠레 위도우 메르시 키리코 고르고", "composition": "B", "segments": [
+        {"kind": "title", "tts": False},
+        {"kind": "reaction", "tts": False, "image": "검색:윈스턴 포효 짤", "say": "몰라서묻나"}]})
+    segs, _ = validate(ans, [], [], source="몰라서묻나")
+    assert segs[1]["image"] == "검색:윈스턴 포효 짤" and segs[1]["say"] == "몰라서묻나"
+    assert display_seconds(segs[1], [], []) >= 2.0
+    assert all(ln["part"] == "pause" for ln in flatten(segs, [], []))  # TTS 끔 → 읽지 않음

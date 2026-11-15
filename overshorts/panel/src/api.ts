@@ -49,9 +49,9 @@ export type Job = {id: number; status: string; error: string | null; updated_at:
 
 export type ScriptLine = {part: 'hook' | 'body' | 'comment' | 'outro' | 'pause'; text: string;
   comment_no?: number | null; seg?: number; min_total?: number};
-export type Segment = {kind: 'title' | 'media' | 'body' | 'comments'; subtitle: string; tts: boolean;
+export type Segment = {kind: 'title' | 'media' | 'body' | 'comments' | 'reaction'; subtitle: string; tts: boolean;
   tts_reason: string; lines: string[]; media: {name: string; display: string; line: number}[];
-  comments: number[]; read: number[]; quote?: string};
+  comments: number[]; read: number[]; quote?: string; image?: string; say?: string};
 export type Comment = {no?: number; text: string; nick?: string; ip?: string; icon?: string; depth?: number;
   parent?: number; dccon?: {name: string} | null};
 export type ReviewItem = {

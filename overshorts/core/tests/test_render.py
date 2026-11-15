@@ -104,3 +104,11 @@ def test_comment_pages_keep_replies_with_parent():
     assert page[1] == page[2] == page[3]  # 원댓글과 답글은 같은 장
     assert page[4] == page[3]  # 짧으면 다른 댓글도 같은 장에
     assert all(r["appear"] <= 8.7 for r in rows if r["page"] == page[3])
+
+
+def test_silent_captions_spread_over_segment():
+    from overshorts.render.spec import silent_captions
+
+    caps = silent_captions(["우리탱 왜던짐?"], 2.0, 5.0, 1)
+    assert caps and caps[0]["start"] >= 2.0 and caps[-1]["end"] == 5.0
+    assert " ".join(w["text"] for c in caps for w in c["words"]) == "우리탱 왜던짐?"

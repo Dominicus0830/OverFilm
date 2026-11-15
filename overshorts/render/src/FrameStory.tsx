@@ -4,7 +4,7 @@
 // 세로 위치는 화면 높이 비율: 제목 15~26%, 스크린샷 28~66%, 자막 67~72%, 출처 74%, 78% 아래 비움.
 import React from 'react';
 import {
-  AbsoluteFill, Audio, Sequence, staticFile, useCurrentFrame, useVideoConfig,
+  AbsoluteFill, Audio, Img, Sequence, staticFile, useCurrentFrame, useVideoConfig,
 } from 'remotion';
 import {
   BodyText, CommentPage, PhotoBlock, PostHead, SKIN_W, Scaled, photoHeight, textHeight, useScroll,
@@ -104,6 +104,14 @@ const SegmentStage: React.FC<{spec: RenderSpec; seg: SpecSegment; next: SpecSegm
         <CommentPage comments={seg.comments.filter((c) => c.page === page)} blurNick={spec.nickname === 'blur'} />
       </Scaled>,
     );
+  }
+  if (seg.kind === 'reaction') {
+    // 짤·영웅 프로필: 검은 바탕 가운데에 통째로 (확대·흔들기 없음). 대사는 아래 자막으로.
+    return wrap(seg.image ? (
+      <div style={{position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+        <Img src={src(seg.image)} style={{maxWidth: '100%', maxHeight: '100%', objectFit: 'contain'}} />
+      </div>
+    ) : null);
   }
   if (seg.kind === 'body') {
     return wrap(<TextPage spec={spec} text={seg.quote} head={false} view={box.h} start={seg.start} end={seg.end} />);

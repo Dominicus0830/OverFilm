@@ -167,6 +167,25 @@ def _silences(spans: list[tuple[float, float]], duration: float) -> float:
     return max(longest, duration - t)
 
 
+def silent_captions(texts: list[str], start: float, end: float, seg: int) -> list[dict[str, Any]]:
+    """TTS 를 끈 장면의 자막: 글자 수에 비례해 시간을 나눠 같은 2~4단어 묶음으로 보여 준다."""
+    words = [w for t in texts for w in t.split()]
+    total = sum(len(w) + 1 for w in words)
+    if not words or total <= 0 or end <= start:
+        return []
+    k = (end - start - 0.2) / total
+    t = start + 0.1
+    timed = []
+    for w in words:
+        d = (len(w) + 1) * k
+        timed.append({"text": w, "start": round(t, 3), "end": round(t + d, 3)})
+        t += d
+    out = caption_chunks([{"words": timed, "seg": seg}])
+    if out:
+        out[-1]["end"] = round(end, 3)
+    return out
+
+
 def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[str, Any],
                      public: Path, source: str, background: str | None, opts: SpecOptions,
                      media: list[dict[str, Any]], comments: list[dict[str, Any]]) -> dict[str, Any]:
@@ -186,6 +205,7 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
     sound: list[tuple[float, float]] = [(sc["start"], sc["end"]) for sc in base["scenes"]]
     segments: list[dict[str, Any]] = []
     warnings: list[str] = []
+    silent: list[dict[str, Any]] = []
     for i, seg in enumerate(segs_in):
         start, end = spans.get(i, (0.0, 0.0))
         out: dict[str, Any] = {"kind": seg.get("kind", "body"), "start": start, "end": end,
@@ -256,8 +276,17 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
             _paginate(out["comments"], start, end)
         elif out["kind"] == "body":
             out["quote"] = _quote(str(seg.get("quote") or ""), opts.body, i, segs_in)
+        elif out["kind"] == "reaction":
+            path = str(seg.get("image_path") or "")
+            out["image"] = _copy(path, public, f"r{i}") if path else None
+            out["say"] = str(seg.get("say") or "")
+        if not seg.get("tts"):
+            loud = any(m["kind"] == "video" and not m["muted"] for m in out["media"])
+            text = [out["say"]] if out["kind"] == "reaction" else [str(t) for t in seg.get("lines") or []]
+            if not loud and end > start:
+                silent += silent_captions([t for t in text if t.strip()], start, end, i)
         segments.append(out)
-    has_media = any(sg["media"] for sg in segments)
+    has_media = any(sg["media"] or sg.get("image") for sg in segments)
     preset = opts.preset if opts.preset in ("frame", "card") else ("frame" if has_media else "card")
     bgm = None
     if opts.bgm_dir is not None and opts.bgm_dir.is_dir():
@@ -278,7 +307,9 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
     base.update(post={"title": str(post.get("title") or ""), "subject": str(post.get("subject") or ""),
                       "nick": str(author.get("nick") or "ㅇㅇ"), "ip": str(author.get("ip") or ""),
                       "icon": str(author.get("icon") or ""), "date": _dc_date(post.get("posted_at"))})
-    base.update(version=2, preset=preset, post_title=str(post.get("title") or ""), segments=segments, captions=caption_chunks([sc for sc in base["scenes"] if sc["part"] != "comment"]),
+    base.update(version=2, preset=preset, post_title=str(post.get("title") or ""), segments=segments, 
+                captions=sorted(caption_chunks([sc for sc in base["scenes"] if sc["part"] != "comment"])
+                                + silent, key=lambda c: c["start"]),
                 bgm=bgm, nickname=opts.nickname if opts.nickname in ("original", "blur", "replace")
                 else "original", warnings=warnings)
     return base

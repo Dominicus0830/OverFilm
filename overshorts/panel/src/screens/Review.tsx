@@ -6,7 +6,8 @@ import {api, ReviewItem, ScriptLine} from '../api';
 import type {Screen} from '../App';
 
 const PART_KO: Record<string, string> = {hook: '훅', body: '전개', comment: '댓글 읽기', outro: '마무리'};
-const SEG_KO: Record<string, string> = {title: '제목', media: '본문 미디어', body: '본문 글', comments: '댓글 반응'};
+const SEG_KO: Record<string, string> = {title: '제목', media: '본문 미디어', body: '본문 글', comments: '댓글 반응',
+  reaction: '짤'};
 const PRESET_KO: Record<string, string> = {frame: '프레임형', card: '썰 카드형'};
 const norm = (s: string) => s.replace(/[\s\p{P}\p{S}]+/gu, '');
 
@@ -34,9 +35,12 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
   const [regen, setRegen] = useState(false);
   const [report, setReport] = useState<{line: number; reason: string} | null>(null);
   const [msg, setMsg] = useState('');
+  const [react, setReact] = useState<{after: number; image: string; say: string} | null>(null);
+  const [library, setLibrary] = useState<{memes: {name: string; use: string}[]; heroes: string[]}>({memes: [], heroes: []});
   const player = useRef<PlayerRef>(null);
 
   useEffect(() => { api<ReviewItem[]>('/api/review').then(setItems).catch((e) => setMsg(e.message)); }, [tick]);
+  useEffect(() => { api<typeof library>('/api/memes').then(setLibrary).catch(() => undefined); }, [tick]);
   const item = items[Math.min(pos, Math.max(0, items.length - 1))];
   useEffect(() => { setLines(item?.script.lines ?? []); setDirty(false); setRegen(false); setReport(null); },
     [item?.job_id, item?.version]);
@@ -47,7 +51,7 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
     const f = (p: string | null) => (p ? item.files + p : null);
     return {...s, audio: f(s.audio), background: f(s.background), bgm: f(s.bgm),
       segments: s.segments.map((g) => ({...g,
-        media: g.media.map((m) => ({...m, src: item.files + m.src})),
+        media: g.media.map((m) => ({...m, src: item.files + m.src})), image: f(g.image),
         comments: g.comments.map((c) => ({...c, dccon: c.dccon ? {...c.dccon, src: f(c.dccon.src)} : null})),
       }))};
   }, [item]);
@@ -112,6 +116,38 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
       await api(`/api/review/${item.job_id}/segment-tts`, {seg, tts});
       setMsg(`세그먼트 ${seg + 1} TTS ${tts ? '켬' : '끔'}: 음성부터 다시 만듭니다`);
       setItems((old) => old.filter((x) => x.job_id !== item.job_id));
+    } catch (e) { setMsg((e as Error).message); }
+  };
+
+  const sendReaction = async () => {
+    if (!item || !react) return;
+    try {
+      await api(`/api/review/${item.job_id}/reaction`, react);
+      setMsg('짤 장면을 넣습니다: 그림을 구한 뒤 음성·미리보기부터 다시 만듭니다');
+      setReact(null);
+      setItems((old) => old.filter((x) => x.job_id !== item.job_id));
+    } catch (e) { setMsg((e as Error).message); }
+  };
+
+  const removeSeg = async (seg: number) => {
+    if (!item) return;
+    try {
+      const res = await fetch(`/api/review/${item.job_id}/segment/${seg}`, {method: 'DELETE'});
+      if (!res.ok) throw new Error(`요청 실패 (${res.status})`);
+      setMsg('짤 장면을 뺍니다: 음성·미리보기부터 다시 만듭니다');
+      setItems((old) => old.filter((x) => x.job_id !== item.job_id));
+    } catch (e) { setMsg((e as Error).message); }
+  };
+
+  const uploadMeme = async (file: File) => {
+    const name = (file.name.replace(/\.[^.]+$/, '') || '짤').slice(0, 40);
+    const data = await new Promise<string>((ok, bad) => {
+      const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = bad; r.readAsDataURL(file);
+    });
+    try {
+      const res = await api<{name: string}>('/api/memes', {name, data});
+      setLibrary(await api<typeof library>('/api/memes'));
+      if (react) setReact({...react, image: `짤:${res.name}`});
     } catch (e) { setMsg((e as Error).message); }
   };
 
@@ -193,6 +229,9 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
                     {g.subtitle && <span className="muted">“{g.subtitle}”</span>}
                     {g.media.length > 0 && <span className="muted">{g.media.map((m) => m.name).join(', ')}</span>}
                     {g.comments.length > 0 && <span className="muted">댓글 {g.comments.map((n) => `[${n}]`).join(' ')}</span>}
+                    {g.kind === 'reaction' && <span className="muted">{g.image || '그림 없음'}{g.say ? ` · “${g.say}”` : ''}</span>}
+                    {g.kind === 'reaction' && <button className="small-btn" data-automation-id={`seg-remove-${seg}`}
+                      onClick={() => removeSeg(seg)}>빼기</button>}
                     <button className={g.tts ? 'toggle on' : 'toggle'} title={g.tts_reason}
                       data-automation-id={`seg-tts-${seg}`} onClick={() => setTts(seg, !g.tts)}>
                       TTS {g.tts ? '켬' : '끔'}</button>
@@ -215,8 +254,36 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
                   </div>
                 );
               })}
+              {item.script.segments && (
+                <button className="small-btn" data-automation-id={`seg-add-reaction-${seg}`}
+                  onClick={() => setReact({after: seg, image: '', say: ''})}>＋ 이 뒤에 짤</button>
+              )}
             </div>
           ))}
+          {react && (
+            <div className="card">
+              <p>{react.after + 1}번째 장면 뒤에 짤 장면 넣기 (소리 없이 그림 + 자막)</p>
+              <label className="small">그림 · 영웅:이름 / 짤:짤 모음 이름 / 검색:찾을 짤
+                <input list="meme-list" value={react.image} placeholder="예: 영웅:아나, 검색:윈스턴 포효 짤"
+                  data-automation-id="reaction-image" onChange={(e) => setReact({...react, image: e.target.value})} />
+              </label>
+              <datalist id="meme-list">
+                {library.memes.map((m) => <option key={m.name} value={`짤:${m.name}`}>{m.use}</option>)}
+                {library.heroes.map((h) => <option key={h} value={`영웅:${h}`} />)}
+              </datalist>
+              <label className="small">짤 모음에 그림 올리기
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-automation-id="reaction-upload"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMeme(f); }} />
+              </label>
+              <label className="small">자막 (대사 그대로, 40자)
+                <input value={react.say} maxLength={40} data-automation-id="reaction-say"
+                  onChange={(e) => setReact({...react, say: e.target.value})}
+                  onKeyDown={(e) => { if (e.key === 'Enter') sendReaction(); }} />
+              </label>
+              <div className="actions"><button className="primary" onClick={sendReaction}>넣기</button>
+                <button onClick={() => setReact(null)}>취소</button></div>
+            </div>
+          )}
           {report && (
             <div className="card">
               <p>{report.line + 1}번째 문장이 오글거리는 이유 (선택)</p>

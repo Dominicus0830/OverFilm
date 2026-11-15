@@ -2,6 +2,7 @@
 
 - 프롬프트는 stdin 으로 (한국어·길이 제한 없음), 대답은 `--output-format json` + `--json-schema`.
 - 빈 임시 폴더에서 실행하고 도구를 끈다(`--tools ""`): 프로젝트 파일에 손대지 못한다.
+  짤 검색만 웹 검색 도구(WebSearch, WebFetch)를 켠다.
 - ANTHROPIC_API_KEY 는 지워서 구독으로만 돈다.
 """
 
@@ -59,7 +60,7 @@ class ClaudeCodeClient:
     def args(self, task: Task, schema: dict[str, Any]) -> list[str]:
         a = [self.exe, "-p", "--output-format", "json", "--no-session-persistence",
              "--strict-mcp-config", "--json-schema", json.dumps(schema, ensure_ascii=False),
-             "--system-prompt", task.system, "--tools", ""]
+             "--system-prompt", task.system, "--tools", task.tools or ""]
         if self.model:
             a += ["--model", self.model]
         return a

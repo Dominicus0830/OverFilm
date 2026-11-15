@@ -8,6 +8,7 @@ from pathlib import Path
 from ..llm import UNTRUSTED_RULE, Task, untrusted
 from .game_check import GAME_RULES
 from .models import CATEGORY_KO
+from .reactions import REACTION_RULES
 from .segments import media_block, numbered_comments
 from .title_rules import title_rules
 
@@ -76,7 +77,8 @@ def filter_task(title: str, body: str, comments: list[str], block_categories: li
 def script_task(title: str, body: str, comments: list[dict], media: list[dict], style: Style,
                 tone: str, speech: str, banned_words: list[str], chars_per_sec: float,
                 feedback: list[str] | None = None, composition: str = "auto",
-                max_comments: int = 6, title_tail: str = "auto") -> Task:
+                max_comments: int = 6, title_tail: str = "auto",
+                memes: str = "") -> Task:
     """세그먼트 대본 (기획서 3.3 개정 6): 구성 A/B, 세그먼트별 TTS 판단, 실제 댓글은 번호로만."""
     max_chars = int(55 * chars_per_sec)
     comp = {"A": "구성은 A 로 정해져 있다.", "B": "구성은 B 로 정해져 있다 (댓글 세그먼트 없음)."}.get(
@@ -91,7 +93,8 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
         "세그먼트 종류: title(첫 장면, 2~3초. lines 에 이 글에만 있는 구체적 장면 한 줄 훅 — 소리 없이 "
         "자막만 봐도 이해되게), media(원문 사진·영상. 미디어 목록의 이름을 그대로 쓰고, 본문의 [사진 N] "
         "자리를 보고 어느 문장에 나올지 line 으로 정한다. 쓸 미디어가 없으면 만들지 않는다), "
-        "body(디시 본문처럼 그린 글 카드. 사진이 없는 부분의 이야기), comments(디시 댓글 화면). "
+        "body(디시 본문처럼 그린 글 카드. 사진이 없는 부분의 이야기), comments(디시 댓글 화면), "
+        "reaction(짤·영웅 프로필 + 대사 자막, 아래 짤 장면 규칙). "
         "본문은 media 와 body 를 섞어 여러 세그먼트로 나눠도 된다. 세그먼트마다 subtitle(소제목, "
         "12자 안팎 장면 요약)을 단다.",
         "tts 판단: 원본 영상에 말소리·중요한 소리가 있으면 끔. 제목·짧은 댓글처럼 눈으로 바로 읽히면 끌 수 "
@@ -107,6 +110,7 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
         f"짧으면 25초로 끝나도 된다. 나레이션 전체 {max_chars}자를 넘기지 않는다. 마지막 줄은 질문·"
         "훈계·구독 요청 없이 끝낸다. 원문의 욕설·혐오 표현은 나레이션에 옮기지 않는다.",
         GAME_RULES,
+        REACTION_RULES + "\n짤 모음 (짤:이름 으로 쓴다):\n" + (memes or "(비어 있음)"),
         title_rules(title_tail) + "\n(ㅋㅋㅋ·ㄷㄷ 금지와 아래 사용자 금지 표현은 나레이션에만 적용한다. 제목은 위 제목 규칙만 따른다.)",
         f"말투: {SPEECH.get(speech, SPEECH['반말'])}로 통일. 톤: {TONES.get(tone, TONES['담백'])}",
         "쓰지 말 것: 여러분·인사·'알아볼게요', 충격·실화냐·소름·경악, '과연 그 결과는?' 같은 떡밥 질문, "
