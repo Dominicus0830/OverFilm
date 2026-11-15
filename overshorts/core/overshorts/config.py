@@ -37,7 +37,10 @@ DEFAULTS: dict[str, Any] = {
         "claude_model": "",
         "on_limit": "ask",
     },
-    "voice": {"narrator": "edge:ko-KR-SunHiNeural", "comment": "edge:ko-KR-InJoonNeural"},
+    # 클로닝(M6): clone:<번호> 목소리는 GPT-SoVITS 로컬 서버(tts/gpt_sovits.py). 실패하면 위 기성 보이스.
+    "voice": {"narrator": "edge:ko-KR-SunHiNeural", "comment": "edge:ko-KR-InJoonNeural",
+              "clone": {"server": "http://127.0.0.1:9880", "dir": None, "python": None,
+                        "config": None, "speed": 1.0, "unload_after": True, "align": "auto"}},
     "render": {"preset": "auto", "tone": "담백", "background_dir": "./assets/bg",
                "composition": "auto", "max_comments": 6, "max_media": 6, "nickname": "original",
                "bgm_dir": None},
