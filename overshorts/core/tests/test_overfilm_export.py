@@ -81,3 +81,30 @@ def test_export_job_copies_only_what_the_spec_uses(tmp_path: Path):
     sc = json.loads(path.read_text(encoding="utf-8"))
     assert "TTS" not in {s["track"] for s in sc["sounds"]}
     assert sc["pictures"][0]["label"] == "글 머리" and len(calls[0]) == 6
+
+
+def test_relative_job_dir_and_failed_scenes(tmp_path: Path, monkeypatch):
+    """설치본은 데이터 폴더가 상대 경로(./data): 그림 그리는 쪽에는 절대 경로로 넘기고, 못 그린 장면은 경고로."""
+    job = tmp_path / "data" / "jobs" / "3"
+    (job / "public").mkdir(parents=True)
+    (job / "spec.json").write_text(json.dumps(_spec()), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    seen = {}
+
+    def fake(sp, pub, out, spans):
+        seen["pub"], seen["out"] = pub, out
+        return [{"id": 1, "error": "Error: Error loading image with src: m0.png"}]
+
+    path = export_job(Path("data/jobs/3"), stage_runner=fake)
+    assert seen["pub"].is_absolute() and seen["out"].is_absolute() and path.is_absolute()
+    sc = json.loads(path.read_text(encoding="utf-8"))
+    assert "Error loading image" in sc["warnings"][0] and sc["pictures"] == []
+
+
+def test_first_error_line_skips_the_stack():
+    from overshorts.export.overfilm import _first_error_line, _last_json
+
+    out = "bundling...\n{\"error\": \"Error: Error loading image with src: x.png\"}\n"
+    assert _last_json(out) == {"error": "Error: Error loading image with src: x.png"}
+    err = "    at processDispatchQueue (http://localhost:3000/bundle.js:1:2)\nError: boom\n  at x"
+    assert _first_error_line(err) == "Error: boom"

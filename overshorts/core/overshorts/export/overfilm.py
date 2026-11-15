@@ -20,6 +20,7 @@ render_spec(검수 화면 미리보기와 같은 것)을 `.overshorts` 장면 �
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import platform
@@ -31,6 +32,10 @@ from collections.abc import Callable
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
+
+from ..proc import decode_output
+
+log = logging.getLogger(__name__)
 
 FORMAT = "overshorts.scenes"
 EXTENSION = ".overshorts"
@@ -293,35 +298,66 @@ def run_stage_export(spec: dict[str, Any], public: Path, out: Path, spans: list[
     if not (RENDER_DIR / "node_modules").exists():
         raise RuntimeError(f"render 폴더에서 npm install 을 먼저 하세요 ({RENDER_DIR})")
     node = shutil.which("node") or "node"
-    job = {"spec": spec, "publicDir": str(public), "outDir": str(out), "spans": spans,
+    # node 는 render 폴더에서 돈다: 데이터 폴더가 상대 경로(설치본 ./data)여도 맞게 절대 경로로 넘긴다
+    # (2026-11-15 설치본: 상대 경로라 사진을 못 찾아 'Error loading image' 로 실패)
+    job = {"spec": spec, "publicDir": str(public.resolve()), "outDir": str(out.resolve()), "spans": spans,
            "browser": browser, "ignoreCertificateErrors": bool(os.environ.get("OVERSHORTS_IGNORE_CERT")),
            "gl": "angle" if platform.system() == "Windows" else None}
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
         json.dump(job, f, ensure_ascii=False)
         job_path = f.name
+    log_path = out.resolve().parent / "stage-export.log"
     try:
         proc = subprocess.run([node, "scripts/stage-export.mjs", job_path], cwd=RENDER_DIR,
-                              capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              check=False, timeout=timeout, creationflags=0x0800_0000 if os.name == "nt" else 0)
+                              capture_output=True, check=False, timeout=timeout,
+                              creationflags=0x0800_0000 if os.name == "nt" else 0)
     except (OSError, subprocess.TimeoutExpired) as err:
         raise RuntimeError(f"장면 그림 그리기 실패: {err}") from err
     finally:
         Path(job_path).unlink(missing_ok=True)
-    last = (proc.stdout or "").strip().splitlines()[-1:] or [""]
-    if proc.returncode != 0:
-        raise RuntimeError(f"장면 그림 그리기 실패: {((proc.stderr or '') + (proc.stdout or ''))[-800:]}")
-    try:
-        return list(json.loads(last[0])["spans"])
-    except (ValueError, KeyError, TypeError) as err:
-        raise RuntimeError(f"장면 그림 결과를 못 읽음: {last[0][:300]}") from err
+    stdout, stderr = decode_output(proc.stdout), decode_output(proc.stderr)
+    try:  # 전체 기록(호출 스택 포함)은 파일로, 화면에는 원인 한 줄만
+        log_path.write_text(stdout + "\n" + stderr, encoding="utf-8")
+    except OSError:
+        pass
+    result = _last_json(stdout)
+    if result is None or proc.returncode != 0 or "error" in result:
+        cause = str((result or {}).get("error") or _first_error_line(stderr + "\n" + stdout))
+        raise RuntimeError(f"장면 그림 그리기 실패: {cause} (자세한 기록: {log_path})")
+    errors = [e for e in result.get("errors") or [] if isinstance(e, dict)]
+    for e in errors:
+        log.warning("장면 %s 못 그림: %s", e.get("id"), e.get("error"))
+    # 못 그린 장면은 {id, error} 로 같이 돌려준다 (export_job 이 경고로 남김)
+    return list(result.get("spans") or []) + [{"id": e.get("id"), "error": str(e.get("error"))} for e in errors]
+
+
+def _last_json(stdout: str) -> dict[str, Any] | None:
+    for line in reversed(stdout.strip().splitlines()):
+        if line.startswith("{"):
+            try:
+                v = json.loads(line)
+            except ValueError:
+                continue
+            return v if isinstance(v, dict) else None
+    return None
+
+
+def _first_error_line(text: str) -> str:
+    """Node·Remotion 출력에서 원인 한 줄 ('Error: …'), 없으면 첫 줄."""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    for ln in lines:
+        if re.search(r"(Error|error|오류)[:\]]", ln) and "at " not in ln[:4]:
+            return ln[:300]
+    return (lines[0] if lines else "알 수 없는 오류")[:300]
 
 
 def export_job(job_dir: Path, out_dir: Path | None = None, browser: str | None = None,
                stage_runner: StageRunner | None = None) -> Path:
     """작업 폴더(spec.json, public/) → `<out_dir>/<제목>.overshorts` 와 옆의 파일들. 장면 파일 경로를 돌려준다."""
+    job_dir = job_dir.resolve()
     spec = json.loads((job_dir / "spec.json").read_text(encoding="utf-8"))
     public = job_dir / "public"
-    out = out_dir or job_dir / "overfilm"
+    out = (out_dir or job_dir / "overfilm").resolve()
     if out.exists():
         shutil.rmtree(out)  # 예전 내보내기 (편집기는 프로젝트를 따로 저장하므로 여기 것은 다시 만들어도 된다)
     (out / "stage").mkdir(parents=True)
@@ -344,10 +380,15 @@ def export_job(job_dir: Path, out_dir: Path | None = None, browser: str | None =
     runner = stage_runner or (lambda sp, pub, o, s: run_stage_export(sp, pub, o, s, browser))
     drawn = runner(spec, public, out / "stage", [{k: s[k] for k in ("id", "start", "end")} for s in spans])
     kinds = {s["id"]: s["kind"] for s in spans}
+    failed = [d for d in drawn if "file" not in d]
+    drawn = [d for d in drawn if "file" in d]
     for d in drawn:
         d["kind"] = kinds.get(d.get("id"), "장면")
     name = str(spec.get("title") or spec.get("post_title") or "OverShorts").strip() or "OverShorts"
     scenes = build_scenes(spec, drawn, name, files)
+    if failed:
+        scenes["warnings"] = [f"장면 {d.get('id')} ({KIND_NAME.get(kinds.get(d.get('id'), ''), '장면')}) 못 그림: "
+                              f"{d.get('error')}" for d in failed]
     path = out / f"{safe_name(name)}{EXTENSION}"
     path.write_text(json.dumps(scenes, ensure_ascii=False, indent=1), encoding="utf-8")
     return path

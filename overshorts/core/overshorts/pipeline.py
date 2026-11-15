@@ -167,6 +167,10 @@ class Pipeline:
         r = self.cfg.get("render") or {}
         self._say("overfilm", f"작업 {job_id}: 편집기로 넘길 장면 그리는 중")
         path = export_job(job_dir, browser=r.get("browser_executable"))
+        try:
+            warnings = json.loads(path.read_text(encoding="utf-8")).get("warnings") or []
+        except (OSError, ValueError):
+            warnings = []
         opened = False
         editor = find_editor(o.get("editor"))
         want = bool(o.get("open", True)) if open_editor is None else open_editor
@@ -175,8 +179,11 @@ class Pipeline:
             opened = True
         msg = f"작업 {job_id}: {path.name} 만듦" + (" · OverFilm 편집기에서 엽니다" if opened else
                                                   " · 편집기에서 파일 ▸ OverShorts 쇼츠 열기로 여세요")
+        if warnings:
+            msg += f" · 장면 {len(warnings)}개는 못 그림(편집기에서 빈자리): {warnings[0]}"
         self._say("overfilm", msg, path=str(path))
-        return {"path": str(path), "opened": opened, "editor": str(editor) if editor else None}
+        return {"path": str(path), "opened": opened, "editor": str(editor) if editor else None,
+                "warnings": warnings}
 
     def _unload_ollama(self) -> None:
         for client in {id(c): c for c in getattr(self._router, "clients", {}).values()}.values():
