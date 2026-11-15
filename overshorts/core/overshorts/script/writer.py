@@ -72,7 +72,8 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
                            settings.max_comments, settings.title_tail, meme_block(memes))
         script, model = router.ask(task, ScriptAnswer)
         segs, seg_warn = validate(script, comments, media, settings.composition,
-                                  settings.max_comments, settings.max_media, source, memes)
+                                  settings.max_comments, settings.max_media, source, memes,
+                                  f"{title}\n{body}")
         lines = flatten(segs, comments, media)
         spoken = [ln for ln in lines if ln["part"] != "pause"]
         checks = check_script(spoken, body, texts, banned, settings.chars_per_sec)

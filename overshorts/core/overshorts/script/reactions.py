@@ -44,8 +44,9 @@ REACTION_RULES = """짤 장면 (reaction 세그먼트):
   '짤:짤 모음 이름', '검색:찾을 짤 설명' 중 하나. 원문 사진이 그 줄에 어울리면 원문 사진을 먼저 쓴다.
   say 의 욕설은 초성으로 바꾼다 (씨발→ㅅㅂ). 늘인 말("씨이바아아알")도 초성으로.
   짤 모음에 맞는 게 있으면 그걸 먼저 쓰고, 없으면 검색 (예: 검색:윈스턴 포효 짤).
-- 그림은 글 주제에 맞춘다: 글의 주인공 영웅이 있으면(예: 정커퀸 스킬 패러디 글) 원문 사진 > 그 영웅 짤
-  (검색:오버워치 정커퀸 ○○ 짤) > 그 영웅 프로필 순. 다른 영웅 짤은 그 줄이 그 영웅 얘기일 때만 (키리코 줄 → 키리코).
+- 원본 짤을 최대한 쓴다 (2026-11-15 사용자): 글에 그 글 내용의 사진(예: 정커퀸 스킬 패러디 글의 정커퀸 짤)이
+  있으면 모든 짤 장면에 원문 사진만 쓴다(같은 사진을 여러 번 써도 된다). 영웅 프로필·짤 모음·검색 짤은
+  원문 사진이 없거나, 글과 상관없는 짤림방지 사진뿐일 때(예: 탱커 정치 글)만 쓴다.
 - 펀치라인(예: "몰라서묻나")은 그 말에 맞는 리액션 짤과 함께 보여 준다. 짤 고르기 예:
   되묻기·버럭(몰라서묻나, 그걸 왜 나한테) → 윈스턴 포효 짤 / 어이없음 → 멍한 표정 짤.
   검색어는 '오버워치 윈스턴 포효 짤'처럼 그림이 떠오르게 쓴다 (대사 글자 그대로 검색하지 않는다).
@@ -139,7 +140,8 @@ def parse_image(image: str) -> tuple[str, str] | None:
 
 def fix_reaction(image: str, say: str, source: str, memes: list[Meme],
                  heroes: tuple[Hero, ...] | None = None,
-                 media_names: list[str] | None = None) -> tuple[str, list[str]]:
+                 media_names: list[str] | None = None,
+                 main: str | None | bool = False) -> tuple[str, list[str]]:
     """AI 가 고른 그림을 검증. 글 조합에 없는 영웅이면 정치 대상 순서로 바꾼다."""
     heroes = load_heroes() if heroes is None else heroes
     warn: list[str] = []
@@ -161,7 +163,8 @@ def fix_reaction(image: str, say: str, source: str, memes: list[Meme],
         return f"영웅:{h.ko if h else name}", warn
     # 짤은 글 주제(주인공 영웅)에 맞춘다 (2026-11-15 사용자: 퀸 글이면 퀸 짤).
     # 다른 영웅 짤은 그 줄이나 글에 그 영웅이 나올 때만.
-    main = main_hero(source, heroes) if heroes else None
+    if main is False:
+        main = main_hero(source, heroes) if heroes else None
     named = heroes_in(name, heroes)
     if main and named and not any(h.in_text(source + say) for h in named):
         warn.append(f"짤 '{name}' 이 글 주제와 달라 '{main}' 짤로 바꿨습니다")

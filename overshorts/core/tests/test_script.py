@@ -291,3 +291,20 @@ def test_memes_follow_main_hero():
     assert fix_reaction("영웅:키리코", "전 맵 키리코 유저 컴퓨터 폭발", queen, [])[0] == "영웅:키리코"
     comp = "거점전 몰표하고 엠레 위도우 메르시 키리코 고르고\n우리탱 왜던짐?\n몰라서묻나"
     assert main_hero(comp) is None  # 조합 얘기엔 주인공이 없다 → 리액션 짤 그대로
+
+
+def test_reactions_use_original_photo_when_post_has_one():
+    from overshorts.script.game_check import load_heroes
+    from overshorts.script.models import ScriptAnswer
+    from overshorts.script.segments import validate
+
+    if not load_heroes():
+        return
+    body = "[사진 1]\n퀸장연 기습시위\n도륙 부상 지속시간 동안\n톱니칼 명중 시"
+    ans = ScriptAnswer.model_validate({"title": "퀸장연", "composition": "B", "segments": [
+        {"kind": "title", "tts": False},
+        {"kind": "reaction", "tts": False, "image": "검색:오버워치 정커퀸 짤", "say": "도륙 부상 지속시간 동안"},
+        {"kind": "reaction", "tts": False, "image": "영웅:정커퀸", "say": "톱니칼 명중 시"}]})
+    media = [{"name": "사진 1", "kind": "image", "path": "x.png"}]
+    segs, _ = validate(ans, [], media, source="아나 메르시 " + body, post_text="퀸장연\n" + body)
+    assert [s["image"] for s in segs[1:]] == ["원문:사진 1", "원문:사진 1"]

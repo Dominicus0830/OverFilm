@@ -147,9 +147,13 @@ def _est_read(text: str) -> float:
 def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict[str, Any]],
              composition: str = "auto", max_comments: int = 6,
              max_media: int = 6, source: str = "",
-             memes: list[Any] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
+             memes: list[Any] | None = None,
+             post_text: str = "") -> tuple[list[dict[str, Any]], list[str]]:
     """AI 답 → 검증한 세그먼트 목록 + 경고. 없는 댓글·미디어 번호는 버린다."""
-    from .reactions import fix_reaction
+    from .reactions import fix_reaction, main_hero
+
+    n_reaction = 0
+    main = main_hero(post_text or source)  # 글 주인공은 제목·본문으로 (댓글은 영웅이 이것저것 나옴)
 
     warnings: list[str] = []
     by_name = {m["name"]: m for m in media}
@@ -203,8 +207,14 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
             continue
         if seg.kind == "reaction":
             image, warn = fix_reaction(seg.image, seg.say, source, memes or [],
-                                       media_names=[m["name"] for m in media])
+                                       media_names=[m["name"] for m in media], main=main)
             warnings += warn
+            # 원본 짤 우선: 글 주인공 영웅이 뚜렷하고 원문 사진이 있는 글이면 원문 사진만 (돌려 가며)
+            photos = [m["name"] for m in media if m.get("kind") == "image"]
+            if photos and image and not image.startswith("원문:") and main:
+                image = f"원문:{photos[n_reaction % len(photos)]}"
+            if image.startswith("원문:"):
+                n_reaction += 1
             s["image"], s["say"], s["say_style"] = image, seg.say.strip()[:40], seg.say_style
             s["lines"] = [s["say"]] if s["say"] else []
             if not image and not s["say"]:
