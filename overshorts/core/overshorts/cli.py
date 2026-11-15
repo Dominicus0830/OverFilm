@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("--max-posts", type=int, default=10)
 
     sub.add_parser("budget", help="요청 예산·쿨다운 상태")
-    sub.add_parser("voice", help="대본 → 음성 wav + 단어 시각 (Edge-TTS)")
+    sub.add_parser("voice", help="대본 → 음성 wav + 단어 시각 (Edge-TTS·클로닝)")
     sub.add_parser("preview", help="미리보기용 render_spec.json 만들기")
     ap_ = sub.add_parser("approve", help="작업 승인 (패널 전 임시)")
     ap_.add_argument("job", type=int)
@@ -197,13 +197,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"렌더 {counts['rendered']}개, 실패 {counts['failed']}")
             return 0
         if args.cmd == "voice":
-            from .tts.stage import voice_pending
+            from .tts.stage import voice_stage
 
-            v = cfg.get("voice") or {}
-            counts = voice_pending(store, data / "jobs",
-                                   str(v.get("narrator") or "edge:ko-KR-SunHiNeural"),
-                                   str(v.get("comment") or "") or None)
-            print(f"음성 {counts['voiced']}개, 실패 {counts['failed']}")
+            counts = voice_stage(store, data, cfg, say=print)
+            extra = f", 클로닝 실패로 기성 보이스 {counts['fallback']}" if counts.get("fallback") else ""
+            print(f"음성 {counts['voiced']}개, 실패 {counts['failed']}{extra}")
             return 0
         if args.cmd in ("filter", "script"):
             return _llm_stage(args, cfg, store)

@@ -118,14 +118,12 @@ class Pipeline:
                                   "낮아집니다. 바꿀까요, 한도가 풀릴 때까지 기다릴까요?"})
 
     def voice(self) -> None:
-        from .tts.stage import voice_pending
+        from .tts.stage import voice_stage
 
-        v = self.cfg.get("voice") or {}
         self._say("voice", "음성 만드는 중")
-        c = voice_pending(self.store, self.data / "jobs",
-                          str(v.get("narrator") or "edge:ko-KR-SunHiNeural"),
-                          str(v.get("comment") or "") or None)
-        self._say("voice", f"음성 {c['voiced']}개, 실패 {c['failed']}")
+        c = voice_stage(self.store, self.data, self.cfg, say=lambda m: self._say("voice", m))
+        extra = f", 클로닝 실패로 기성 보이스 {c['fallback']}" if c.get("fallback") else ""
+        self._say("voice", f"음성 {c['voiced']}개, 실패 {c['failed']}{extra}")
 
     def preview(self) -> None:
         from .render.spec import spec_pending

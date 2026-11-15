@@ -69,7 +69,7 @@ def test_stage(tmp_path):
     sid = store.add_script(pid, 1, "담백", {"lines": LINES}, 0.1, "x")
     store.set_job_status(job, "scripted", None, script_id=sid)
     counts = voice_pending(store, tmp_path, "edge:n", "edge:c", {"edge": FakeEngine()}, fake_decode)
-    assert counts == {"voiced": 1, "failed": 0}
+    assert counts == {"voiced": 1, "failed": 0, "fallback": 0}
     assert store.conn.execute("SELECT status FROM jobs").fetchone()["status"] == "aligned"
     assert (tmp_path / str(job) / "voice.wav").exists()
 

@@ -527,6 +527,7 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
                 spec = build_spec(timing, str(script.get("title") or ""), str(row["subject"] or ""),
                                   str(script.get("fact") or ""), source, bg_name)
             spec["source_text"] = source_text  # 출처 끄기/켜기를 다시 만들지 않고 바꿀 수 있게
+            spec["warnings"] = [*(timing.get("warnings") or []), *(spec.get("warnings") or [])]
             spec_path = job_dir / "spec.json"
             spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
         except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as err:

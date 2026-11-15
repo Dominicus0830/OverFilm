@@ -174,6 +174,9 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
     app.state.worker = worker
     app.state.hub = hub
     (data / "jobs").mkdir(parents=True, exist_ok=True)
+    from .voices import voices_router  # 보이스 화면 (M6 클로닝)
+
+    app.include_router(voices_router(cfg, data, db_path, worker))
 
     def db() -> Store:
         return Store(db_path)
