@@ -22,7 +22,7 @@ DEFAULTS: dict[str, Any] = {
         "block_categories": [
             "politics", "hate", "sexual", "real_person", "personal_info", "crime_selfharm", "ad",
         ],
-        "min_chars": 80,
+        "min_chars": 15,
         "max_chars": 4000,
         "blur_faces": True,
         "drop_nsfw_images": True,
@@ -114,7 +114,7 @@ def rule_config(cfg: dict[str, Any]) -> RuleConfig:
     f = cfg.get("filter") or {}
     words = f.get("block_words") or []
     return RuleConfig(
-        min_chars=int(_num(f.get("min_chars"), 80, 0, 100_000)),
+        min_chars=int(_num(f.get("min_chars"), 15, 0, 100_000)),
         max_chars=int(_num(f.get("max_chars"), 4000, 1, 1_000_000)),
         block_words=[str(w) for w in words if isinstance(w, (str, int)) and str(w).strip()],
     )

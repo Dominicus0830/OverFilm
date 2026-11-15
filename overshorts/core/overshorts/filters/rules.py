@@ -23,7 +23,7 @@ _SPACE = re.compile(r"\s+")
 
 @dataclass
 class RuleConfig:
-    min_chars: int = 80
+    min_chars: int = 15
     max_chars: int = 4000
     block_words: list[str] = field(default_factory=list)
 
@@ -58,10 +58,12 @@ def check_post(title: str, body: str, images: list[str] | None = None,
             reasons.append("계좌번호로 보이는 숫자가 있습니다")
             break
 
-    if chars == 0 and images:
+    # 짧은 뻘글도 쇼츠 감이다 (2026-11-15 사용자 편집 규칙: 원제 그대로 + 짤 장면). 제목까지 합쳐 센다.
+    total = chars + _visible_len(title)
+    if chars == 0 and images and _visible_len(title) < 6:
         reasons.append("그림만 있는 글입니다")
-    elif chars < cfg.min_chars:
-        reasons.append(f"글이 짧습니다 ({chars}자 < {cfg.min_chars}자)")
+    elif total < cfg.min_chars:
+        reasons.append(f"글이 짧습니다 (제목+본문 {total}자 < {cfg.min_chars}자)")
     elif chars > cfg.max_chars:
         reasons.append(f"글이 너무 깁니다 ({chars}자 > {cfg.max_chars}자)")
 

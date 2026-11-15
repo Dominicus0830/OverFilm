@@ -61,6 +61,8 @@ class ClaudeCodeClient:
         a = [self.exe, "-p", "--output-format", "json", "--no-session-persistence",
              "--strict-mcp-config", "--json-schema", json.dumps(schema, ensure_ascii=False),
              "--system-prompt", task.system, "--tools", task.tools or ""]
+        if task.tools:
+            a += ["--allowedTools", task.tools]  # -p 는 권한을 물을 수 없어서 미리 허용
         if self.model:
             a += ["--model", self.model]
         return a

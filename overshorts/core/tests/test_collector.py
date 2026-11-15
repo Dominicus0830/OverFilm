@@ -4,6 +4,7 @@ from datetime import datetime
 
 from conftest import fixture
 from overshorts.crawler.budget import CrawlGuard, CrawlLimits
+from overshorts.filters.rules import RuleConfig
 from overshorts.crawler.collector import Collector, GalleryOptions
 from overshorts.crawler.fetcher import Fetcher, Response
 from overshorts.db import Store
@@ -65,6 +66,7 @@ def test_short_post_blocked_and_no_comment_request():
         "500힐밖에 못 줬다고 뭐라 하는 사람도 나올 듯.", "")
     dc = FakeDc(view_html=short)
     store, col = make(dc)
+    col.rules = RuleConfig(min_chars=200)
     rep = col.ingest("https://gall.dcinside.com/mgallery/board/view/?id=example&no=1000200")
     assert rep.saved == [] and rep.blocked
     assert not any("/comment/" in u for _, u in dc.calls)

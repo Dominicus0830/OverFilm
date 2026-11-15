@@ -8,7 +8,7 @@ sources:
 filter:
   block_words: []
   allow_topics: []        # 비우면 전부 허용
-  min_chars: 80
+  min_chars: 15  # 제목+본문 글자 수 (짧은 뻘글도 받음)
   max_chars: 4000
   blur_faces: true        # 첨부 그림 얼굴 흐림
   drop_nsfw_images: true  # 선정성 그림 빼기

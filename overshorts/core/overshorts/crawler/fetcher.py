@@ -6,6 +6,7 @@ curl_cffi 의 impersonate="chrome" 으로 TLS 지문과 User-Agent를 실제 크
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -123,8 +124,15 @@ class Fetcher:
         return self._send("GET", url, referer, None)
 
     def get_image(self, url: str, max_bytes: int = 15 * 1024 * 1024) -> bytes:
-        """첨부 그림. DC 그림 서버는 Referer 가 있어야 준다. 요청 예산에 같이 센다."""
-        resp = self._send("GET", url, REFERER, None)
+        """첨부 그림. DC 그림 서버는 Referer 가 있어야 준다. 요청 예산에 같이 센다.
+        dcimgN 서버가 5xx 를 주면 같은 그림을 image.dcinside.com 에서 한 번만 다시 받는다."""
+        try:
+            resp = self._send("GET", url, REFERER, None)
+        except FetchError as err:
+            alt = re.sub(r"^https://dcimg\d+\.dcinside\.co\.kr/", "https://image.dcinside.com/", url)
+            if alt == url or not re.search(r"HTTP 5\d\d", str(err)):
+                raise
+            resp = self._send("GET", alt, REFERER, None)
         if not (resp.content_type.startswith("image/") or _image_magic(resp.content)):
             raise FetchError(f"그림이 아닙니다 ({resp.content_type or '종류 없음'}): {url}")
         if len(resp.content) > max_bytes:

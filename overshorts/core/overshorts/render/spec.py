@@ -280,11 +280,9 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
             path = str(seg.get("image_path") or "")
             out["image"] = _copy(path, public, f"r{i}") if path else None
             out["say"] = str(seg.get("say") or "")
-        if not seg.get("tts"):
-            loud = any(m["kind"] == "video" and not m["muted"] for m in out["media"])
-            text = [out["say"]] if out["kind"] == "reaction" else [str(t) for t in seg.get("lines") or []]
-            if not loud and end > start:
-                silent += silent_captions([t for t in text if t.strip()], start, end, i)
+        if out["kind"] == "reaction" and not seg.get("tts") and out["say"].strip():
+            # 짤 장면 대사는 소리 없이 자막으로 (다른 장면의 나레이션 줄은 TTS 를 켤 때만 자막이 된다)
+            silent += silent_captions([out["say"]], start, end, i)
         segments.append(out)
     has_media = any(sg["media"] or sg.get("image") for sg in segments)
     preset = opts.preset if opts.preset in ("frame", "card") else ("frame" if has_media else "card")

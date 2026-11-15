@@ -109,7 +109,7 @@ const SegmentStage: React.FC<{spec: RenderSpec; seg: SpecSegment; next: SpecSegm
     // 짤·영웅 프로필: 검은 바탕 가운데에 통째로 (확대·흔들기 없음). 대사는 아래 자막으로.
     return wrap(seg.image ? (
       <div style={{position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-        <Img src={src(seg.image)} style={{maxWidth: '100%', maxHeight: '100%', objectFit: 'contain'}} />
+        <Img src={src(seg.image)} style={{width: '100%', height: '100%', objectFit: 'contain'}} />
       </div>
     ) : null);
   }
