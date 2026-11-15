@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from ..proc import decode_output
 from . import LimitReached, LlmError, Task, extract_json
 
 _LOGIN = ("not logged in", "/login", "invalid api key", "authentication", "unauthorized", "oauth")
@@ -74,8 +75,8 @@ class ClaudeCodeClient:
         flags = 0x0800_0000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
         try:
             proc = subprocess.run(
-                self.args(task, schema), input=task.prompt, capture_output=True, text=True,
-                encoding="utf-8", errors="replace", timeout=self.timeout, cwd=self.workdir,
+                self.args(task, schema), input=task.prompt.encode("utf-8"), capture_output=True,
+                timeout=self.timeout, cwd=self.workdir,
                 env=env, creationflags=flags,
             )
         except FileNotFoundError as err:
@@ -84,4 +85,4 @@ class ClaudeCodeClient:
             raise LlmError(f"Claude Code 가 {int(self.timeout)}초 안에 답하지 않았습니다") from err
         except OSError as err:
             raise LlmError(f"Claude Code 를 실행하지 못했습니다: {err}") from err
-        return read_answer(proc.stdout or "", proc.stderr or "")
+        return read_answer(decode_output(proc.stdout), decode_output(proc.stderr))

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..db import Store
+from ..proc import decode_output
 
 RENDER_DIR = Path(__file__).resolve().parents[3] / "render"
 
@@ -49,10 +50,21 @@ def detect_gpu() -> GpuInfo:
     return GpuInfo("none", "")
 
 
+REMOTION_CLI = RENDER_DIR / "node_modules" / "@remotion" / "cli" / "remotion-cli.js"
+
+
+def remotion_command() -> list[str]:
+    """Remotion CLI 를 node 로 바로 부른다. npx·node_modules/.bin 바로가기(.cmd)는 설치본에서
+    빠지거나 깨질 수 있어 쓰지 않는다 (2026-11-15 설치본: 'remotion' 은 내부 또는 외부 명령이 아닙니다)."""
+    node = shutil.which("node")
+    if node and REMOTION_CLI.is_file():
+        return [node, str(REMOTION_CLI)]
+    return [shutil.which("npx") or "npx", "remotion"]
+
+
 def render_args(spec_path: Path, public_dir: Path, out_path: Path, encoder: str,
                 browser: str | None = None, gl: str | None = None) -> list[str]:
-    npx = shutil.which("npx") or "npx"
-    args = [npx, "remotion", "render", "src/index.ts", "Story", str(out_path),
+    args = [*remotion_command(), "render", "src/index.ts", "Story", str(out_path),
             f"--props={spec_path}", f"--public-dir={public_dir}", "--codec=h264",
             "--crf=18" if encoder != "nvenc" else "--video-bitrate=12M"]
     args.append("--hardware-acceleration=" + ("if-possible" if encoder == "nvenc" else "disable"))
@@ -75,18 +87,23 @@ def choose_encoder(setting: str, gpu: GpuInfo) -> str:
 
 def render_job(spec_path: Path, out_path: Path, encoder: str, browser: str | None = None,
                timeout: float = 1800) -> tuple[bool, str]:
-    if not (RENDER_DIR / "node_modules").exists():
-        return False, f"render 폴더에서 npm install 을 먼저 하세요 ({RENDER_DIR})"
+    if not REMOTION_CLI.is_file():
+        return False, f"렌더 모듈이 없습니다. render 폴더에서 npm install 을 먼저 하세요 ({RENDER_DIR})"
+    if not shutil.which("node"):
+        return False, "Node.js 를 찾지 못했습니다 (설치본이면 OverShorts.exe 로 켜야 함께 든 Node 를 씁니다)"
     public = spec_path.parent / "public"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     flags = 0x0800_0000 if os.name == "nt" else 0
     try:
         proc = subprocess.run(render_args(spec_path, public, out_path, encoder, browser),
-                              cwd=RENDER_DIR, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=timeout, creationflags=flags)
+                              cwd=RENDER_DIR, capture_output=True, timeout=timeout, creationflags=flags)
     except (OSError, subprocess.TimeoutExpired) as err:
         return False, f"렌더 실행 실패: {err}"
-    log = (proc.stdout or "") + (proc.stderr or "")
+    log = decode_output(proc.stdout) + decode_output(proc.stderr)
+    try:  # 전체 기록은 작업 폴더에 (화면에는 끝부분만)
+        (spec_path.parent / "render.log").write_text(log, encoding="utf-8")
+    except OSError:
+        pass
     if proc.returncode != 0 or not out_path.exists():
         return False, log[-1500:]
     return True, log[-1500:]
