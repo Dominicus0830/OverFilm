@@ -61,3 +61,22 @@ def test_block_detection():
     assert not looks_blocked(fixture("mgallery_view.html"))
     assert not looks_blocked(fixture("mgallery_list.html"))
     assert not looks_blocked(fixture("comments.json"))
+
+
+def test_post_keeps_writer_styles():
+    html = (
+        '<html><head><title>글 - 오버워치 2 마이너 갤러리</title></head><body>'
+        '<span class="title_subject">퀸</span><div class="write_div">'
+        '<p><span style="font-size:36px;"><font color="#ff0000">크아악 퀸장연!!</font></span></p>'
+        '<p>그냥 줄</p>'
+        '<p><b>굵게</b> 그리고 <i style="font-family:궁서">기울임</i></p>'
+        '<p><span style="color:rgb(51,51,51);font-size:13px">기본 글자</span></p>'
+        '</div></body></html>'
+    )
+    post = parse_post(html, "overwatch2", 1)
+    assert post.body.splitlines() == ["크아악 퀸장연!!", "그냥 줄", "굵게 그리고 기울임", "기본 글자"]
+    styled = {s["text"]: s["runs"] for s in post.body_styles}
+    assert styled["크아악 퀸장연!!"] == [{"t": "크아악 퀸장연!!", "color": "#ff0000", "size": 36}]
+    assert styled["굵게 그리고 기울임"] == [{"t": "굵게", "bold": True}, {"t": " 그리고 "},
+                                       {"t": "기울임", "font": "궁서", "italic": True}]
+    assert "그냥 줄" not in styled and "기본 글자" not in styled

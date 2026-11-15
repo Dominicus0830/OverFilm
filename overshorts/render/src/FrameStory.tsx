@@ -7,10 +7,10 @@ import {
   AbsoluteFill, Audio, Img, Sequence, staticFile, useCurrentFrame, useVideoConfig,
 } from 'remotion';
 import {
-  BodyText, CommentPage, PhotoBlock, PostHead, SKIN_W, Scaled, photoHeight, textHeight, useScroll,
+  BodyText, CommentPage, PhotoBlock, PostHead, SKIN_W, Scaled, photoHeight, runCss, textHeight, useScroll,
 } from './DcSkin';
 import {FONT_FAMILY, HAND_FONT, SHOUT_FONT, loadFonts} from './fonts';
-import {RenderSpec, SayStyle, SpecMedia, SpecSegment, sanitize} from './spec';
+import {RenderSpec, SayStyle, SpecMedia, SpecSegment, StyledLine, sanitize} from './spec';
 
 loadFonts();
 
@@ -57,12 +57,40 @@ const SayCaption: React.FC<{text: string; style: SayStyle; height: number}> = ({
   </div>
 );
 
+// 원문 줄을 그대로 쓴 대사: 글쓴이가 꾸민 색·크기·글꼴·굵게·기울임을 따른다 (2026-11-15 사용자 의견).
+// 바탕은 차분한 흰 글씨(calm)이고 원문 꾸밈이 덮어쓴다. 사진 위에서도 읽히게 검은 테두리는 남긴다.
+const RichSayCaption: React.FC<{runs: StyledLine; height: number}> = ({runs, height}) => {
+  const base = SAY_LOOK.calm;
+  const chars = runs.reduce((n, r) => n + r.t.replace(/\s/g, '').length, 0);
+  const fit = Math.min(1, 12 / Math.max(1, chars)) ** 0.75;
+  // 원문 크기 비율: 디시 기본 13~16px 이 80, 36px 이면 1.5배까지
+  const sizeOf = (px?: number) => Math.max(58, Math.round(Number(base.fontSize) * fit
+    * Math.min(1.5, Math.max(1, (px ?? 16) / 20))));
+  return (
+    <div style={{position: 'absolute', left: 30, right: 30, top: pct(height, SAFE.tall[1] + 0.5),
+      height: pct(height, SAFE.source[0] - SAFE.tall[1] - 1), display: 'flex', alignItems: 'center',
+      justifyContent: 'center', textAlign: 'center'}}>
+      <div style={{lineHeight: 1.1, wordBreak: 'keep-all', paintOrder: 'stroke fill', ...base, fontSize: sizeOf()}}>
+        {runs.map((r, k) => {
+          const css = runCss(r);
+          return (
+            <span key={k} style={{...css, fontWeight: r.bold ? 900 : base.fontWeight,
+              fontFamily: css.fontFamily ?? base.fontFamily, color: css.color ?? base.color,
+              background: undefined, fontSize: sizeOf(r.size)}}>{r.t}</span>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const Caption: React.FC<{spec: RenderSpec; height: number}> = ({spec, height}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const t = frame / fps;
   const cap = spec.captions.find((c) => t >= c.start && t < c.end);
   if (!cap) return null;
+  if (cap.runs) return <RichSayCaption runs={cap.runs} height={height} />;
   if (cap.style) return <SayCaption text={cap.words.map((w) => w.text).join(' ')} style={cap.style} height={height} />;
   // 한 색으로 2~4단어를 통째로 보여 준다 (글자별 색 바뀜·확대 없음)
   return (
@@ -91,14 +119,14 @@ const PhotoPage: React.FC<{spec: RenderSpec; m: SpecMedia; head: boolean; view: 
   );
 };
 
-const TextPage: React.FC<{spec: RenderSpec; text: string; head: boolean; view: number; start: number;
-  end: number}> = ({spec, text, head, view, start, end}) => {
+const TextPage: React.FC<{spec: RenderSpec; text: string; runs?: StyledLine[] | null; head: boolean; view: number;
+  start: number; end: number}> = ({spec, text, runs, head, view, start, end}) => {
   const k = 1080 / SKIN_W;
-  const y = useScroll((head ? 52 : 0) + textHeight(text), view / k, start, end);
+  const y = useScroll((head ? 52 : 0) + textHeight(text, runs), view / k, start, end);
   return (
     <Scaled width={1080} height={view} scrollY={y}>
       {head ? <PostHead post={spec.post} /> : null}
-      <BodyText text={text} />
+      <BodyText text={text} runs={runs} />
     </Scaled>
   );
 };
@@ -137,7 +165,7 @@ const SegmentStage: React.FC<{spec: RenderSpec; seg: SpecSegment; next: SpecSegm
     ) : null);
   }
   if (seg.kind === 'body') {
-    return wrap(<TextPage spec={spec} text={seg.quote} head={false} view={box.h} start={seg.start} end={seg.end} />);
+    return wrap(<TextPage spec={spec} text={seg.quote} runs={seg.quote_runs} head={false} view={box.h} start={seg.start} end={seg.end} />);
   }
   // 제목 장면: 글 머리 + 다음 장면 첫 사진 (실제 글 첫 화면처럼)
   const items = seg.kind === 'media' ? seg.media

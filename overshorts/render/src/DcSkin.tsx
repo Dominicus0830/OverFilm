@@ -2,12 +2,52 @@
 // 실제 디시 크기(가로 480px, 글자 13px)로 그린 뒤 화면 폭에 맞게 통째로 키운다. 연출(확대·글자별 색) 없음.
 import React from 'react';
 import {Img, OffthreadVideo, interpolate, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
-import {SpecComment, SpecMedia, SpecPost} from './spec';
+import {mapFont} from './fonts';
+import {SpecComment, SpecMedia, SpecPost, StyledLine, StyledRun} from './spec';
 
 export const SKIN_W = 480;
 const DC_BLUE = '#3b4890';
 const FONT = 13;
 const src = (p: string) => (/^(https?:)?\/\//.test(p) || p.startsWith('/') ? p : staticFile(p));
+
+/** 원문 글자 크기(px, 디시 PC 화면 기준) → 480px 화면 크기. 기본 크기는 그대로 13. */
+export function skinSize(px: number | undefined): number {
+  if (!px || px <= 16) return FONT;
+  return Math.min(30, Math.round(px * 0.65));
+}
+
+/** 꾸밈 조각 → CSS (색·배경·글꼴·굵게·기울임·밑줄·취소선). 크기는 부르는 쪽이 정한다. */
+export function runCss(r: StyledRun): React.CSSProperties {
+  const deco = [r.underline ? 'underline' : '', r.strike ? 'line-through' : ''].filter(Boolean).join(' ');
+  return {
+    color: r.color, background: r.bg, fontFamily: mapFont(r.font),
+    fontWeight: r.bold ? 800 : undefined, fontStyle: r.italic ? 'italic' : undefined,
+    textDecoration: deco || undefined,
+  };
+}
+
+/** 원문 꾸밈을 살린 여러 줄 (디시 화면 속 글). */
+export const RichLines: React.FC<{lines: StyledLine[]}> = ({lines}) => (
+  <>
+    {lines.map((line, i) => {
+      const size = Math.max(...line.map((r) => skinSize(r.size)), FONT);
+      return (
+        <div key={i} style={{fontSize: size, lineHeight: 1.5, minHeight: size * 1.5}}>
+          {line.map((r, k) => <span key={k} style={{...runCss(r), fontSize: skinSize(r.size)}}>{r.t}</span>)}
+        </div>
+      );
+    })}
+  </>
+);
+
+/** 꾸민 줄들의 높이 (가로 468px 에 한글 한 글자 ≈ 글자 크기). */
+export function richHeight(lines: StyledLine[]): number {
+  return lines.reduce((h, line) => {
+    const size = Math.max(...line.map((r) => skinSize(r.size)), FONT);
+    const width = line.reduce((w, r) => w + r.t.length * skinSize(r.size), 0);
+    return h + Math.max(1, Math.ceil(width / (SKIN_W - 12))) * size * 1.5;
+  }, 0);
+}
 
 /** 가상 480px 화면을 width(실제 px)에 맞게 키운다. */
 export const Scaled: React.FC<{width: number; height: number; children: React.ReactNode; scrollY?: number}> = ({
@@ -61,7 +101,9 @@ export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
         <span style={{position: 'absolute', right: 8, bottom: 8, fontSize: 11, color: '#fff', padding: '4px 9px',
           background: 'rgba(40,40,40,0.85)', borderRadius: 3, fontWeight: 700}}>댓글 열기 ▾</span>
       </div>
-      {m.caption ? (
+      {m.caption_runs ? (
+        <div style={{padding: '4px 2px 6px', wordBreak: 'break-all'}}><RichLines lines={m.caption_runs} /></div>
+      ) : m.caption ? (
         <div style={{padding: '4px 2px 6px', whiteSpace: 'pre-wrap', wordBreak: 'break-all'}}>{m.caption}</div>
       ) : null}
     </div>
@@ -70,6 +112,7 @@ export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
 
 export function photoHeight(m: SpecMedia): number {
   const aspect = m.width && m.height ? m.width / m.height : 16 / 9;
+  if (m.caption_runs) return 8 + SKIN_W / aspect + richHeight(m.caption_runs) + 10;
   const lines = m.caption ? m.caption.split('\n').reduce((n, p) => n + Math.max(1, Math.ceil(p.length / 36)), 0) : 0;
   return 8 + SKIN_W / aspect + lines * FONT * 1.5 + 10;
 }
@@ -137,10 +180,13 @@ export function useScroll(contentH: number, viewH: number, start: number, end: n
 }
 
 /** 본문 글만 있는 장면 (사진 없는 부분). */
-export const BodyText: React.FC<{text: string}> = ({text}) => (
+export const BodyText: React.FC<{text: string; runs?: StyledLine[] | null}> = ({text, runs}) => (runs ? (
+  <div style={{padding: '10px 6px', wordBreak: 'break-all'}}><RichLines lines={runs} /></div>
+) : (
   <div style={{padding: '10px 6px', whiteSpace: 'pre-wrap', wordBreak: 'break-all'}}>{text}</div>
-);
+));
 
-export function textHeight(text: string): number {
+export function textHeight(text: string, runs?: StyledLine[] | null): number {
+  if (runs) return 20 + richHeight(runs);
   return 20 + text.split('\n').reduce((n, p) => n + Math.max(1, Math.ceil(p.length / 36)), 0) * FONT * 1.5;
 }

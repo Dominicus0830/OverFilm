@@ -112,3 +112,15 @@ def test_silent_captions_spread_over_segment():
     caps = silent_captions(["우리탱 왜던짐?"], 2.0, 5.0, 1)
     assert caps and caps[0]["start"] >= 2.0 and caps[-1]["end"] == 5.0
     assert " ".join(w["text"] for c in caps for w in c["words"]) == "우리탱 왜던짐?"
+
+
+def test_rich_lines_follow_writer_styles():
+    from overshorts.render.spec import rich_lines
+    styles = [{"text": "크아아아아악 씨이바아아알 퀸장연 기습시위!!!",
+               "runs": [{"t": "크아아아아악 씨이바아아알 퀸장연 기습시위!!!", "color": "#ff0000", "size": 36}]}]
+    exact = rich_lines("크아아아아악 씨이바아아알 퀸장연 기습시위!!!", styles)
+    assert exact == [[{"t": "크아아아아악 씨이바아아알 퀸장연 기습시위!!!", "color": "#ff0000", "size": 36}]]
+    # 욕을 초성으로 바꾼 대사도 같은 원문 줄의 꾸밈
+    assert rich_lines("크아아아아악 ㅅㅂ 퀸장연 기습시위!!!", styles)[0][0]["color"] == "#ff0000"
+    assert rich_lines("우리탱 왜던짐?", styles) is None
+    assert rich_lines("아무 글", []) is None

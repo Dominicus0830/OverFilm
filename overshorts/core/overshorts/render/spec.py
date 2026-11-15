@@ -10,8 +10,9 @@ import json
 import random
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,7 @@ class SpecOptions:
     bgm_dir: Path | None = None
     body: str = ""
     show_source: bool = True  # 아래 '출처: …' 표시 (검수 화면에서 켜기/끄기)
+    body_styles: list[dict[str, Any]] = field(default_factory=list)  # 글쓴이가 꾸민 줄 (dc_parser.styled_lines)
 
 
 def caption_chunks(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -246,6 +248,9 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                         "start": round(starts[k], 3), "end": round(max(m_end, starts[k] + 0.5), 3),
                         "width": m.get("width") or 0, "height": m.get("height") or 0,
                         "muted": True}
+                runs = rich_lines(item["caption"], opts.body_styles)
+                if runs:
+                    item["caption_runs"] = runs
                 if m["kind"] == "video":
                     # 원본 소리가 중요하면(나레이션을 끈 세그먼트) 원본을 튼다
                     item["muted"] = bool(seg.get("tts")) or not m.get("audio")
@@ -280,6 +285,9 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
             _paginate(out["comments"], start, end, seg.get("pages"))
         elif out["kind"] == "body":
             out["quote"] = _quote(str(seg.get("quote") or ""), opts.body, i, segs_in)
+            runs = rich_lines(out["quote"], opts.body_styles)
+            if runs:
+                out["quote_runs"] = runs
         elif out["kind"] == "reaction":
             path = str(seg.get("image_path") or "")
             out["image"] = _copy(path, public, f"r{i}") if path else None
@@ -289,9 +297,18 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
         if out["kind"] == "reaction" and not seg.get("tts") and out["say"].strip():
             # 짤 장면 대사는 소리 없이 자막으로 (다른 장면의 나레이션 줄은 TTS 를 켤 때만 자막이 된다)
             # 대사는 한 덩어리로, 짤과 같은 순간에 떴다가 같은 순간에 사라진다 (스타일 자막)
-            silent.append({"start": round(start, 3), "end": round(end, 3), "seg": i,
-                           "style": out["say_style"],
-                           "words": [{"text": out["say"], "start": round(start, 3), "end": round(end, 3)}]})
+            cap = {"start": round(start, 3), "end": round(end, 3), "seg": i, "style": out["say_style"],
+                   "words": [{"text": out["say"], "start": round(start, 3), "end": round(end, 3)}]}
+            # 원문에 꾸민 줄이면 (빨간 36px 등) 그 색·크기·글꼴·굵게·기울임을 따른다 (2026-11-15 사용자 의견)
+            runs = rich_lines(out["say"], opts.body_styles)
+            if runs:
+                flat: list[dict[str, Any]] = []
+                for k, line in enumerate(runs):
+                    if k:
+                        flat.append({"t": " "})
+                    flat.extend(line)
+                cap["runs"] = flat
+            silent.append(cap)
         segments.append(out)
     has_media = any(sg["media"] or sg.get("image") for sg in segments)
     preset = opts.preset if opts.preset in ("frame", "card") else ("frame" if has_media else "card")
@@ -383,6 +400,51 @@ def _dc_date(iso: Any) -> str:
         return ""
 
 
+_RUN_KEYS = ("color", "bg", "size", "font", "bold", "italic", "underline", "strike")
+
+
+def _run_key(text: str) -> str:
+    return re.sub(r"[\s.,!?~…·'\"\-]+", "", text)
+
+
+def _dominant(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    best = max(runs, key=lambda r: len(str(r.get("t") or "").strip()), default={})
+    return {k: best[k] for k in _RUN_KEYS if best.get(k)}
+
+
+def rich_lines(text: str, styles: list[dict[str, Any]] | None) -> list[list[dict[str, Any]]] | None:
+    """글 → 줄마다 원문 꾸밈(색·크기·글꼴·굵게·기울임). 원문에 꾸민 줄이 없으면 None.
+
+    원문 줄 그대로면 원문 조각(run)을, 원문 줄 일부만 쓴 줄이면 그 원문 줄의 대표 꾸밈을 쓴다.
+    """
+    table = [(_run_key(str(st.get("text") or "")), st.get("runs") or []) for st in styles or []
+             if isinstance(st, dict) and isinstance(st.get("runs"), list)]
+    table = [(k, r) for k, r in table if k and r]
+    if not table or not text.strip():
+        return None
+    out: list[list[dict[str, Any]]] = []
+    hit = False
+    for ln in text.splitlines():
+        k = _run_key(ln)
+        runs: list[dict[str, Any]] | None = None
+        for sk, sr in table:
+            if k and sk == k:
+                runs = [{"t": str(r.get("t") or ""), **{x: r[x] for x in _RUN_KEYS if r.get(x)}}
+                        for r in sr if isinstance(r, dict)]
+                break
+        if runs is None and len(k) >= 4:
+            # 원문 줄 일부·합친 줄·욕을 초성으로 바꾼 줄 ("씨이바아아알"→"ㅅㅂ")도 같은 줄로 본다
+            best = max(table, key=lambda t: SequenceMatcher(None, k, t[0]).ratio())
+            if k in best[0] or best[0] in k or SequenceMatcher(None, k, best[0]).ratio() >= 0.6:
+                runs = [{"t": ln.strip(), **_dominant([r for r in best[1] if isinstance(r, dict)])}]
+        if runs:
+            hit = True
+            out.append(runs)
+        else:
+            out.append([{"t": ln.strip()}])
+    return out if hit else None
+
+
 def media_caption(body: str, number: int) -> str:
     """본문에서 [사진 N] 바로 아래 글 (다음 사진 전까지). 스크린샷처럼 사진 밑에 보인다."""
     out: list[str] = []
@@ -415,12 +477,20 @@ def _quote(quote: str, body: str, i: int, segs: list[dict[str, Any]]) -> str:
     return "\n".join(chunk)[:600]
 
 
+def _json_list(raw: Any) -> list[dict[str, Any]]:
+    try:
+        data = json.loads(raw or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [d for d in data if isinstance(d, dict)][:200] if isinstance(data, list) else []
+
+
 def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
                  limit: int = 50, opts: SpecOptions | None = None) -> dict[str, int]:
     opts = opts or SpecOptions()
     rows = store.conn.execute(
         "SELECT j.id AS job_id, p.gall_id, p.gall_name, p.title, p.subject, p.body, p.images, p.comments, "
-        "p.author, p.posted_at, "
+        "p.author, p.posted_at, p.body_styles, "
         "s.lines, j.preset FROM jobs j JOIN posts p ON p.id = j.post_id JOIN scripts s ON s.id = j.script_id "
         "WHERE j.status = 'aligned' ORDER BY j.id LIMIT ?", (max(1, min(limit, 1000)),),
     ).fetchall()
@@ -450,7 +520,8 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
                         "author": json.loads(row["author"] or "{}"), "posted_at": row["posted_at"]}
                 spec = build_frame_spec(timing, script, post, public, source, bg_name,
                                         SpecOptions(preset, opts.nickname, opts.bgm_dir,
-                                                    str(row["body"] or ""), opts.show_source),
+                                                    str(row["body"] or ""), opts.show_source,
+                                                    _json_list(row["body_styles"])),
                                         media, comments)
             else:  # 세그먼트 이전 대본 (썰 카드형)
                 spec = build_spec(timing, str(script.get("title") or ""), str(row["subject"] or ""),

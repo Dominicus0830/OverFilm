@@ -12,7 +12,8 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
+from bs4 import Comment as HtmlComment
 
 # 목록에서 건너뛸 말머리·종류
 SKIP_SUBJECTS = {"공지", "AD", "설문", "이슈"}
@@ -59,6 +60,8 @@ class Post:
     e_s_n_o: str = ""  # 댓글 요청에 필요한 값
     gall_name: str = ""  # 출처 표기용 갤러리 이름 ("오버워치 2 마이너 갤러리")
     author: dict = field(default_factory=dict)  # {"nick", "ip", "icon"} 글 머리 화면용
+    # 글쓴이가 꾸민 줄 (색·크기·글꼴·굵게·기울임·밑줄). [{"text": 줄, "runs": [{"t", "color", ...}]}]
+    body_styles: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -149,6 +152,7 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
     images: list[str] = []
     videos: list[str] = []
     body = ""
+    body_styles: list[dict] = []
     if write is not None:
         # 본문 속 자리를 [사진 N]·[영상 N] 표시로 남긴다: 대본이 어느 문장에 어떤 미디어를 둘지 고른다
         for img in write.select("img"):
@@ -168,6 +172,7 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
                     videos.append(src)
                     vid.replace_with(f"\n[영상 {len(videos)}]\n")
                     break
+        body_styles = styled_lines(write)
         for br in write.select("br"):
             br.replace_with("\n")
         for block in write.select("p, div"):
@@ -204,7 +209,178 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
         e_s_n_o=(esno.get("value") or "") if esno is not None else "",
         gall_name=gall_name[:60] if gall_name.endswith("갤러리") else "",
         author=author,
+        body_styles=body_styles,
     )
+
+
+# --- 글쓴이가 꾸민 글자 (2026-11-15 사용자 의견: 원문에 색·글꼴·기울임·굵게가 있으면 그대로) ---
+
+_BLOCK_TAGS = {"p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "tr", "ul", "ol", "table"}
+_FONT_SIZE_ATTR = {"1": 10, "2": 13, "3": 16, "4": 18, "5": 24, "6": 32, "7": 48}
+_STYLE_KEYS = ("color", "bg", "size", "font", "bold", "italic", "underline", "strike")
+_MAX_STYLED_LINES = 200
+
+
+def _color(value: str) -> str:
+    v = value.strip().lower()
+    m = re.fullmatch(r"rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*([0-9.]+)\s*)?\)", v)
+    if m:
+        if m.group(4) is not None and m.group(4).strip("0.") == "":
+            return ""  # 투명
+        return "#" + "".join(f"{min(255, int(m.group(k))):02x}" for k in (1, 2, 3))
+    if re.fullmatch(r"#[0-9a-f]{3}", v):
+        return "#" + "".join(c * 2 for c in v[1:])
+    if re.fullmatch(r"#[0-9a-f]{6}", v):
+        return v
+    if re.fullmatch(r"[a-z]{3,20}", v) and v not in ("inherit", "initial", "unset", "transparent", "currentcolor"):
+        return v
+    return ""
+
+
+def _px(value: str) -> int:
+    m = re.fullmatch(r"\s*([0-9.]+)\s*(px|pt)?\s*", value.lower())
+    if not m:
+        return 0
+    try:
+        n = float(m.group(1))
+    except ValueError:
+        return 0
+    if m.group(2) == "pt":
+        n = n * 4 / 3
+    return int(round(n)) if 6 <= n <= 200 else 0
+
+
+def _font_name(value: str) -> str:
+    first = value.split(",")[0].strip().strip("'\"").strip()
+    return "" if first.lower() in ("", "inherit", "initial", "unset") else first[:40]
+
+
+def _tag_style(base: dict, tag) -> dict:
+    st = dict(base)
+    name = tag.name or ""
+    if name in ("b", "strong"):
+        st["bold"] = True
+    elif name in ("i", "em"):
+        st["italic"] = True
+    elif name == "u":
+        st["underline"] = True
+    elif name in ("s", "strike", "del"):
+        st["strike"] = True
+    elif name in ("h1", "h2", "h3"):
+        st["bold"] = True
+    if name == "font":
+        if tag.get("color") and _color(str(tag.get("color"))):
+            st["color"] = _color(str(tag.get("color")))
+        if tag.get("face") and _font_name(str(tag.get("face"))):
+            st["font"] = _font_name(str(tag.get("face")))
+        size = _FONT_SIZE_ATTR.get(str(tag.get("size") or "").strip())
+        if size:
+            st["size"] = size
+    for decl in str(tag.get("style") or "").split(";"):
+        if ":" not in decl:
+            continue
+        key, value = (x.strip() for x in decl.split(":", 1))
+        key = key.lower()
+        if key == "color" and _color(value):
+            st["color"] = _color(value)
+        elif key in ("background-color", "background") and _color(value):
+            st["bg"] = _color(value)
+        elif key == "font-size" and _px(value):
+            st["size"] = _px(value)
+        elif key == "font-family" and _font_name(value):
+            st["font"] = _font_name(value)
+        elif key == "font-weight":
+            v = value.lower()
+            if v in ("bold", "bolder") or (v.isdigit() and int(v) >= 600):
+                st["bold"] = True
+            elif v in ("normal", "lighter") or (v.isdigit() and int(v) < 600):
+                st.pop("bold", None)
+        elif key == "font-style":
+            if value.lower() in ("italic", "oblique"):
+                st["italic"] = True
+            elif value.lower() == "normal":
+                st.pop("italic", None)
+        elif key in ("text-decoration", "text-decoration-line"):
+            if "underline" in value.lower():
+                st["underline"] = True
+            if "line-through" in value.lower():
+                st["strike"] = True
+    return st
+
+
+def _plain(st: dict) -> bool:
+    """디시 기본 글자와 같은지 (검정·회색 글자, 기본 크기)."""
+    if any(st.get(k) for k in ("bold", "italic", "underline", "strike", "font")):
+        return False
+    if st.get("bg") and st["bg"] not in ("#ffffff", "white"):
+        return False
+    size = st.get("size") or 0
+    if size and not 12 <= size <= 16:
+        return False
+    color = st.get("color") or ""
+    if not color:
+        return True
+    if re.fullmatch(r"#[0-9a-f]{6}", color):
+        rgb = [int(color[k:k + 2], 16) for k in (1, 3, 5)]
+        return max(rgb) <= 0x66 and max(rgb) - min(rgb) <= 0x20
+    return color in ("black", "gray", "grey", "dimgray")
+
+
+def styled_lines(write) -> list[dict]:
+    """본문 → 꾸민 줄만 [{"text", "runs"}]. 줄 글자는 body 의 줄과 같다 (앞뒤 공백 뺌)."""
+    lines: list[list[tuple[str, dict]]] = [[]]
+
+    def walk(node, st: dict, depth: int) -> None:
+        if depth > 40:
+            return
+        for ch in node.children:
+            if isinstance(ch, HtmlComment):
+                continue
+            if isinstance(ch, NavigableString):
+                for k, part in enumerate(str(ch).split("\n")):
+                    if k:
+                        lines.append([])
+                    if part:
+                        lines[-1].append((part, st))
+                continue
+            name = getattr(ch, "name", None)
+            if name == "br":
+                lines.append([])
+                continue
+            if name in ("script", "style") or name is None:
+                continue
+            block = name in _BLOCK_TAGS
+            if block and lines[-1]:
+                lines.append([])
+            walk(ch, _tag_style(st, ch), depth + 1)
+            if block:
+                lines.append([])
+
+    walk(write, {}, 0)
+    out: list[dict] = []
+    for parts in lines:
+        runs: list[dict] = []
+        for text, st in parts:
+            text = re.sub(r"[ \t\r\xa0]+", " ", text)
+            keep = {k: st[k] for k in _STYLE_KEYS if st.get(k)}
+            if runs and {k: v for k, v in runs[-1].items() if k != "t"} == keep:
+                runs[-1]["t"] += text
+            else:
+                runs.append({"t": text, **keep})
+        while runs and not runs[0]["t"].strip():
+            runs.pop(0)
+        while runs and not runs[-1]["t"].strip():
+            runs.pop()
+        if not runs:
+            continue
+        runs[0]["t"] = runs[0]["t"].lstrip()
+        runs[-1]["t"] = runs[-1]["t"].rstrip()
+        if all(_plain(r) for r in runs if r["t"].strip()):
+            continue
+        out.append({"text": "".join(r["t"] for r in runs), "runs": runs})
+        if len(out) >= _MAX_STYLED_LINES:
+            break
+    return out
 
 
 def parse_comments(payload: str) -> tuple[list[Comment], int]:

@@ -294,6 +294,7 @@ def _record(url: DcUrl, post: Post, comments: list[Comment], images: list[dict])
         "title": post.title,
         "subject": post.subject,
         "body": post.body,
+        "body_styles": post.body_styles,
         # 그림 판정(faces, nsfw, blurred, dropped)은 images.inspect_pending 이 채운다
         "images": images,
         "comments": [c.__dict__ for c in comments],

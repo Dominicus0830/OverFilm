@@ -9,11 +9,16 @@ export type SpecScene = {
   end: number;
   words: SpecWord[];
 };
+/** 글쓴이가 꾸민 글자 조각 (원문 그대로: 색·배경·크기 px·글꼴 이름·굵게·기울임·밑줄·취소선). */
+export type StyledRun = {t: string; color?: string; bg?: string; size?: number; font?: string; bold?: boolean;
+  italic?: boolean; underline?: boolean; strike?: boolean};
+export type StyledLine = StyledRun[];
 export type SpecMedia = {
   src: string; kind: 'image' | 'video';
   display: 'fill' | 'crop' | 'full' | 'tall' | 'scroll';
   start: number; end: number; width: number; height: number; muted: boolean;
   number: number; caption: string; // 원문 사진 번호, 사진 바로 아래 본문 줄 (스크린샷처럼)
+  caption_runs: StyledLine[] | null; // 원문에 꾸민 줄이면 줄마다 꾸밈
 };
 export type SpecPost = {title: string; subject: string; nick: string; ip: string; icon: string; date: string};
 export type SpecComment = {
@@ -24,11 +29,12 @@ export type SpecComment = {
 export type SpecSegment = {
   kind: 'title' | 'media' | 'body' | 'comments' | 'reaction';
   start: number; end: number; subtitle: string; tts: boolean;
-  media: SpecMedia[]; comments: SpecComment[]; quote: string;
+  media: SpecMedia[]; comments: SpecComment[]; quote: string; quote_runs: StyledLine[] | null;
   image: string | null; say: string; // reaction: 짤·영웅 프로필 + 대사 (자막은 captions 에)
 };
 export type SayStyle = 'calm' | 'shout' | 'question' | 'sad' | 'smug';
-export type SpecCaption = {start: number; end: number; seg: number; words: SpecWord[]; style: SayStyle | null};
+export type SpecCaption = {start: number; end: number; seg: number; words: SpecWord[]; style: SayStyle | null;
+  runs: StyledLine | null}; // 원문 줄을 그대로 쓴 짤 장면 대사면 원문 꾸밈
 export type RenderSpec = {
   version: 1 | 2;
   preset: 'frame' | 'card';
@@ -85,6 +91,31 @@ export const EMPTY_SPEC: RenderSpec = {
   ],
 };
 
+const COLOR_RE = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/;
+
+/** 꾸밈 조각도 믿지 않는다: 색은 #hex·이름만, 크기는 6~200px, 글꼴 이름은 글자만. */
+export function sanitizeRuns(v: unknown, maxRuns = 40): StyledLine | null {
+  if (!Array.isArray(v)) return null;
+  const out: StyledLine = [];
+  for (const r of v.slice(0, maxRuns)) {
+    if (!r || typeof r.t !== 'string') continue;
+    const run: StyledRun = {t: r.t.slice(0, 300)};
+    if (typeof r.color === 'string' && COLOR_RE.test(r.color)) run.color = r.color;
+    if (typeof r.bg === 'string' && COLOR_RE.test(r.bg)) run.bg = r.bg;
+    if (typeof r.size === 'number' && Number.isFinite(r.size)) run.size = Math.min(200, Math.max(6, r.size));
+    if (typeof r.font === 'string' && /^[\p{L}\p{N} _-]{1,40}$/u.test(r.font)) run.font = r.font;
+    for (const k of ['bold', 'italic', 'underline', 'strike'] as const) if (r[k] === true) run[k] = true;
+    out.push(run);
+  }
+  return out.length ? out : null;
+}
+
+const sanitizeLines = (v: unknown): StyledLine[] | null => {
+  if (!Array.isArray(v)) return null;
+  const lines = v.slice(0, 60).map((l) => sanitizeRuns(l) ?? []);
+  return lines.some((l) => l.length) ? lines : null;
+};
+
 /** 들어온 값을 믿지 않는다: 범위를 자르고 빠진 값은 채운다. */
 export function sanitize(input: unknown): RenderSpec {
   const s = (input ?? {}) as Partial<RenderSpec>;
@@ -100,13 +131,14 @@ export function sanitize(input: unknown): RenderSpec {
     kind: (['title', 'media', 'body', 'comments', 'reaction'] as const).includes(g?.kind) ? g.kind : 'body',
     image: typeof g?.image === 'string' && g.image ? g.image : null, say: str(g?.say).slice(0, 60),
     start: t(g?.start), end: t(g?.end), subtitle: str(g?.subtitle).slice(0, 40), tts: g?.tts === true,
-    quote: str(g?.quote).slice(0, 800),
+    quote: str(g?.quote).slice(0, 800), quote_runs: sanitizeLines(g?.quote_runs),
     media: (Array.isArray(g?.media) ? g.media.slice(0, 6) : []).map((m) => ({
       src: str(m?.src), kind: m?.kind === 'video' ? 'video' : 'image',
       display: (['fill', 'crop', 'full', 'tall', 'scroll'] as const).includes(m?.display) ? m.display : 'fill',
       start: t(m?.start), end: t(m?.end), width: num(m?.width, 0, 0, 20000),
       height: num(m?.height, 0, 0, 20000), muted: m?.muted !== false,
       number: Math.round(num(m?.number, 0, 0, 999)), caption: str(m?.caption),
+      caption_runs: sanitizeLines(m?.caption_runs),
     })),
     comments: (Array.isArray(g?.comments) ? g.comments.slice(0, 60) : []).map((c) => ({
       no: num(c?.no, 0, 0, 10000), nick: str(c?.nick).slice(0, 30), ip: str(c?.ip).slice(0, 20),
@@ -121,6 +153,7 @@ export function sanitize(input: unknown): RenderSpec {
   const captions: SpecCaption[] = (Array.isArray(s.captions) ? s.captions.slice(0, 400) : []).map((c) => ({
     start: t(c?.start), end: t(c?.end), seg: num(c?.seg, 0, 0, 20), words: words(c?.words).slice(0, 8),
     style: (['calm', 'shout', 'question', 'sad', 'smug'] as readonly unknown[]).includes(c?.style) ? c.style as SayStyle : null,
+    runs: sanitizeRuns(c?.runs),
   }));
   return {
     version: s.version === 2 ? 2 : 1,
