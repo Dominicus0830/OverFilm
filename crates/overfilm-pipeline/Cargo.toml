@@ -26,8 +26,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 overfilm-vision = { workspace = true }
 filmcraft-speech = { workspace = true, optional = true }
-ocrs = { version = "0.13", optional = true }
-rten = { version = "0.26", default-features = false, features = ["onnx_format"], optional = true }
+ocrs = { version = "0.14", optional = true }
+rten = { version = "0.28", default-features = false, features = ["onnx_format"], optional = true }
 
 [dev-dependencies]
 tempfile = "3.27"
