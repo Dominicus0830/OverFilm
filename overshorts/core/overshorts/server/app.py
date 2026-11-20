@@ -24,12 +24,13 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from ..config import check_settings, crawl_limits, load_config, save_settings, settings_view
+from ..config import crawl_limits, load_config
 from ..crawler.budget import CrawlGuard
 from ..crawler.collector import GalleryOptions
 from ..db import Store
 from ..pipeline import Pipeline
 from ..urls import GALL_TYPES, DcUrl, UrlError, parse_url
+from .settings import settings_router
 
 PANEL_DIST = Path(__file__).resolve().parents[3] / "panel" / "dist"
 
@@ -191,9 +192,14 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
     app.state.worker = worker
     app.state.hub = hub
     (data / "jobs").mkdir(parents=True, exist_ok=True)
+    from .voices import voices_router  # 보이스 화면 (M6 클로닝)
+
+    app.include_router(voices_router(cfg, data, db_path, worker))
 
     def db() -> Store:
         return Store(db_path)
+
+    app.include_router(settings_router(cfg, config_path, data, worker.submit))
 
     # --- 홈 ---
     @app.get("/api/status")
@@ -305,32 +311,6 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         _save_pref("show_source", bool(body.show))
         worker.submit("출처 표시 " + ("켬" if body.show else "끔"), lambda p: p.set_show_source(body.show))
         return {"ok": True}
-
-    @app.get("/api/settings")
-    def settings_get() -> dict[str, Any]:
-        """설정 화면: 지금 값과 고를 수 있는 값."""
-        return {**settings_view(cfg), "path": str(Path(config_path).resolve()) if config_path else None}
-
-    @app.post("/api/settings")
-    def settings_set(body: dict[str, Any]) -> dict[str, Any]:
-        """설정 화면에서 바꾼 값을 config.yaml 에 쓰고 바로 쓴다 (다시 켤 필요 없음)."""
-        if not config_path:
-            raise HTTPException(400, "설정 파일 없이 켠 패널이라 저장할 수 없습니다")
-        try:
-            changes = check_settings(body.get("values") if isinstance(body.get("values"), dict) else body)
-        except ValueError as err:
-            raise HTTPException(400, str(err)) from err
-        try:
-            save_settings(config_path, changes)
-        except OSError as err:
-            raise HTTPException(500, f"설정 파일을 저장하지 못했습니다: {err}") from err
-        for (sec, key), value in changes.items():
-            if not isinstance(cfg.get(sec), dict):
-                cfg[sec] = {}
-            cfg[sec][key] = value
-        # LLM 고르기가 바뀌면 다음 작업부터 새 설정으로 (작업 스레드에서 바꿔 겹치지 않게)
-        worker.submit("설정 적용", lambda p: setattr(p, "_router", None))
-        return {"ok": True, **settings_view(cfg)}
 
     @app.post("/api/prefs/reset")
     def prefs_reset() -> dict[str, Any]:

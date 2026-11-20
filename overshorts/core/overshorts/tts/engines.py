@@ -1,4 +1,4 @@
-"""TTS 엔진. 지금은 Edge-TTS(기성 보이스 기본값)만. 클로닝(GPT-SoVITS)은 M6.
+"""TTS 엔진. Edge-TTS(기성 보이스 기본값). 클로닝(GPT-SoVITS)은 gpt_sovits.CloneEngine (M6).
 
 Edge-TTS: 무료, 단어 경계 시각을 준다. 비공식 엔드포인트라 언제든 막힐 수 있고 상업 이용 조건이
 불명확하다 → 수익화 채널은 유료 API(Supertone·Typecast) 권장 (기획서 5.3).
@@ -86,4 +86,6 @@ def parse_voice(spec: str) -> tuple[str, str]:
 def get_engine(name: str) -> Engine:
     if name == "edge":
         return EdgeTts()
-    raise TtsError(f"아직 지원하지 않는 TTS 엔진: {name} (M6 에서 클로닝 추가)")
+    if name == "clone":
+        raise TtsError("클로닝 목소리는 음성 단계(voice_stage)나 보이스 화면에서만 쓸 수 있습니다")
+    raise TtsError(f"아직 지원하지 않는 TTS 엔진: {name}")
