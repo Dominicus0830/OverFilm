@@ -282,7 +282,9 @@ fn place_captions(s: &mut Session, o: &CaptionOptions) -> Result<Value> {
                 settings: String::new(),
             });
         }
-        q.caption_tracks.retain(|t| t.name != CAPTION_TRACK);
+        // the corrected copy of the old captions goes with them
+        let reviewed = crate::overfilm_review::reviewed_name(CAPTION_TRACK);
+        q.caption_tracks.retain(|t| t.name != CAPTION_TRACK && t.name != reviewed);
         q.caption_tracks.insert(0, t);
         st.caption_selection.clear();
         Ok(tid)

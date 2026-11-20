@@ -52,6 +52,7 @@ const TOOL_GROUPS: &[(&str, &[(&str, &str)])] = &[
         ],
     ),
     ("Export", &[("file.exportMedia", "Export Media…"), ("overfilm.premiere.export", "Export for Premiere Pro…")]),
+    ("Back up", &[("overfilm.checkpoint.restore", "Back to Before the Last Big Edit")]),
 ];
 
 /// The tools of all groups, in order.
@@ -67,6 +68,7 @@ fn group_label(group: &str) -> &'static str {
         "Read the match" => tl!("Read the match"),
         "Captions" => tl!("Captions"),
         "Export" => tl!("Export"),
+        "Back up" => tl!("Back up"),
         _ => "",
     }
 }
@@ -265,6 +267,8 @@ struct Facts {
     /// What the editor asks of the caption review (`fixStutter`, `request`, from the review
     /// settings; the panel changes them there).
     wishes: Value,
+    /// `overfilm.review.lastCaptions`: the last caption review's changes by kind.
+    last_review: Value,
 }
 
 fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
@@ -283,7 +287,8 @@ fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
         at: now,
         revision,
         review_on: st.enabled,
-        wishes: json!({"fixStutter": st.fix_stutter, "request": st.request}),
+        wishes: json!({"fixStutter": st.fix_stutter, "request": st.request, "separateTrack": st.separate_track}),
+        last_review: s.overfilm_review.last_captions.clone().unwrap_or(Value::Null),
         has_words: !filmcraft_engine::transcript::sequence_words(s).is_empty(),
         tools: tools().map(|(k, _)| (*k, s.is_enabled(k))).collect(),
         kills,
@@ -532,6 +537,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 ui.end_row();
             }
         });
+        review_results(ui, &mut elems, &facts.last_review, &mut picked, t);
         // the kill list is never taller than the panel, so the panel still scrolls past it
         let fit = f64::from(rect.height() - 90.0).max(KILLS_MIN);
         kill_list(ui, &mut elems, &facts.kills, &mut p, fit, &mut picked, t);
@@ -550,10 +556,10 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     }
     if wishes != facts.wishes {
         // kept with the review settings (the menu's review and the automatic one use them too)
-        let w = json!({"fixStutter": wishes["fixStutter"], "request": wishes["request"]});
+        let w = json!({"fixStutter": wishes["fixStutter"], "request": wishes["request"], "separateTrack": wishes["separateTrack"]});
         match app.session.execute("overfilm.review.settings", w) {
             Ok(v) => {
-                facts.wishes = json!({"fixStutter": v["fixStutter"], "request": wishes["request"]});
+                facts.wishes = json!({"fixStutter": v["fixStutter"], "request": wishes["request"], "separateTrack": v["separateTrack"]});
                 ctx.data_mut(|m| m.insert_temp(egui::Id::unique("overfilm-panel-facts"), facts.clone()));
             }
             Err(e) => app.ui.status = plain_error(&e.to_string()),
@@ -614,7 +620,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
             app.ui.status = plain_error(&e.to_string());
         }
         // the caption review's wishes shown here go back to theirs too
-        if let Err(e) = app.session.execute("overfilm.review.settings", json!({"fixStutter": true, "request": ""})) {
+        if let Err(e) = app.session.execute("overfilm.review.settings", json!({"fixStutter": true, "request": "", "separateTrack": false})) {
             app.ui.status = plain_error(&e.to_string());
         }
         ctx.data_mut(|m| m.remove::<Facts>(egui::Id::unique("overfilm-panel-facts")));
@@ -705,6 +711,61 @@ fn lineup_list(ui: &mut egui::Ui, elems: &mut Elems, lineup: &Value, p: &mut Val
 
 /// From the kill list: the time of the kill clicked, and a player or hero named.
 type Picked = (Option<i64>, Option<(&'static str, u64, String)>);
+
+/// The last Claude Code caption review, sorted: wrong (fixed), changed on its own (liberty) and
+/// not understood (a question for the editor). Each line is a link to the caption's time.
+/// Automation ids `overfilm.panel.review.<kind>.<n>`.
+fn review_results(ui: &mut egui::Ui, elems: &mut Elems, last: &Value, picked: &mut Picked, t: crate::theme::Tokens) {
+    let groups = &last["groups"];
+    let count = |k: &str| groups[k].as_array().map_or(0, Vec::len);
+    if groups.is_null() || count("wrong") + count("liberty") + count("unsure") == 0 {
+        return;
+    }
+    ui.add_space(10.0);
+    ui.separator();
+    ui.label(RichText::new(tl!("Last caption review by Claude Code")).strong());
+    if last["separate"] == true {
+        ui.label(
+            RichText::new(tl!("The corrections are on the \"(Claude 교정)\" caption track (switched off), the original is as it was. Switch with Captions ▸ Show Active Track Only."))
+                .color(t.text_dim)
+                .size(11.0),
+        );
+    }
+    for (kind, title) in [("wrong", tl!("Wrong, fixed")), ("liberty", tl!("Changed though not wrong")), ("unsure", tl!("Not understood (questions for you)"))] {
+        let list = groups[kind].as_array().cloned().unwrap_or_default();
+        egui::CollapsingHeader::new(format!("{title} ({})", list.len()))
+            .id_salt(format!("overfilm-panel-review-{kind}"))
+            .default_open(kind == "unsure" && !list.is_empty())
+            .show(ui, |ui| {
+                for (n, it) in list.iter().enumerate().take(500) {
+                    let secs = it["start"].as_i64().unwrap_or(0) as f64 / 1000.0;
+                    let before = it["before"].as_str().unwrap_or_default().replace('\n', " / ");
+                    let after = match it["decision"].as_str() {
+                        Some("drop") => tl!("(removed)").to_string(),
+                        Some("split") => it["parts"].as_array().map(|p| p.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" | ")).unwrap_or_default(),
+                        _ => it["text"].as_str().unwrap_or_default().replace('\n', " / "),
+                    };
+                    let line = if kind == "unsure" {
+                        let q = it["question"].as_str().filter(|q| !q.is_empty()).or_else(|| it["reason"].as_str()).unwrap_or_default();
+                        if after.is_empty() {
+                            format!("{} {before}\n  ? {q}", clock(secs))
+                        } else {
+                            format!("{} {before}\n  ? {q}\n  → {after}", clock(secs))
+                        }
+                    } else {
+                        format!("{} {before}\n  → {after}", clock(secs))
+                    };
+                    let r = ui.add(egui::Label::new(RichText::new(&line).size(12.0)).sense(egui::Sense::click()));
+                    let reason = it["reason"].as_str().unwrap_or_default();
+                    let r = if reason.is_empty() { r } else { r.on_hover_text(reason) };
+                    elems.push((format!("{PRE}.review.{kind}.{n}"), r.rect, line.clone()));
+                    if r.clicked() {
+                        picked.0 = it["time"].as_i64();
+                    }
+                }
+            });
+    }
+}
 
 /// The kills found on the sequence (kill feed: who killed whom; else the name plates' deaths),
 /// each a link to its time, and the kill feed's players and heroes to name.

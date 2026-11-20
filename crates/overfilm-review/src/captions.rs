@@ -141,15 +141,46 @@ pub fn stutters(text: &str) -> Vec<String> {
     out
 }
 
+/// What kind of change a review made, for the editor to check them by kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChangeKind {
+    /// The caption was wrong (misheard word, wrong name, spelling): fixed.
+    Wrong,
+    /// Changed though nothing was wrong: a stutter tidied, words dropped for the request, broken
+    /// differently, split, removed.
+    Liberty,
+    /// The reviewer could not tell what was said: the caption is left as it is and the editor is
+    /// asked (`question`; `text` holds its best guess, if any).
+    Unsure,
+}
+
+impl ChangeKind {
+    /// The name the editor sees.
+    pub fn label(self) -> &'static str {
+        match self {
+            ChangeKind::Wrong => "잘못된 것 (고침)",
+            ChangeKind::Liberty => "임의로 고친 것",
+            ChangeKind::Unsure => "이해 못한 것 (질문)",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CaptionAnswer {
     pub id: String,
     pub decision: CaptionDecision,
-    /// Fix: the new text (lines by `\n`).
+    /// Fix: the new text (lines by `\n`). Unsure: the reviewer's guess (not applied).
     pub text: String,
     /// Split: the new captions in order.
     pub parts: Vec<String>,
     pub reason: String,
+    /// What kind of change it is (None: kept as it was).
+    #[serde(default)]
+    pub kind: Option<ChangeKind>,
+    /// Unsure: what the reviewer asks the editor.
+    #[serde(default)]
+    pub question: String,
 }
 
 /// Why a caption needs judgment; (doubts, unsure words). `next` is the caption after it.
@@ -403,8 +434,17 @@ pub fn system_with(lim: &Limits, w: &Wishes) -> String {
     if w.has_request() {
         s.push_str("\n- drop: 편집자 요구사항에 따라 이 자막을 통째로 지운다 (text 없이 reason만).");
     }
+    s.push_str(KIND_RULES);
     s
 }
+
+/// How the reviewer sorts what it did (`kind`, `question`).
+const KIND_RULES: &str = "\n분류(kind): keep이 아니면 반드시 kind를 쓴다. \
+- wrong: 자막이 틀려서 고쳤다(잘못 들은 말, 틀린 이름·용어, 맞춤법·띄어쓰기, 숫자 표기). \
+- liberty: 틀린 것은 없지만 손봤다(말 더듬기 정리, 편집자 요구사항으로 말을 지우거나 자막을 지움, 줄바꿈·나누기, 말투 다듬기). \
+- unsure: 무슨 말인지 확신할 수 없다(소리와 문맥으로 정할 수 없음). 이때는 자막을 고치지 않고 decision은 keep, \
+question에 편집자에게 물을 말을 한국어 한 문장으로 쓰고(예: '\"아나 궁\"이 아나 궁극기인가요, 다른 말인가요?'), \
+짐작한 글이 있으면 text에 쓴다. 근거 없이 고치느니 unsure로 묻는다.";
 
 fn system_base(lim: &Limits) -> String {
     format!(
@@ -642,7 +682,9 @@ pub fn schema() -> Value {
                         "decision": {"type": "string", "enum": ["keep", "fix", "split", "drop"]},
                         "text": {"type": "string"},
                         "parts": {"type": "array", "items": {"type": "string"}},
-                        "reason": {"type": "string"}
+                        "reason": {"type": "string"},
+                        "kind": {"type": "string", "enum": ["wrong", "liberty", "unsure"]},
+                        "question": {"type": "string"}
                     },
                     "required": ["id", "decision", "reason"]
                 }
@@ -709,7 +751,15 @@ pub fn parse_with(v: &Value, cases: &[CaptionQuestion], lim: &Limits, w: &Wishes
         }
         let Some(decision) = a["decision"].as_str().and_then(|d| serde_json::from_value::<CaptionDecision>(json!(d)).ok()) else { continue };
         let reason = cap(a["reason"].as_str().unwrap_or_default().trim(), 300);
-        let mut ans = CaptionAnswer { id: id.into(), decision, text: String::new(), parts: Vec::new(), reason };
+        let kind = a["kind"].as_str().and_then(|k| serde_json::from_value::<ChangeKind>(json!(k)).ok());
+        if kind == Some(ChangeKind::Unsure) {
+            // never applied: the caption stays, the editor is asked (with the guess, when it is sane)
+            let question = cap(a["question"].as_str().map(str::trim).filter(|q| !q.is_empty()).unwrap_or(&reason), 300);
+            let guess = a["text"].as_str().and_then(|t| tidy(t, lim)).filter(|t| t != &c.text && plausible(t, c, cuts)).unwrap_or_default();
+            out.push(CaptionAnswer { id: id.into(), decision: CaptionDecision::Keep, text: guess, parts: Vec::new(), reason, kind, question });
+            continue;
+        }
+        let mut ans = CaptionAnswer { id: id.into(), decision, text: String::new(), parts: Vec::new(), reason, kind, question: String::new() };
         match decision {
             CaptionDecision::Keep => {}
             CaptionDecision::Drop => {
@@ -738,6 +788,12 @@ pub fn parse_with(v: &Value, cases: &[CaptionQuestion], lim: &Limits, w: &Wishes
                 ans.parts = parts;
             }
         }
+        ans.kind = match ans.decision {
+            CaptionDecision::Keep => None,
+            // split and drop never mend a wrong word
+            CaptionDecision::Split | CaptionDecision::Drop => Some(ChangeKind::Liberty),
+            CaptionDecision::Fix => Some(ans.kind.unwrap_or(ChangeKind::Wrong)),
+        };
         out.push(ans);
     }
     out

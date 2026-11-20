@@ -719,11 +719,35 @@ the calls it is unsure of to the Claude Code command line on the same computer:
   and the form goes with it as a likely misrecognition.
 - **On its own** (`auto`): after Auto Cut or Suggestions mark cuts, and after OverFilm Captions
   places captions, the matching review starts by itself.
+- **Three kinds** (`kind` in each answer): *wrong* (잘못된 것, a misheard word, name or spelling,
+  fixed), *liberty* (임의로 고친 것, changed though nothing was wrong: a stutter, words dropped for
+  the request, a split or a removal) and *unsure* (이해 못한 것: Claude could not tell what was
+  said; the caption is left as it is and the editor gets its question and guess). The OverFilm
+  panel lists the last caption review by kind, each line a link to its time;
+  `overfilm.review.lastCaptions` gives the same.
+- **Corrections on their own track** (`separateTrack`, setting "고친 자막을 별도 자막 트랙에 만들어
+  원본과 비교", off by default): the reviewed track stays as it was and the corrections go on a
+  copy named "<track> (Claude 교정)", switched off so a render is unchanged; Captions ▸ Show
+  Active Track Only switches between the two. Later reviews keep writing to that copy; new
+  OverFilm Captions remove it with the old captions.
 
 Every review is one undo step; a marker or caption changed while it ran is left alone, and
 reviewed ones are not asked again unless `again`. Measured with Claude Code 2.1 (default model):
 about 6–8 s for one question. `cargo test -p overfilm-review -- --ignored` asks the real
 Claude Code one cut and one caption.
+
+## Backups before big OverFilm edits
+
+Before a One Go run, Apply OverFilm Cut Markers, and applying a Claude Code review, OverFilm keeps
+the whole project as it was (`overfilm_checkpoint`): the last 10 in memory, and for a saved project
+the last 5 as files in the `OverFilm-Backups` folder beside it. `Sequence ▸ OverFilm ▸ Undo the
+Last Big OverFilm Edit` (`overfilm.checkpoint.restore {id?, file?}`, also in the OverFilm panel)
+goes back to the newest in one undo step, so it can itself be undone. A One Go run takes one at
+its start and none for its steps: going back undoes the whole run, however many undo steps it
+made and even if the run pushed them out of the undo history. `overfilm.checkpoint.list` /
+`overfilm.checkpoint.save {label?}` list them and take one now. This is not Auto Save or crash
+recovery (on a timer, after a crash): a backup is taken only before a big OverFilm edit and is
+named after it.
 
 ## Cut and caption in one go
 

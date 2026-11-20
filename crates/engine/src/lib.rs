@@ -39,6 +39,7 @@ pub mod narration;
 pub mod overfilm_assist;
 pub mod overfilm_autocut;
 pub mod overfilm_captions;
+pub mod overfilm_checkpoint;
 pub mod overfilm_flow;
 pub mod overfilm_kills;
 pub mod overfilm_lineup;
@@ -517,6 +518,8 @@ pub struct Session {
     pub overfilm_lineup: Option<overfilm_lineup::LineupState>,
     /// Claude Code review (OverFilm): settings file, running reviews, pure recognition.
     pub overfilm_review: overfilm_review::ReviewState,
+    /// OverFilm backups taken before big OverFilm edits (one-step way back).
+    pub overfilm_checkpoints: overfilm_checkpoint::CheckpointState,
     /// OverFilm One Go: the run of cut, review and caption steps (the last one stays for its status).
     pub overfilm_flow: Option<overfilm_flow::Flow>,
     /// Effect presets (built-in + the user's, persisted in the data directory).
@@ -635,6 +638,7 @@ impl Session {
             overfilm_feed: None,
             overfilm_lineup: None,
             overfilm_review: Default::default(),
+            overfilm_checkpoints: Default::default(),
             overfilm_flow: None,
             presets: Default::default(),
             export_presets: Default::default(),

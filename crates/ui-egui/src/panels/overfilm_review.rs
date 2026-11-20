@@ -13,7 +13,7 @@
 //!   check is remembered for ten minutes.
 //!
 //! Automation ids: `overfilm.review.<param>` for each control, `overfilm.review.modelPick`,
-//! `overfilm.review.fixStutter`, `overfilm.review.request`, `overfilm.review.check`, `overfilm.review.login`, `overfilm.review.ok`,
+//! `overfilm.review.fixStutter`, `overfilm.review.request`, `overfilm.review.separateTrack`, `overfilm.review.check`, `overfilm.review.login`, `overfilm.review.ok`,
 //! `overfilm.review.cancel`; install guide `overfilm.review.install.copy<N>`,
 //! `overfilm.review.install.docs`, `overfilm.review.install.recheck`,
 //! `overfilm.review.install.close`.
@@ -213,8 +213,9 @@ fn model_row(ui: &mut egui::Ui, elems: &mut Elems, d: &mut Draft) {
     ui.end_row();
 }
 
-/// "Fix stutters" and the request for the caption review; `w` holds `fixStutter` and `request`
-/// as the review settings name them. Automation ids `<prefix>.fixStutter`, `<prefix>.request`.
+/// "Fix stutters", the request and "corrections on their own track" for the caption review; `w`
+/// holds `fixStutter`, `request` and `separateTrack` as the review settings name them. Automation
+/// ids `<prefix>.fixStutter`, `<prefix>.request`, `<prefix>.separateTrack`.
 pub(crate) fn wishes_ui(ui: &mut egui::Ui, elems: &mut Elems, prefix: &str, w: &mut Value) {
     let mut b = w["fixStutter"].as_bool().unwrap_or(true);
     let r = ui
@@ -235,6 +236,12 @@ pub(crate) fn wishes_ui(ui: &mut egui::Ui, elems: &mut Elems, prefix: &str, w: &
         .labelled_by(name);
     w["request"] = json!(t);
     elems.push((format!("{prefix}.request"), r.rect, t));
+    let mut b = w["separateTrack"].as_bool().unwrap_or(false);
+    let r = ui.checkbox(&mut b, tl!("Put the corrections on their own caption track to compare")).on_hover_text(tl!(
+        "The reviewed captions stay as they were; a copy named \"(Claude 교정)\" gets the corrections, switched off. Off: the captions are corrected in place."
+    ));
+    w["separateTrack"] = json!(b);
+    elems.push((format!("{prefix}.separateTrack"), r.rect, tl!("Put the corrections on their own caption track to compare").to_string()));
     if w["request"].as_str().is_some_and(|t| !t.trim().is_empty()) {
         ui.label(
             egui::RichText::new(tl!("With a request every caption is checked, and captions it says to remove are removed (one undo brings them back)."))
@@ -256,6 +263,7 @@ fn run_params(p: &Value) -> Value {
         "maxItems": p["maxItems"].as_u64().unwrap_or(60),
         "request": p["request"].as_str().unwrap_or_default(),
         "fixStutter": p["fixStutter"].as_bool().unwrap_or(true),
+        "separateTrack": p["separateTrack"].as_bool().unwrap_or(false),
     })
 }
 
@@ -453,7 +461,7 @@ mod tests {
         assert_eq!(
             run_params(&p),
             json!({"enabled": true, "auto": false, "cliPath": "C:\\claude.exe", "model": "", "timeoutSeconds": 120, "batch": 4, "maxItems": 30,
-                   "request": "", "fixStutter": true})
+                   "request": "", "fixStutter": true, "separateTrack": false})
         );
         assert_eq!(run_params(&Value::Null)["enabled"], false);
         let p = json!({"request": "쓸데없는 말 지워줘", "fixStutter": false});

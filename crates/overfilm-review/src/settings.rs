@@ -35,6 +35,10 @@ pub struct Settings {
     pub request: String,
     /// Caption review: write stutters as the sentence meant, unless said on purpose (on by default).
     pub fix_stutter: bool,
+    /// Caption review: put the corrected captions on their own caption track ("… (Claude 교정)",
+    /// made from a copy of the reviewed one) and leave the reviewed track as it was, to compare
+    /// them side by side (off: corrected in place, as before).
+    pub separate_track: bool,
 }
 
 impl Default for Settings {
@@ -49,6 +53,7 @@ impl Default for Settings {
             max_items: 60,
             request: String::new(),
             fix_stutter: true,
+            separate_track: false,
         }
     }
 }
