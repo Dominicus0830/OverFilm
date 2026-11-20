@@ -91,7 +91,8 @@ export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
   return (
     <div style={{padding: '8px 0 0'}}>
       <div style={{position: 'relative'}}>
-        {m.kind === 'video' ? <OffthreadVideo src={src(m.src)} muted={m.muted} style={style} />
+        {m.kind === 'video' ? <OffthreadVideo src={src(m.src)} muted={m.muted} style={style}
+          playbackRate={m.playback_rate && m.playback_rate > 0 ? m.playback_rate : 1} />
           : <Img src={src(m.src)} style={style} />}
         {m.number ? (
           <span style={{position: 'absolute', top: 6, right: 6, minWidth: 16, height: 16, fontSize: 11,

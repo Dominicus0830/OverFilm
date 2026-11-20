@@ -32,5 +32,8 @@ overshorts = "overshorts.cli:main"
 [tool.setuptools.packages.find]
 include = ["overshorts*"]
 
+[tool.setuptools.package-data]
+overshorts = ["presets/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "id": "game",
+  "label": "게임형",
+  "description": "게임 클립 중심 (참고 영상 ③의 클립 구간). 클립이 절반 이상.",
+  "tts": "off",
+  "sections": {
+    "target_sec": [
+      40,
+      60
+    ],
+    "hook_sec": [
+      3,
+      3
+    ],
+    "media_sec": [
+      20,
+      35
+    ],
+    "outro_sec": 1,
+    "comment_share": 0.3,
+    "max_clip_sec": 30
+  },
+  "layout": {
+    "title_bar": false,
+    "caption": "band",
+    "stage_top": 10,
+    "stage_bottom": 76,
+    "caption_top": 66,
+    "caption_bottom": 74,
+    "source_top": 77.5,
+    "safe_bottom": 80
+  },
+  "caption": {
+    "max_chars": 16,
+    "max_words": 5,
+    "band_delay_sec": 0
+  },
+  "comments": {
+    "enabled": true,
+    "per_screen": [
+      2,
+      3
+    ],
+    "max_total": 15,
+    "max_screens": 6,
+    "min_screen_sec": 3.0,
+    "max_screen_sec": 6,
+    "skip": "time_order"
+  },
+  "effects": {
+    "bgm": true,
+    "sfx": false,
+    "original_sound": true
+  },
+  "guide": "클립이 주인공이다: 글 머리 3초 → 클립 전체 폭으로 길게(원본 소리 유지, 약한 BGM) → 댓글 2~3개씩. 클립을 자르거나 순서를 바꾸지 않고 배속은 ±25% 안에서만 맞춘다.",
+  "reference": {
+    "videos": [
+      "https://youtube.com/shorts/WQ9xxKrc-WQ"
+    ],
+    "note": "클립 구간 4.8~31.9초"
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "id": "issue",
+  "label": "이슈형",
+  "description": "소식·패치·스킨 이슈 (참고 영상 ④). 짤 뒤 반응 댓글이 길게 이어진다.",
+  "tts": "off",
+  "sections": {
+    "target_sec": [
+      30,
+      40
+    ],
+    "hook_sec": [
+      3,
+      4
+    ],
+    "media_sec": [
+      5,
+      6
+    ],
+    "outro_sec": 1,
+    "comment_share": 0.7,
+    "max_clip_sec": 8
+  },
+  "layout": {
+    "title_bar": false,
+    "caption": "band",
+    "stage_top": 10,
+    "stage_bottom": 76,
+    "caption_top": 66,
+    "caption_bottom": 74,
+    "source_top": 77.5,
+    "safe_bottom": 80
+  },
+  "caption": {
+    "max_chars": 13,
+    "max_words": 4,
+    "band_delay_sec": 3
+  },
+  "comments": {
+    "enabled": true,
+    "per_screen": [
+      3,
+      3
+    ],
+    "max_total": 24,
+    "max_screens": 8,
+    "min_screen_sec": 3.0,
+    "max_screen_sec": 6,
+    "skip": "time_order"
+  },
+  "effects": {
+    "bgm": true,
+    "sfx": true,
+    "original_sound": false
+  },
+  "guide": "소식 글이다: 글 머리 → 짤(전체 폭) → 반응 댓글 화면. 댓글은 시간순으로 건너뛰며 반응 흐름이 이어지게 고르고 한 화면에 3개씩 보인다. 짤 시작 3초 뒤 띠 자막 한 줄. 효과음은 짤 시작에 맞춰 1~2회(소스 풀이 있을 때).",
+  "reference": {
+    "videos": [
+      "https://youtube.com/shorts/aC5QAvdVtps"
+    ],
+    "note": "시온 신스킨 이슈 쇼츠"
+  }
+}

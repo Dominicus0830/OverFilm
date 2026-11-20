@@ -58,8 +58,12 @@ class Segment(BaseModel):
                              description="나레이션 문장들. tts 를 꺼도 켤 때를 위해 써 둔다 "
                                          "(comments 세그먼트는 비움)")
     media: list[MediaPick] = Field(default_factory=list, max_length=6)
-    comments: list[int] = Field(default_factory=list, max_length=10,
+    comments: list[int] = Field(default_factory=list, max_length=60,
                                 description="보여줄 실제 댓글 번호 ([번호] 그대로), 원래 순서대로")
+    screens: list[list[int]] = Field(
+        default_factory=list, max_length=20,
+        description="comments 세그먼트: 댓글 화면 한 장마다 댓글 번호 묶음 (몇 개를 한 화면에 보일지 네가 판단). "
+                    "원댓글과 그 답글은 같은 묶음, 화면 높이에 꽉 차게, 시간순")
     quote: str = Field(default="", max_length=600,
                        description="body 일 때 글 카드에 보일 원문 부분 (원문 그대로 복사, 300자 이내)")
     read: list[int] = Field(default_factory=list, max_length=2,
