@@ -298,6 +298,57 @@ fn facts(app: &mut FilmcraftApp, ctx: &egui::Context) -> Facts {
     f
 }
 
+/// Height of the bar under the choices that holds Run (or Stop).
+const RUN_BAR_HEIGHT: f32 = 56.0;
+
+/// A group of related choices: a heading and a thin line round them (no shadow, no fill), with a
+/// wider gap between groups than between the choices inside one.
+fn section(ui: &mut egui::Ui, t: crate::theme::Tokens, title: &str, body: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::new().stroke(egui::Stroke::new(1.0, t.separator)).corner_radius(t.radius_sm as u8).inner_margin(egui::Margin::symmetric(8, 6)).show(
+        ui,
+        |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new(title).strong().color(t.text));
+            ui.add_space(2.0);
+            body(ui);
+        },
+    );
+    ui.add_space(8.0);
+}
+
+/// The rarely changed choices of a group, folded away until asked for.
+fn advanced(ui: &mut egui::Ui, t: crate::theme::Tokens, salt: &str, body: impl FnOnce(&mut egui::Ui)) {
+    egui::CollapsingHeader::new(RichText::new(tl!("Advanced")).color(t.text_dim)).id_salt(salt).default_open(false).show(ui, body);
+}
+
+/// A tick that needs the Claude Code review: when that is off, it is greyed with the reason under
+/// it, and (for the first of them) the link to the settings where it is turned on.
+#[allow(clippy::too_many_arguments)]
+fn review_gate(
+    ui: &mut egui::Ui,
+    elems: &mut Elems,
+    t: crate::theme::Tokens,
+    review_on: bool,
+    settings: Option<&mut bool>,
+    id: String,
+    label: &str,
+    v: &mut Value,
+) {
+    ui.add_enabled_ui(review_on, |ui| check(ui, elems, id, label, v));
+    if review_on {
+        return;
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.add_space(20.0);
+        ui.label(RichText::new(tl!("Claude Code review is off.")).color(t.text_dim).size(11.0));
+        if let Some(settings) = settings {
+            let r = ui.link(tl!("Claude Code Review Settings…"));
+            elems.push((format!("{PRE}.reviewSettings"), r.rect, "Claude Code Review Settings…".into()));
+            *settings |= r.clicked();
+        }
+    });
+}
+
 fn clock(secs: f64) -> String {
     let t = secs.max(0.0).round() as u64;
     if t >= 3600 { format!("{}:{:02}:{:02}", t / 3600, t / 60 % 60, t % 60) } else { format!("{}:{:02}", t / 60, t % 60) }
@@ -338,153 +389,169 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     // the kill clicked (its time) and a player or hero named, from the kill list
     let mut picked: Picked = (None, None);
     let mut hero_name = None::<(u64, String)>;
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(10.0, 8.0))));
+    let full = rect.shrink2(vec2(10.0, 8.0));
+    // the Run button stays at the bottom of the panel, outside the scrolling choices
+    let bar_top = (full.max.y - RUN_BAR_HEIGHT).max(full.min.y);
+    let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(egui::pos2(full.min.x, bar_top), full.max)));
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(full.min, egui::pos2(full.max.x, bar_top))));
     let ui = &mut child;
     egui::ScrollArea::vertical().id_salt("overfilm-panel-scroll").auto_shrink([false, false]).show(ui, |ui| {
         ui.label(RichText::new(tl!("Cut and caption in one go")).strong().size(14.0));
-        ui.label(RichText::new(tl!("Runs the ticked steps one after another in the background. Undo takes back each step on its own.")).color(t.text_dim));
-        ui.add_space(6.0);
+        ui.label(
+            RichText::new(tl!("Runs the ticked steps one after another in the background. Undo takes back each step on its own.")).color(t.text_dim).size(12.0),
+        );
+        ui.add_space(8.0);
         ui.add_enabled_ui(!running, |ui| {
             // 1. Auto Cut
-            check(ui, &mut elems, format!("{PRE}.autoCut"), tl!("Auto Cut waiting and pauses (tournament broadcasts)"), &mut p["autoCut"]);
-            if p["autoCut"].as_bool().unwrap_or(false) {
-                ui.indent("overfilm-panel-cut", |ui| {
-                    egui::Grid::new("overfilm-panel-cut-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                        text(
-                            ui,
-                            &mut elems,
-                            format!("{PRE}.templates"),
-                            tl!("Template file:"),
-                            &mut p["templates"],
-                            tl!("your OverFilm template file, or type a .json path"),
-                        );
-                        number(ui, &mut elems, format!("{PRE}.keepBefore"), tl!("Keep before the start:"), &mut p["keepBefore"], 0.0..=60.0, " s");
+            section(ui, t, tl!("Cut"), |ui| {
+                check(ui, &mut elems, format!("{PRE}.autoCut"), tl!("Auto Cut waiting and pauses (tournament broadcasts)"), &mut p["autoCut"]);
+                if p["autoCut"].as_bool().unwrap_or(false) {
+                    ui.indent("overfilm-panel-cut", |ui| {
+                        egui::Grid::new("overfilm-panel-cut-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                            combo(
+                                ui,
+                                &mut elems,
+                                format!("{PRE}.applyCuts"),
+                                tl!("Result:"),
+                                &mut p["applyCuts"],
+                                &[("cut", tl!("Cut right away").to_string()), ("mark", tl!("Markers to check first").to_string())],
+                            );
+                        });
+                        advanced(ui, t, "overfilm-panel-adv-cut", |ui| {
+                            egui::Grid::new("overfilm-panel-cut-adv-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                                text(
+                                    ui,
+                                    &mut elems,
+                                    format!("{PRE}.templates"),
+                                    tl!("Template file:"),
+                                    &mut p["templates"],
+                                    tl!("your OverFilm template file, or type a .json path"),
+                                );
+                                number(ui, &mut elems, format!("{PRE}.keepBefore"), tl!("Keep before the start:"), &mut p["keepBefore"], 0.0..=60.0, " s");
+                            });
+                        });
+                    });
+                }
+                review_gate(
+                    ui,
+                    &mut elems,
+                    t,
+                    review_on,
+                    Some(&mut settings),
+                    format!("{PRE}.reviewCuts"),
+                    tl!("Then let Claude Code check the unclear cuts"),
+                    &mut p["reviewCuts"],
+                );
+            });
+            // 2. Kills and players, so the captions get the names
+            section(ui, t, tl!("Kills, ultimates and players"), |ui| {
+                check(ui, &mut elems, format!("{PRE}.kills"), tl!("Read kills, ultimates and players first (names for the captions)"), &mut p["kills"]);
+            });
+            // 3. Captions
+            section(ui, t, tl!("Captions"), |ui| {
+                egui::Grid::new("overfilm-panel-cap-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                    let mut kinds = vec![("new", tl!("Recognise the speech").to_string())];
+                    if has_words {
+                        kinds.push(("reuse", tl!("From the transcript already made (fast)").to_string()));
+                    }
+                    kinds.push(("off", tl!("No captions").to_string()));
+                    combo(ui, &mut elems, format!("{PRE}.captions"), tl!("Captions:"), &mut p["captions"], &kinds);
+                    if p["captions"] == "new" {
                         combo(
                             ui,
                             &mut elems,
-                            format!("{PRE}.applyCuts"),
-                            tl!("Result:"),
-                            &mut p["applyCuts"],
-                            &[("cut", tl!("Cut right away").to_string()), ("mark", tl!("Markers to check first").to_string())],
+                            format!("{PRE}.mode"),
+                            tl!("Video:"),
+                            &mut p["mode"],
+                            &[
+                                ("general", tl!("Gameplay (heroes and game terms)").to_string()),
+                                ("commentary", tl!("Tournament commentary (teams and players too)").to_string()),
+                            ],
                         );
-                    });
+                    }
                 });
-            }
-            ui.add_enabled_ui(review_on, |ui| {
-                check(ui, &mut elems, format!("{PRE}.reviewCuts"), tl!("Then let Claude Code check the unclear cuts"), &mut p["reviewCuts"]);
-            });
-            // 2. Kills and players, so the captions get the names
-            check(ui, &mut elems, format!("{PRE}.kills"), tl!("Read kills, ultimates and players first (names for the captions)"), &mut p["kills"]);
-            ui.add_space(6.0);
-            // 3. Captions
-            egui::Grid::new("overfilm-panel-cap-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                let mut kinds = vec![("new", tl!("Recognise the speech").to_string())];
-                if has_words {
-                    kinds.push(("reuse", tl!("From the transcript already made (fast)").to_string()));
-                }
-                kinds.push(("off", tl!("No captions").to_string()));
-                combo(ui, &mut elems, format!("{PRE}.captions"), tl!("Captions:"), &mut p["captions"], &kinds);
-                if p["captions"] == "new" {
-                    let mut opts: Vec<(&str, String)> = vec![("", tl!("All audio tracks").to_string())];
-                    opts.extend(tracks.iter().map(|(k, l)| (k.as_str(), l.clone())));
-                    combo(ui, &mut elems, format!("{PRE}.audioTrack"), tl!("Audio track:"), &mut p["audioTrack"], &opts);
-                    combo(
-                        ui,
-                        &mut elems,
-                        format!("{PRE}.mode"),
-                        tl!("Video:"),
-                        &mut p["mode"],
-                        &[
-                            ("general", tl!("Gameplay (heroes and game terms)").to_string()),
-                            ("commentary", tl!("Tournament commentary (teams and players too)").to_string()),
-                        ],
-                    );
-                    let counts: Vec<String> = (1..=10).map(|n| n.to_string()).collect();
-                    let mut who: Vec<(&str, String)> = vec![("auto", tl!("Count them").to_string()), ("off", tl!("Don't tell them apart").to_string())];
-                    who.extend(counts.iter().map(|n| (n.as_str(), if n == "1" { tl!("1 person (faster)").to_string() } else { tlf!("{n} people", n = n) })));
-                    combo(ui, &mut elems, format!("{PRE}.who"), tl!("Speakers:"), &mut p["who"], &who);
-                }
                 if p["captions"] != "off" {
-                    combo(
+                    advanced(ui, t, "overfilm-panel-adv-captions", |ui| {
+                        egui::Grid::new("overfilm-panel-cap-adv-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                            if p["captions"] == "new" {
+                                let mut opts: Vec<(&str, String)> = vec![("", tl!("All audio tracks").to_string())];
+                                opts.extend(tracks.iter().map(|(k, l)| (k.as_str(), l.clone())));
+                                combo(ui, &mut elems, format!("{PRE}.audioTrack"), tl!("Audio track:"), &mut p["audioTrack"], &opts);
+                                let counts: Vec<String> = (1..=10).map(|n| n.to_string()).collect();
+                                let mut who: Vec<(&str, String)> =
+                                    vec![("auto", tl!("Count them").to_string()), ("off", tl!("Don't tell them apart").to_string())];
+                                who.extend(
+                                    counts
+                                        .iter()
+                                        .map(|n| (n.as_str(), if n == "1" { tl!("1 person (faster)").to_string() } else { tlf!("{n} people", n = n) })),
+                                );
+                                combo(ui, &mut elems, format!("{PRE}.who"), tl!("Speakers:"), &mut p["who"], &who);
+                            }
+                            combo(
+                                ui,
+                                &mut elems,
+                                format!("{PRE}.gameVoice"),
+                                tl!("In-game voice:"),
+                                &mut p["gameVoice"],
+                                &[
+                                    ("drop", tl!("Leave out of the captions").to_string()),
+                                    ("label", tl!("Keep, marked (게임)").to_string()),
+                                    ("keep", tl!("Keep as speech").to_string()),
+                                ],
+                            );
+                            number(ui, &mut elems, format!("{PRE}.maxLines"), tl!("Lines per caption:"), &mut p["maxLines"], 1.0..=2.0, "");
+                            number(ui, &mut elems, format!("{PRE}.lineChars"), tl!("Characters per line:"), &mut p["lineChars"], 8.0..=30.0, "");
+                        });
+                    });
+                    review_gate(
                         ui,
                         &mut elems,
-                        format!("{PRE}.gameVoice"),
-                        tl!("In-game voice:"),
-                        &mut p["gameVoice"],
-                        &[
-                            ("drop", tl!("Leave out of the captions").to_string()),
-                            ("label", tl!("Keep, marked (게임)").to_string()),
-                            ("keep", tl!("Keep as speech").to_string()),
-                        ],
+                        t,
+                        review_on,
+                        None,
+                        format!("{PRE}.reviewCaptions"),
+                        tl!("Then let Claude Code check the captions"),
+                        &mut p["reviewCaptions"],
                     );
-                    number(ui, &mut elems, format!("{PRE}.maxLines"), tl!("Lines per caption:"), &mut p["maxLines"], 1.0..=2.0, "");
-                    number(ui, &mut elems, format!("{PRE}.lineChars"), tl!("Characters per line:"), &mut p["lineChars"], 8.0..=30.0, "");
-                }
-            });
-            if p["captions"] != "off" {
-                ui.add_enabled_ui(review_on, |ui| {
-                    check(ui, &mut elems, format!("{PRE}.reviewCaptions"), tl!("Then let Claude Code check the captions"), &mut p["reviewCaptions"]);
-                    if p["reviewCaptions"].as_bool().unwrap_or(false) {
+                    if review_on && p["reviewCaptions"].as_bool().unwrap_or(false) {
                         ui.indent("overfilm-panel-review-wishes", |ui| {
                             crate::panels::overfilm_review::wishes_ui(ui, &mut elems, PRE, &mut wishes);
                         });
                     }
-                });
-            }
-            ui.add_space(6.0);
+                }
+            });
             // 4. Render
-            check(ui, &mut elems, format!("{PRE}.render"), tl!("Then render the finished video"), &mut p["render"]);
-            if p["render"].as_bool().unwrap_or(false) {
-                ui.indent("overfilm-panel-render", |ui| {
-                    egui::Grid::new("overfilm-panel-render-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-                        combo(ui, &mut elems, format!("{PRE}.renderFormat"), tl!("File type:"), &mut p["renderFormat"], &render_formats());
-                        text(
-                            ui,
-                            &mut elems,
-                            format!("{PRE}.renderPath"),
-                            tl!("Save to:"),
-                            &mut p["renderPath"],
-                            tl!("a folder or file; empty = beside the project"),
-                        );
-                        if p["renderFormat"] != "premiere" {
-                            combo(
+            section(ui, t, tl!("Render"), |ui| {
+                check(ui, &mut elems, format!("{PRE}.render"), tl!("Then render the finished video"), &mut p["render"]);
+                if p["render"].as_bool().unwrap_or(false) {
+                    ui.indent("overfilm-panel-render", |ui| {
+                        egui::Grid::new("overfilm-panel-render-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                            combo(ui, &mut elems, format!("{PRE}.renderFormat"), tl!("File type:"), &mut p["renderFormat"], &render_formats());
+                            text(
                                 ui,
                                 &mut elems,
-                                format!("{PRE}.renderSplit"),
-                                tl!("Matches:"),
-                                &mut p["renderSplit"],
-                                &[("match", tl!("One file per match (date-team1vsteam2)").to_string()), ("one", tl!("All in one file").to_string())],
+                                format!("{PRE}.renderPath"),
+                                tl!("Save to:"),
+                                &mut p["renderPath"],
+                                tl!("a folder or file; empty = beside the project"),
                             );
+                            if p["renderFormat"] != "premiere" {
+                                combo(
+                                    ui,
+                                    &mut elems,
+                                    format!("{PRE}.renderSplit"),
+                                    tl!("Matches:"),
+                                    &mut p["renderSplit"],
+                                    &[("match", tl!("One file per match (date-team1vsteam2)").to_string()), ("one", tl!("All in one file").to_string())],
+                                );
+                            }
+                        });
+                        if p["renderFormat"] != "premiere" && p["captions"] != "off" {
+                            check(ui, &mut elems, format!("{PRE}.burnCaptions"), tl!("Burn the captions into the picture"), &mut p["burnCaptions"]);
                         }
                     });
-                    if p["renderFormat"] != "premiere" && p["captions"] != "off" {
-                        check(ui, &mut elems, format!("{PRE}.burnCaptions"), tl!("Burn the captions into the picture"), &mut p["burnCaptions"]);
-                    }
-                });
-            }
-        });
-        if !review_on {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(tl!("Claude Code review is off.")).color(t.text_dim));
-                let r = ui.link(tl!("Claude Code Review Settings…"));
-                elems.push((format!("{PRE}.reviewSettings"), r.rect, "Claude Code Review Settings…".into()));
-                settings |= r.clicked();
-            });
-        }
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if running {
-                let r = ui.button(tl!("Stop"));
-                elems.push((format!("{PRE}.stop"), r.rect, "Stop".into()));
-                stop = r.clicked();
-            } else {
-                let r = ui.add_enabled(has_seq, egui::Button::new(RichText::new(tl!("Run")).color(egui::Color32::WHITE)).fill(t.accent));
-                elems.push((format!("{PRE}.run"), r.rect, "Run".into()));
-                run = r.clicked();
-                if !has_seq {
-                    ui.label(RichText::new(tl!("Open a sequence first.")).color(t.text_dim));
                 }
-            }
+            });
         });
         // the run's steps
         if let Some(steps) = status["steps"].as_array().filter(|s| !s.is_empty()) {
@@ -522,8 +589,8 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         ui.separator();
         ui.label(RichText::new(tl!("Tools")).strong());
         egui::Grid::new("overfilm-panel-tools").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            for (n, (group, list)) in TOOL_GROUPS.iter().enumerate() {
-                ui.label(RichText::new(format!("{}. {}", n + 1, group_label(group))).color(t.text_dim));
+            for (group, list) in TOOL_GROUPS.iter() {
+                ui.label(RichText::new(group_label(group)).color(t.text_dim));
                 ui.horizontal_wrapped(|ui| {
                     for (id, label) in list.iter() {
                         let enabled = facts.tools.iter().find(|(k, _)| k == id).is_some_and(|(_, on)| *on);
@@ -539,7 +606,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         });
         review_results(ui, &mut elems, &facts.last_review, &mut picked, t);
         // the kill list is never taller than the panel, so the panel still scrolls past it
-        let fit = f64::from(rect.height() - 90.0).max(KILLS_MIN);
+        let fit = f64::from(rect.height() - 90.0 - RUN_BAR_HEIGHT).max(KILLS_MIN);
         kill_list(ui, &mut elems, &facts.kills, &mut p, fit, &mut picked, t);
         lineup_list(ui, &mut elems, &facts.lineup, &mut p, &mut hero_name, t);
         ui.add_space(10.0);
@@ -551,6 +618,21 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         elems.push((format!("{PRE}.resetSettings"), r.rect, "Back to the default settings".into()));
         reset = r.clicked();
     });
+    // Run (or Stop) under the choices: the one filled button of the panel
+    bar.separator();
+    if running {
+        let r = bar.add_sized([bar.available_width(), 30.0], egui::Button::new(tl!("Stop")));
+        elems.push((format!("{PRE}.stop"), r.rect, "Stop".into()));
+        stop = r.clicked();
+    } else {
+        if !has_seq {
+            bar.label(RichText::new(tl!("Open a sequence first.")).color(t.text_dim).size(11.0));
+        }
+        let b = egui::Button::new(RichText::new(tl!("Run")).strong().color(egui::Color32::WHITE)).fill(t.accent);
+        let r = bar.add_enabled(has_seq, b.min_size(vec2(bar.available_width(), 30.0)));
+        elems.push((format!("{PRE}.run"), r.rect, "Run".into()));
+        run = r.clicked();
+    }
     for (id, r, l) in elems {
         app.auto.add(&id, r, &l);
     }
