@@ -42,6 +42,7 @@ class ScriptSettings:
     assets_dir: str | Path | None = None  # 영웅 프로필 캐시 (없으면 짤 그림을 받지 않음)
     preset: Preset | None = None  # 편집 유형 (이슈·옵갤·정보·게임·커스텀)
     soften: bool = False  # 순화: 켜면 욕설·혐오 표현을 나레이션·댓글 고르기에서 피한다. 꺼짐이 기본 (원문 그대로)
+    tts: str = "auto"  # 읽어 주기 기본값: auto = AI 가 정함 | on = 본문·댓글 읽음 | off = 자막만
 
 
 @dataclass
@@ -78,6 +79,7 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
         segs, seg_warn = validate(script, comments, media, settings.composition,
                                   settings.max_comments, settings.max_media, source, memes,
                                   f"{title}\n{body}", settings.preset)
+        apply_tts_default(segs, settings.tts, media, comments)
         lines = flatten(segs, comments, media)
         spoken = [ln for ln in lines if ln["part"] != "pause"]
         checks = check_script(spoken, body, texts, banned, settings.chars_per_sec)
@@ -105,6 +107,29 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
             return ScriptOutcome(script, segs, lines, checks, cringe, model, rewrites, warnings)
         feedback = problems
         rewrites += 1
+
+
+def apply_tts_default(segs: list[dict], mode: str, media: list[dict],
+                      comments: list[dict] | None = None) -> None:
+    """설정의 읽어 주기 기본값 (패널 '설정'). auto 면 AI 판단 그대로.
+
+    on 이어도 제목·짤 장면과 원본 소리가 있을 수 있는 영상 장면은 그대로 둔다 (소리가 겹침).
+    """
+    if mode not in ("on", "off"):
+        return
+    videos = {m.get("name") for m in media if m.get("kind") == "video"}
+    for seg in segs:
+        if seg.get("kind") not in ("body", "comments", "media"):
+            continue
+        if mode == "on" and any(p.get("name") in videos for p in seg.get("media") or []):
+            continue
+        if bool(seg.get("tts")) != (mode == "on"):
+            seg["tts"] = mode == "on"
+            seg["tts_reason"] = "설정: " + ("항상 읽기" if mode == "on" else "자막만")
+        if mode == "on" and seg.get("kind") == "comments" and not seg.get("read"):
+            texts = [str(c.get("text") or "").strip() for c in comments or []]
+            seg["read"] = [n for n in seg.get("picked") or seg.get("comments") or []
+                           if 0 <= n < len(texts) and texts[n]][:2]
 
 
 def script_pending(store: Store, router: Router, settings: ScriptSettings,

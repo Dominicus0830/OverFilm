@@ -1,0 +1,28 @@
+/* 설정 화면: Windows 설정 앱처럼 묶음마다 카드 하나, 줄마다 왼쪽 이름·설명, 오른쪽 조절. */
+.settings { max-width: 920px; padding-bottom: 72px; }
+.set-group { margin-bottom: 22px; }
+.set-group h3 { margin: 0 0 6px; }
+.set-note { margin: 0 0 8px; }
+.set-list { background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.set-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 340px); gap: 16px; align-items: center;
+  padding: 11px 16px; border-top: 1px solid var(--line); }
+.set-row:first-child { border-top: none; }
+.set-row.dirty { box-shadow: inset 3px 0 0 var(--accent); }
+.set-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.set-control { display: flex; justify-content: flex-end; min-width: 0; }
+.set-control select, .set-control > input:not([type=checkbox]), .set-control textarea { width: 100%; }
+.set-control textarea { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 11px; resize: vertical; }
+.set-num { display: flex; align-items: center; gap: 8px; width: 100%; justify-content: flex-end; }
+.set-num input { width: 110px; text-align: right; }
+.set-num input.bad { border-color: var(--warn); }
+.set-switch { width: 18px; height: 18px; accent-color: var(--accent); }
+.set-foot { position: sticky; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); margin-top: 8px;
+  padding: 10px 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.set-foot .actions { margin: 0; }
+.set-foot code { word-break: break-all; }
+@media (max-width: 700px) {
+  .set-row { grid-template-columns: 1fr; gap: 8px; }
+  .set-control { justify-content: flex-start; }
+  .set-num { justify-content: flex-start; }
+}
