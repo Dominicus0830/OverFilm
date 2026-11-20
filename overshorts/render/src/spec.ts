@@ -17,6 +17,7 @@ export type SpecMedia = {
   src: string; kind: 'image' | 'video';
   display: 'fill' | 'crop' | 'full' | 'tall' | 'scroll';
   start: number; end: number; width: number; height: number; muted: boolean;
+  playback_rate?: number; // 음성·칸 길이에 맞춘 클립 배속 (0.75~1.25)
   number: number; caption: string; // 원문 사진 번호, 사진 바로 아래 본문 줄 (스크린샷처럼)
   caption_runs: StyledLine[] | null; // 원문에 꾸민 줄이면 줄마다 꾸밈
 };
@@ -32,10 +33,20 @@ export type SpecSegment = {
   media: SpecMedia[]; comments: SpecComment[]; quote: string; quote_runs: StyledLine[] | null;
   image: string | null; say: string; // reaction: 짤·영웅 프로필 + 대사 (자막은 captions 에)
 };
-export type SayStyle = 'calm' | 'shout' | 'question' | 'sad' | 'smug';
+export type SayStyle = 'calm' | 'shout' | 'question' | 'sad' | 'smug' | 'band'; // band = 흰 띠 한 줄
 export type SpecCaption = {start: number; end: number; seg: number; words: SpecWord[]; style: SayStyle | null;
   runs: StyledLine | null}; // 원문 줄을 그대로 쓴 짤 장면 대사면 원문 꾸밈
+/** 화면 배치 (편집 유형 프리셋): 세로 위치는 화면 높이 %. 없으면 옛 프레임형(제목 바 + 노란 자막). */
+export type SpecLayout = {
+  title_bar: boolean; caption: 'yellow' | 'band' | 'none';
+  stage: [number, number]; title: [number, number]; caption_box: [number, number];
+  source_top: number; safe_bottom: number;
+};
+export const LEGACY_LAYOUT: SpecLayout = {title_bar: true, caption: 'yellow', stage: [28, 66], title: [15, 26],
+  caption_box: [67, 72], source_top: 75.5, safe_bottom: 78};
 export type RenderSpec = {
+  layout: SpecLayout;
+  edit_type: string;
   version: 1 | 2;
   preset: 'frame' | 'card';
   segments: SpecSegment[];
@@ -61,6 +72,8 @@ export type RenderSpec = {
 };
 
 export const EMPTY_SPEC: RenderSpec = {
+  layout: LEGACY_LAYOUT,
+  edit_type: '',
   version: 1,
   preset: 'card',
   segments: [],
@@ -140,6 +153,7 @@ export function sanitize(input: unknown): RenderSpec {
       start: t(m?.start), end: t(m?.end), width: num(m?.width, 0, 0, 20000),
       height: num(m?.height, 0, 0, 20000), muted: m?.muted !== false,
       number: Math.round(num(m?.number, 0, 0, 999)), caption: str(m?.caption),
+      playback_rate: num(m?.playback_rate, 1, 0.5, 2),
       caption_runs: sanitizeLines(m?.caption_runs),
     })),
     comments: (Array.isArray(g?.comments) ? g.comments.slice(0, 60) : []).map((c) => ({
@@ -154,10 +168,26 @@ export function sanitize(input: unknown): RenderSpec {
   }));
   const captions: SpecCaption[] = (Array.isArray(s.captions) ? s.captions.slice(0, 400) : []).map((c) => ({
     start: t(c?.start), end: t(c?.end), seg: num(c?.seg, 0, 0, 20), words: words(c?.words).slice(0, 8),
-    style: (['calm', 'shout', 'question', 'sad', 'smug'] as readonly unknown[]).includes(c?.style) ? c.style as SayStyle : null,
+    style: (['calm', 'shout', 'question', 'sad', 'smug', 'band'] as readonly unknown[]).includes(c?.style) ? c.style as SayStyle : null,
     runs: sanitizeRuns(c?.runs),
   }));
+  const pair = (v: unknown, d: [number, number]): [number, number] => {
+    const a = Array.isArray(v) && v.length === 2 ? v : d;
+    const lo = num(a[0], d[0], 0, 100);
+    const hi = num(a[1], d[1], 0, 100);
+    return [Math.min(lo, hi), Math.max(lo, hi)];
+  };
+  const ly = s.layout;
+  const layout: SpecLayout = ly ? {
+    title_bar: ly.title_bar === true,
+    caption: ly.caption === 'band' || ly.caption === 'none' ? ly.caption : 'yellow',
+    stage: pair(ly.stage, LEGACY_LAYOUT.stage), title: pair(ly.title, LEGACY_LAYOUT.title),
+    caption_box: pair(ly.caption_box, LEGACY_LAYOUT.caption_box),
+    source_top: num(ly.source_top, 75.5, 0, 100), safe_bottom: num(ly.safe_bottom, 78, 50, 100),
+  } : LEGACY_LAYOUT;
   return {
+    layout,
+    edit_type: str(s.edit_type).slice(0, 32),
     version: s.version === 2 ? 2 : 1,
     preset: s.preset === 'frame' ? 'frame' : 'card',
     segments,

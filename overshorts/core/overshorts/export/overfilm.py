@@ -43,6 +43,24 @@ RENDER_DIR = Path(__file__).resolve().parents[3] / "render"
 
 # FrameStory.tsx 의 SAFE (화면 높이 %)
 SAFE = {"title": (15, 26), "tall": (28, 66), "caption": (67, 72), "source": (75.5, 77.5)}
+
+
+def _safe(spec: dict[str, Any]) -> dict[str, tuple[float, float]]:
+    """spec.layout (편집 유형) 의 세로 위치. 없으면 옛 프레임형 SAFE."""
+    ly = spec.get("layout")
+    if not isinstance(ly, dict):
+        return SAFE
+
+    def pair(key: str, d: tuple[float, float]) -> tuple[float, float]:
+        v = ly.get(key)
+        try:
+            return (float(v[0]), float(v[1]))
+        except (TypeError, ValueError, IndexError, KeyError):
+            return d
+
+    top = _num(ly.get("source_top"), SAFE["source"][0])
+    return {"title": pair("title", SAFE["title"]), "tall": pair("stage", SAFE["tall"]),
+            "caption": pair("caption_box", SAFE["caption"]), "source": (top, top + 2)}
 FONT = "Pretendard"
 SHOUT = "Black Han Sans"
 HAND = "Gaegu"
@@ -137,6 +155,8 @@ def _run_color(c: dict[str, Any]) -> str | None:
 
 
 def _frame_captions(spec: dict[str, Any], w: int, h: int) -> list[dict[str, Any]]:
+    safe = _safe(spec)
+    title_bar = (spec.get("layout") or {}).get("title_bar", True) is not False
     out = []
     for c in spec.get("captions") or []:
         if not isinstance(c, dict):
@@ -154,14 +174,24 @@ def _frame_captions(spec: dict[str, Any], w: int, h: int) -> list[dict[str, Any]
             # 긴 줄은 두 줄 안에 들어가게 줄인다 (FrameStory 와 같은 식)
             chars = len(re.sub(r"\s", "", text))
             size = max(58, round(size * min(1.0, 12 / max(1, chars)) ** 0.75))
-            top = SAFE["tall"][1] + 0.5
-            mid = top + (SAFE["source"][0] - SAFE["tall"][1] - 1) / 2
+            if title_bar:  # 스크린샷 아래 (옛 프레임형)
+                top = safe["tall"][1] + 0.5
+                mid = top + (safe["source"][0] - safe["tall"][1] - 1) / 2
+            else:  # 제목 바 없는 유형: 짤 아래쪽에 겹침
+                mid = (safe["caption"][0] + safe["caption"][1]) / 2
             out.append({"track": "자막", "text": text, "start": start, "end": end, "size": size,
                         "color": color, "stroke": "#000000", "strokeWidth": stroke / 2, "font": font,
                         "fontStyle": fstyle, "center": [w / 2, _pct(h, mid)], "maxWidth": w - 60,
                         "maxLines": 2, "lineSpacing": 1.1})
+        elif style == "band":  # 흰 띠 한 줄: 편집기 글자 클립은 박스가 없어 흰 글자 + 검은 테두리로 (띠는 편집기에서)
+            mid = (safe["caption"][0] + safe["caption"][1]) / 2
+            size = max(34, min(60, round(1000 / max(8, len(text)))))
+            out.append({"track": "자막", "text": text, "start": start, "end": end, "size": size,
+                        "color": "#FFFFFF", "stroke": "#000000", "strokeWidth": 5, "font": FONT,
+                        "fontStyle": "ExtraBold", "center": [w / 2, _pct(h, mid)], "maxWidth": w - 80,
+                        "maxLines": 1, "lineSpacing": 1.1})
         else:
-            mid = (SAFE["caption"][0] + SAFE["caption"][1]) / 2
+            mid = (safe["caption"][0] + safe["caption"][1]) / 2
             out.append({"track": "자막", "text": text, "start": start, "end": end, "size": 74,
                         "color": "#FFD43B", "stroke": "#000000", "strokeWidth": 6, "font": FONT,
                         "fontStyle": "Black", "center": [w / 2, _pct(h, mid)], "maxWidth": w - 80,
@@ -225,7 +255,8 @@ def build_scenes(spec: dict[str, Any], stage: list[dict[str, Any]], name: str,
         pictures.append({"track": "장면", "file": f"stage/{s['file']}", "start": s["start"], "end": s["end"],
                          "label": KIND_NAME.get(str(s.get("kind")), "장면")})
     segs = [s for s in spec.get("segments") or [] if isinstance(s, dict)]
-    box_top, box_bottom = _pct(h, SAFE["tall"][0]), _pct(h, SAFE["tall"][1])
+    safe = _safe(spec)
+    box_top, box_bottom = _pct(h, safe["tall"][0]), _pct(h, safe["tall"][1])
     sounds: list[dict[str, Any]] = []
     for i, seg in enumerate(segs):
         end = _num(segs[i + 1].get("start"), duration) if i + 1 < len(segs) else duration
@@ -242,8 +273,10 @@ def build_scenes(spec: dict[str, Any], stage: list[dict[str, Any]], name: str,
 
     texts: list[dict[str, Any]] = []
     title = str(spec.get("title") or "").strip()
-    if title and frame:
-        mid = (SAFE["title"][0] + SAFE["title"][1]) / 2
+    if title and frame and (spec.get("layout") or {}).get("title_bar", True) is False:
+        pass  # 제목 바 없는 유형: 유튜브 제목이 제목 역할 (화면에 얹지 않음)
+    elif title and frame:
+        mid = (safe["title"][0] + safe["title"][1]) / 2
         texts.append({"track": "제목", "text": title, "start": 0, "end": duration,
                       "size": 72 if len(title) > 16 else 84, "color": "#FFFFFF", "font": FONT,
                       "fontStyle": "Black", "center": [w / 2, _pct(h, mid)], "maxWidth": w - 120,
@@ -256,7 +289,7 @@ def build_scenes(spec: dict[str, Any], stage: list[dict[str, Any]], name: str,
     texts += _frame_captions(spec, w, h) if frame else _card_captions(spec, w, h)
     source = str(spec.get("source") or "").strip()
     if source:
-        y = _pct(h, SAFE["source"][0]) + 17 if frame else h - 70 - 18
+        y = _pct(h, safe["source"][0]) + 17 if frame else h - 70 - 18
         texts.append({"track": "출처", "text": source, "start": 0, "end": duration,
                       "size": 28 if frame else 30, "color": "#FFFFFF99" if frame else "#FFFFFFBF",
                       "font": FONT, "fontStyle": "Regular", "center": [w / 2, y], "maxWidth": w - 80,

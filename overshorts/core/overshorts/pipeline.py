@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .config import crawl_limits, rule_config, script_settings, spec_options
+from .config import crawl_limits, rule_config, script_settings, spec_options, voice_options
 from .crawler.budget import CrawlGuard
 from .crawler.collector import Collector, GalleryOptions
 from .crawler.fetcher import Fetcher
@@ -124,8 +124,10 @@ class Pipeline:
         self._say("voice", "음성 만드는 중")
         c = voice_pending(self.store, self.data / "jobs",
                           str(v.get("narrator") or "edge:ko-KR-SunHiNeural"),
-                          str(v.get("comment") or "") or None)
-        self._say("voice", f"음성 {c['voiced']}개, 실패 {c['failed']}")
+                          str(v.get("comment") or "") or None, **voice_options(self.cfg))
+        extra = (f", 린터로 멈춤 {c['linted']}개" if c.get("linted") else "") + \
+                (f", 전사 대조 의심 {c['verify_problems']}곳" if c.get("verify_problems") else "")
+        self._say("voice", f"음성 {c['voiced']}개, 실패 {c['failed']}{extra}")
 
     def preview(self) -> None:
         from .render.spec import spec_pending

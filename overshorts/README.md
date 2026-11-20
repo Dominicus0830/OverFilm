@@ -157,3 +157,16 @@ OverFilm 편집기 타임라인으로 넘겨 사람이 더 고칠 수 있다. �
 ## 다음
 
 - M6 클로닝(GPT-SoVITS, AMD 는 CPU), M7 OverFilm MCP·`doctor`, M8 설정 화면 전부
+
+## 편집 유형 프리셋 (S17)
+
+`config.yaml` 의 `render.edit_type` 로 유형을 고른다: `ogal`(옵갤형, 기본) · `issue`(이슈형) · `info`(정보형) · `game`(게임형).
+유형마다 구간 배분, 화면 배치(제목 바·자막 모양), 댓글 노출(한 화면 개수·장당 시간), 효과, TTS 사용 여부가 다르다.
+정의는 `core/overshorts/presets/*.json` (스키마 = `presets.Preset`). 같은 형식의 파일을 `style/presets/<id>.json` 에 두면
+새 유형이 되거나 같은 id 의 내장 유형을 덮어쓴다 (커스텀 유형을 Claude Code 와 대화로 만드는 것은 다음 단계, 이 형식으로 저장).
+`render.max_comments`·`render.tts`·`render.caption_max_chars`·`render.caption_max_words` 는 비우면 유형 값을 쓰고, 적으면 그 값이 우선한다.
+
+- 댓글 화면은 LLM 이 한 화면에 몇 개를 보일지 판단한다 (`screens`). 코드는 화면 높이·글타래(원댓글+답글)·장 수·개수 상한을 믿지 않고 다시 맞춘다.
+  장당 시간은 `최소 2.8초`와 `1.2초 + 글자 수 × 0.05초` 중 큰 값 (유형별 값).
+- 순화(`script.soften`)와 대본 린터(`script.lint`)는 옵션이고 **기본은 꺼짐**: 내용을 바꾸면 재미가 떨어지므로 기본은 원문 그대로.
+- 전사 대조(`verify.enabled`, 기본 꺼짐): 만든 음성을 STT 로 다시 받아 줄마다 대본과 비교해 `verify.json` 과 검수 경고로 남긴다.

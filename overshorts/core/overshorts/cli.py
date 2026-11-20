@@ -20,7 +20,7 @@ import json
 import sys
 from pathlib import Path
 
-from .config import crawl_limits, load_config, rule_config, script_settings, spec_options
+from .config import crawl_limits, load_config, rule_config, script_settings, spec_options, voice_options
 from .crawler.budget import CrawlGuard
 from .crawler.collector import Collector, GalleryOptions
 from .crawler.fetcher import Fetcher
@@ -205,8 +205,9 @@ def main(argv: list[str] | None = None) -> int:
             v = cfg.get("voice") or {}
             counts = voice_pending(store, data / "jobs",
                                    str(v.get("narrator") or "edge:ko-KR-SunHiNeural"),
-                                   str(v.get("comment") or "") or None)
-            print(f"음성 {counts['voiced']}개, 실패 {counts['failed']}")
+                                   str(v.get("comment") or "") or None, **voice_options(cfg))
+            print(f"음성 {counts['voiced']}개, 실패 {counts['failed']}, 린터로 멈춤 {counts['linted']}, "
+                  f"전사 대조 의심 {counts['verify_problems']}곳")
             return 0
         if args.cmd == "overfilm":
             from .pipeline import Pipeline

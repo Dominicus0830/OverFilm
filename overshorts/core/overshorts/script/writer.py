@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ..db import Store
 from ..llm import LimitReached, LlmError, Router
+from ..presets import Preset
 from .checks import CheckResult, _no_ending, check_script, load_banned
 from .game_check import check_script_game
 from .reactions import list_memes, meme_block, resolve_segments
@@ -39,6 +40,8 @@ class ScriptSettings:
     max_media: int = 6
     title_tail: str = "auto"  # none | ㄷㄷ | ㅋㅋㅋ | auto (제목 꼬리표, 채널 말투)
     assets_dir: str | Path | None = None  # 영웅 프로필 캐시 (없으면 짤 그림을 받지 않음)
+    preset: Preset | None = None  # 편집 유형 (이슈·옵갤·정보·게임·커스텀)
+    soften: bool = False  # 순화: 켜면 욕설·혐오 표현을 나레이션·댓글 고르기에서 피한다. 꺼짐이 기본 (원문 그대로)
 
 
 @dataclass
@@ -69,11 +72,12 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
     while True:
         task = script_task(title, body, comments, media, style, settings.tone, settings.speech,
                            user_words, settings.chars_per_sec, feedback, settings.composition,
-                           settings.max_comments, settings.title_tail, meme_block(memes))
+                           settings.max_comments, settings.title_tail, meme_block(memes),
+                           settings.preset, settings.soften)
         script, model = router.ask(task, ScriptAnswer)
         segs, seg_warn = validate(script, comments, media, settings.composition,
                                   settings.max_comments, settings.max_media, source, memes,
-                                  f"{title}\n{body}")
+                                  f"{title}\n{body}", settings.preset)
         lines = flatten(segs, comments, media)
         spoken = [ln for ln in lines if ln["part"] != "pause"]
         checks = check_script(spoken, body, texts, banned, settings.chars_per_sec)

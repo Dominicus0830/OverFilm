@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "id": "info",
+  "label": "정보형",
+  "description": "팁·분석·정리 글 (참고 영상 ③). 본문(글·표·클립)이 길고 댓글은 보조.",
+  "tts": "auto",
+  "sections": {
+    "target_sec": [
+      40,
+      60
+    ],
+    "hook_sec": [
+      3,
+      4
+    ],
+    "media_sec": [
+      10,
+      15
+    ],
+    "outro_sec": 1,
+    "comment_share": 0.4,
+    "max_clip_sec": 30
+  },
+  "layout": {
+    "title_bar": false,
+    "caption": "band",
+    "stage_top": 10,
+    "stage_bottom": 76,
+    "caption_top": 66,
+    "caption_bottom": 74,
+    "source_top": 77.5,
+    "safe_bottom": 80
+  },
+  "caption": {
+    "max_chars": 16,
+    "max_words": 5,
+    "band_delay_sec": 0
+  },
+  "comments": {
+    "enabled": true,
+    "per_screen": [
+      2,
+      3
+    ],
+    "max_total": 18,
+    "max_screens": 7,
+    "min_screen_sec": 3.0,
+    "max_screen_sec": 8,
+    "skip": "time_order"
+  },
+  "effects": {
+    "bgm": true,
+    "sfx": false,
+    "original_sound": false
+  },
+  "guide": "정보 글이다: 글 머리 → 본문(글·표·클립) 10~15초 → 댓글. 클립 아래에 고정 띠 자막 한 줄. 긴 글 댓글은 한 화면 1~2개로 읽을 시간을 늘린다. TTS 는 긴 글·상황 설명에만 쓴다(옵션).",
+  "reference": {
+    "videos": [
+      "https://youtube.com/shorts/WQ9xxKrc-WQ"
+    ],
+    "note": "뚜벅이 파쿠르 팁: 정보 + 게임 클립 27초"
+  }
+}

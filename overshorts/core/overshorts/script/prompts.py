@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..llm import UNTRUSTED_RULE, Task, untrusted
+from ..presets import Preset, prompt_block
 from .game_check import GAME_RULES
 from .models import CATEGORY_KO
 from .reactions import REACTION_RULES
@@ -94,15 +95,20 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
                 tone: str, speech: str, banned_words: list[str], chars_per_sec: float,
                 feedback: list[str] | None = None, composition: str = "auto",
                 max_comments: int = 6, title_tail: str = "auto",
-                memes: str = "") -> Task:
+                memes: str = "", preset: Preset | None = None, soften: bool = False) -> Task:
     """세그먼트 대본 (기획서 3.3 개정 6): 구성 A/B, 세그먼트별 TTS 판단, 실제 댓글은 번호로만."""
     max_chars = int(55 * chars_per_sec)
     comp = {"A": "구성은 A 로 정해져 있다.", "B": "구성은 B 로 정해져 있다 (댓글 세그먼트 없음)."}.get(
         composition, "구성 A/B 는 네가 고른다.")
+    if preset is not None:
+        max_comments = preset.comments.max_total
+    screen = ("화면은 검은 배경에 위쪽 고정 제목, 가운데 원문 사진·영상(또는 디시 화면처럼 그린 본문·댓글), "
+              "아래 노란 자막이다. " if preset is None or (preset.layout.title_bar
+                                                    and preset.layout.caption == "yellow")
+              else "화면은 검은 배경에 디시 화면 스크린샷처럼 그린 글 머리·본문·댓글과 원문 사진·영상이다 (아래 유형 규칙). ")
     parts = [
-        "너는 커뮤니티 글을 30~60초 세로 쇼츠로 짜는 작가다. 화면은 검은 배경에 위쪽 고정 제목, "
-        "가운데 원문 사진·영상(또는 디시 화면처럼 그린 본문·댓글), 아래 노란 자막이다. "
-        "사람이 쓴 것처럼 담백하게 쓴다. 과장·감탄·억지 밈은 쓰지 않는다.",
+        "너는 커뮤니티 글을 30~60초 세로 쇼츠로 짜는 작가다. " + screen
+        + "사람이 쓴 것처럼 담백하게 쓴다. 과장·감탄·억지 밈은 쓰지 않는다.",
         UNTRUSTED_RULE,
         "영상은 세그먼트 단위로 짠다. 구성 A = 제목 → 본문(사진·영상·글) → 댓글 반응 (댓글이 재밌거나 "
         "내용을 더해줄 때). 구성 B = 제목 → 본문 (본문만으로 충분하거나 댓글이 약할 때). " + comp,
@@ -118,13 +124,18 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
         "넣어 원문 그대로 읽거나 읽지 않고 화면만 보여 준다. 이유는 tts_reason 에 짧게. tts 를 꺼도 "
         "media·body 의 lines 는 써 둔다 (사람이 검수에서 켤 수 있다). 무음이 5초 넘게 이어지지 않게 한다.",
         f"댓글은 만들지 않는다. 아래 실제 댓글에서 번호로만 고른다 (최대 {max_comments}개, 답글을 고르면 "
-        "부모 댓글도 같이). 문구는 화면에 원문 그대로 나온다. 욕설·혐오·특정 집단 비하·정치 댓글은 "
-        "고르지 않는다. 반응이 좋은 흐름(웃긴 답글 주고받기, 내용을 더하는 댓글)을 고른다.",
+        "부모 댓글도 같이). 문구는 화면에 원문 그대로 나온다. "
+        + ("욕설·혐오·특정 집단 비하·정치 댓글은 고르지 않는다. " if soften else
+           "욕설이 있어도 바꾸거나 빼지 않는다 (내용을 바꾸면 재미가 떨어진다). ")
+        + "반응이 좋은 흐름(웃긴 답글 주고받기, 내용을 더하는 댓글)을 고른다.",
         "나레이션 규칙: 한 문장 20자 안팎, 길이를 섞는다. 원문 문장을 그대로 옮기지 말고 자기 말로 "
         "다시 쓴다(글자 5-gram 겹침 30% 이하). 숫자·고유명사는 원문 그대로, 없는 내용은 지어내지 않는다. "
         "'이건 몰랐네' 싶은 구체적 사실을 하나 이상 넣고 fact 에 적는다. 길이를 채우지 않는다: 글이 "
         f"짧으면 25초로 끝나도 된다. 나레이션 전체 {max_chars}자를 넘기지 않는다. 마지막 줄은 질문·"
-        "훈계·구독 요청 없이 끝낸다. 원문의 욕설·혐오 표현은 나레이션에 옮기지 않는다.",
+        "훈계·구독 요청 없이 끝낸다. "
+        + ("원문의 욕설·혐오 표현은 나레이션에 옮기지 않는다." if soften
+           else "원문 표현은 순화하지 않고 그대로 옮긴다 (욕은 초성 처리 같은 자막 규칙만 따른다)."),
+        *([prompt_block(preset)] if preset is not None else []),
         GAME_RULES,
         REACTION_RULES + "\n짤 모음 (짤:이름 으로 쓴다):\n" + (memes or "(비어 있음)"),
         title_rules(title_tail) + "\n(ㅋㅋㅋ·ㄷㄷ 금지와 아래 사용자 금지 표현은 나레이션에만 적용한다. 제목은 위 제목 규칙만 따른다.)",

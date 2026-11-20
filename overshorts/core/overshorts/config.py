@@ -39,8 +39,16 @@ DEFAULTS: dict[str, Any] = {
     },
     "voice": {"narrator": "edge:ko-KR-SunHiNeural", "comment": "edge:ko-KR-InJoonNeural"},
     "render": {"preset": "auto", "tone": "담백", "background_dir": "./assets/bg",
-               "composition": "auto", "max_comments": 6, "max_media": 6, "nickname": "original",
-               "bgm_dir": None},
+               "composition": "auto", "max_media": 6, "nickname": "original",
+               "bgm_dir": None,
+               # 편집 유형(S17): ogal 옵갤형 | issue 이슈형 | info 정보형 | game 게임형 | <style>/presets 의 커스텀 id.
+               # 아래 값이 비어(None) 있으면 유형 프리셋의 값을 쓴다.
+               "edit_type": "ogal", "max_comments": None, "tts": "preset",
+               "caption_max_chars": None, "caption_max_words": None},
+    # 사용자 규칙(2026-11-20): 내용을 바꾸면 재미가 떨어지므로 둘 다 꺼짐이 기본이다.
+    "script": {"lint": False, "soften": False},
+    # 전사 대조(S4): 만든 음성을 STT 로 다시 받아 대본과 비교. stt_command 비우면 overfilm-subs extract.
+    "verify": {"enabled": False, "stt_command": None},
     "style": {"dir": "../style", "min_cringe_score": 7, "speech": "반말", "title_tail": "auto"},
     "crawler": {
         "delay_sec": [1.5, 4],
@@ -131,7 +139,34 @@ def spec_options(cfg: dict[str, Any]):
     return SpecOptions(preset=str(r.get("preset") or "auto"),
                        nickname=str(r.get("nickname") or "original"),
                        bgm_dir=Path(str(bgm)) if bgm else None,
-                       show_source=r.get("show_source", True) is not False)
+                       show_source=r.get("show_source", True) is not False,
+                       edit=edit_preset(cfg))
+
+
+def flag(value: Any) -> bool:
+    """설정의 켜기/끄기: true·on·켬·1 이면 켜짐 (YAML 이 on 을 True 로 읽기도 한다)."""
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in ("true", "on", "yes", "1", "켬", "켜기")
+
+
+def edit_preset(cfg: dict[str, Any]):
+    """config 의 편집 유형 (render.edit_type) + render 덮어쓰기 값 → 프리셋. 모르는 유형이면 옵갤형."""
+    from .presets import apply_overrides, get_preset
+
+    render = cfg.get("render") or {}
+    style = cfg.get("style") or {}
+    return apply_overrides(get_preset(str(render.get("edit_type") or ""), style.get("dir") or "../style"),
+                           render)
+
+
+def voice_options(cfg: dict[str, Any]) -> dict[str, Any]:
+    """voice_pending 에 넘길 옵션: 대본 린터(S3), 전사 대조(S4). 둘 다 기본 꺼짐."""
+    v = cfg.get("verify") or {}
+    return {"lint": flag((cfg.get("script") or {}).get("lint")),
+            "style_dir": str((cfg.get("style") or {}).get("dir") or "../style"),
+            "verify": flag(v.get("enabled")),
+            "stt_command": str(v.get("stt_command") or "") or None}
 
 
 def script_settings(cfg: dict[str, Any], tone: str | None = None, default_style: str = "../style"):
@@ -145,10 +180,12 @@ def script_settings(cfg: dict[str, Any], tone: str | None = None, default_style:
         speech=str(style.get("speech") or "반말"),
         min_cringe_score=float(style.get("min_cringe_score") or 7),
         composition=str(render.get("composition") or "auto"),
-        max_comments=max(1, min(int(render.get("max_comments") or 6), 10)),
+        max_comments=edit_preset(cfg).comments.max_total,
         max_media=max(1, min(int(render.get("max_media") or 6), 6)),
         title_tail=str(style.get("title_tail") or "auto"),
         assets_dir=Path(str(cfg.get("data_dir") or "./data")) / "assets",
+        preset=edit_preset(cfg),
+        soften=flag((cfg.get("script") or {}).get("soften")),
     )
 
 
@@ -165,6 +202,13 @@ SETTINGS: dict[tuple[str, str], tuple[str, ...] | None] = {
     ("render", "tone"): ("담백", "드립 조금", "정리형"),
     ("render", "preset"): ("auto", "frame", "card"),
     ("render", "nickname"): ("original", "blur", "replace"),
+    ("render", "edit_type"): None,  # ogal·issue·info·game 또는 커스텀 유형 id
+    ("render", "tts"): ("preset", "off", "auto", "on"),
+    ("render", "caption_max_chars"): None,
+    ("render", "caption_max_words"): None,
+    ("script", "lint"): ("off", "on"),
+    ("script", "soften"): ("off", "on"),
+    ("verify", "enabled"): ("off", "on"),
     ("style", "speech"): ("반말", "해요체"),
     ("style", "title_tail"): ("auto", "none", "ㄷㄷ", "ㅋㅋㅋ"),
     ("voice", "narrator"): None,

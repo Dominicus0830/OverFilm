@@ -17,8 +17,9 @@ from pathlib import Path
 from typing import Any
 
 from ..db import Store
+from ..presets import Preset, page_seconds
 from ..script.checks import norm
-from ..script.segments import media_items, strip_marks
+from ..script.segments import media_items, page_height, strip_marks
 
 FPS = 60
 TAIL_SEC = 0.6
@@ -88,7 +89,7 @@ def build_spec(timing: dict[str, Any], title: str, subject: str, fact: str, sour
 # --- 프레임형 (기획서 3.5 개정 5·6) -------------------------------------------
 
 MAX_CAPTION_WORDS = 4
-MAX_CAPTION_CHARS = 13  # 74px 글씨로 한 줄
+MAX_CAPTION_CHARS = 13  # 74px 글씨로 한 줄 (편집 유형·config 로 바꿈: presets.CaptionRules)
 _END_PUNCT = re.compile(r"[.?!,…~]$")
 SILENCE_LIMIT = 5.0
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".ogg", ".aac"}
@@ -102,10 +103,14 @@ class SpecOptions:
     body: str = ""
     show_source: bool = True  # 아래 '출처: …' 표시 (검수 화면에서 켜기/끄기)
     body_styles: list[dict[str, Any]] = field(default_factory=list)  # 글쓴이가 꾸민 줄 (dc_parser.styled_lines)
+    edit: Preset | None = None  # 편집 유형 (화면 배치·자막 줄 길이·댓글 시간). 없으면 옛 프레임형
 
 
-def caption_chunks(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """단어 시각 → 한 번에 2~4단어 자막 묶음. 문장 부호에서 끊고, 한 단어만 남지 않게 한다."""
+def caption_chunks(scenes: list[dict[str, Any]], max_chars: int = MAX_CAPTION_CHARS,
+                   max_words: int = MAX_CAPTION_WORDS, min_show: float = 0.0) -> list[dict[str, Any]]:
+    """단어 시각 → 한 번에 2~max_words 단어 자막 묶음. 문장 부호에서 끊고, 한 단어만 남지 않게 한다.
+    max_chars: 한 줄 최대 글자 (쇼츠 자막 전용 값, OverFilm 편집기 25자와 별개). min_show: 묶음 최소 표시 시간."""
+    max_words = max(1, max_words)
     out: list[dict[str, Any]] = []
     for sc in scenes:
         words = [w for w in sc.get("words") or [] if str(w.get("text", "")).strip()]
@@ -113,22 +118,25 @@ def caption_chunks(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         cur: list[dict[str, Any]] = []
         for w in words:
             # 한 줄에 들어가게: 글자가 많으면 4단어 전에 끊는다
-            if len(cur) >= 2 and sum(len(str(x["text"])) for x in cur) + len(str(w["text"])) > MAX_CAPTION_CHARS:
+            if len(cur) >= 2 and sum(len(str(x["text"])) for x in cur) + len(str(w["text"])) > max_chars:
                 groups.append(cur)
                 cur = []
             cur.append(w)
-            if len(cur) >= MAX_CAPTION_WORDS or (_END_PUNCT.search(str(w["text"])) and len(cur) >= 2):
+            if len(cur) >= max_words or (_END_PUNCT.search(str(w["text"])) and len(cur) >= 2):
                 groups.append(cur)
                 cur = []
         if cur:
-            if (len(cur) == 1 and groups and len(groups[-1]) < MAX_CAPTION_WORDS
-                    and sum(len(str(x["text"])) for x in groups[-1] + cur) <= MAX_CAPTION_CHARS + 3):
+            if (len(cur) == 1 and groups and len(groups[-1]) < max_words
+                    and sum(len(str(x["text"])) for x in groups[-1] + cur) <= max_chars + 3):
                 groups[-1].append(cur[0])
             else:
                 groups.append(cur)
         for k, g in enumerate(groups):
             nxt = groups[k + 1][0]["start"] if k + 1 < len(groups) else g[-1]["end"] + 0.15
-            out.append({"start": g[0]["start"], "end": round(max(nxt, g[-1]["end"]), 3),
+            end = max(nxt, g[-1]["end"])
+            if min_show > 0:  # 너무 짧게 스쳐 지나가지 않게 (S2: 실측 시각 기준, 다음 묶음 전까지만 늘림)
+                end = max(end, min(g[0]["start"] + min_show, nxt if k + 1 < len(groups) else g[0]["start"] + min_show))
+            out.append({"start": g[0]["start"], "end": round(end, 3),
                         "seg": sc.get("seg", 0), "words": g})
     return out
 
@@ -173,7 +181,8 @@ def _silences(spans: list[tuple[float, float]], duration: float) -> float:
 SAY_STYLES = ("calm", "shout", "question", "sad", "smug")
 
 
-def silent_captions(texts: list[str], start: float, end: float, seg: int) -> list[dict[str, Any]]:
+def silent_captions(texts: list[str], start: float, end: float, seg: int,
+                    max_chars: int = MAX_CAPTION_CHARS, max_words: int = MAX_CAPTION_WORDS) -> list[dict[str, Any]]:
     """TTS 를 끈 장면의 자막: 글자 수에 비례해 시간을 나눠 같은 2~4단어 묶음으로 보여 준다."""
     words = [w for t in texts for w in t.split()]
     total = sum(len(w) + 1 for w in words)
@@ -186,10 +195,33 @@ def silent_captions(texts: list[str], start: float, end: float, seg: int) -> lis
         d = (len(w) + 1) * k
         timed.append({"text": w, "start": round(t, 3), "end": round(t + d, 3)})
         t += d
-    out = caption_chunks([{"words": timed, "seg": seg}])
+    out = caption_chunks([{"words": timed, "seg": seg}], max_chars, max_words)
     if out:
         out[-1]["end"] = round(end, 3)
     return out
+
+
+RATE_MIN, RATE_MAX = 0.75, 1.25  # 클립 배속·슬로우 보정 한계 (이 밖이면 자르거나 마지막 장면을 잡아 둠)
+
+
+def fit_rate(clip_sec: float, slot_sec: float) -> float:
+    """원문 영상이 길이 slot_sec 칸에 맞도록 재생 배속 (S2). 1.0 이면 그대로.
+    클립이 칸보다 길면 빠르게, 짧으면 느리게 — ±25% 안에서만 (넘으면 한계 배속으로 두고 나머지는 자른다)."""
+    if clip_sec <= 0 or slot_sec <= 0 or clip_sec != clip_sec or slot_sec != slot_sec:
+        return 1.0
+    rate = max(RATE_MIN, min(RATE_MAX, clip_sec / slot_sec))
+    return 1.0 if abs(rate - 1.0) < 0.03 else round(rate, 3)
+
+
+def layout_spec(edit: Preset | None) -> dict[str, Any]:
+    """화면 배치를 Remotion 에 알린다. 편집 유형이 없으면 옛 프레임형 (제목 바 + 노란 자막)."""
+    if edit is None:
+        return {"title_bar": True, "caption": "yellow", "stage": [28, 66], "title": [15, 26],
+                "caption_box": [67, 72], "source_top": 75.5, "safe_bottom": 78}
+    ly = edit.layout
+    return {"title_bar": ly.title_bar, "caption": ly.caption, "stage": [ly.stage_top, ly.stage_bottom],
+            "title": [15, 26], "caption_box": [ly.caption_top, ly.caption_bottom],
+            "source_top": ly.source_top, "safe_bottom": ly.safe_bottom}
 
 
 def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[str, Any],
@@ -198,6 +230,14 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
     """세그먼트 대본 + 음성 시각 → render_spec v2 (프레임형·썰 카드형 공용)."""
     base = build_spec(timing, str(script.get("title") or ""), str(post.get("subject") or ""),
                       str(script.get("fact") or ""), source, background)
+    edit = opts.edit
+    crules = edit.caption if edit else None
+    cmax = crules.max_chars if crules else MAX_CAPTION_CHARS
+    cwords = crules.max_words if crules else MAX_CAPTION_WORDS
+    clip_cap = edit.sections.max_clip_sec if edit else 8.0
+    if edit is not None:  # 끝 검정 엔딩 (옛 값 0.6초)
+        base["duration"] = round(min(max(float(timing.get("duration") or 0) + edit.sections.outro_sec, 1.0),
+                                     180.0), 3)
     lines = script.get("lines") or []
     segs_in = script.get("segments") or []
     spans = {int(s.get("seg", 0)): (float(s["start"]), float(s["end"]))
@@ -254,7 +294,11 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                 if m["kind"] == "video":
                     # 원본 소리가 중요하면(나레이션을 끈 세그먼트) 원본을 튼다
                     item["muted"] = bool(seg.get("tts")) or not m.get("audio")
-                    item["end"] = round(min(item["end"], item["start"] + 8.0), 3)
+                    item["end"] = round(min(item["end"], item["start"] + clip_cap), 3)
+                    # 음성·칸 길이를 실측한 시간에 클립을 맞춘다 (배속·슬로우, ±25%)
+                    rate = fit_rate(float(m.get("seconds") or 0), item["end"] - item["start"])
+                    if rate != 1.0:
+                        item["playback_rate"] = rate
                     if not item["muted"]:
                         sound.append((item["start"], item["end"]))
                 out["media"].append(item)
@@ -282,7 +326,7 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                     "dccon": con_out, "appear": start, "page": 0,
                     "read": list(reads[n]) if n in reads else None,
                 })
-            _paginate(out["comments"], start, end, seg.get("pages"))
+            _paginate(out["comments"], start, end, seg.get("pages"), edit)
         elif out["kind"] == "body":
             out["quote"] = _quote(str(seg.get("quote") or ""), opts.body, i, segs_in)
             runs = rich_lines(out["quote"], opts.body_styles)
@@ -309,6 +353,14 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                     flat.extend(line)
                 cap["runs"] = flat
             silent.append(cap)
+        if (edit is not None and crules is not None and edit.layout.caption == "band"
+                and out["kind"] == "media" and out["media"] and not seg.get("tts")):
+            # 클립·짤 아래 흰 띠 한 줄 (S14): 짤이 뜬 뒤 band_delay 초 뒤부터 장면 끝까지 고정
+            line = next((str(t).strip() for t in seg.get("lines") or [] if str(t).strip()), "")
+            if line:
+                t0 = round(min(start + crules.band_delay_sec, max(start, end - 1.0)), 3)
+                silent.append({"start": t0, "end": round(end, 3), "seg": i, "style": "band",
+                               "words": [{"text": line[:crules.max_chars * 2], "start": t0, "end": round(end, 3)}]})
         segments.append(out)
     has_media = any(sg["media"] or sg.get("image") for sg in segments)
     preset = opts.preset if opts.preset in ("frame", "card") else ("frame" if has_media else "card")
@@ -331,9 +383,17 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
     base.update(post={"title": str(post.get("title") or ""), "subject": str(post.get("subject") or ""),
                       "nick": str(author.get("nick") or "ㅇㅇ"), "ip": str(author.get("ip") or ""),
                       "icon": str(author.get("icon") or ""), "date": _dc_date(post.get("posted_at"))})
-    base.update(version=2, preset=preset, post_title=str(post.get("title") or ""), segments=segments, 
-                captions=sorted(caption_chunks([sc for sc in base["scenes"] if sc["part"] != "comment"])
-                                + silent, key=lambda c: c["start"]),
+    mode = edit.layout.caption if edit is not None else "yellow"
+    chunks = caption_chunks([sc for sc in base["scenes"] if sc["part"] != "comment"], cmax, cwords,
+                            crules.min_show_sec if crules else 0.0)
+    if mode == "none":
+        chunks = []
+    elif mode == "band":
+        for c in chunks:
+            c["style"] = "band"
+    base.update(version=2, preset=preset, post_title=str(post.get("title") or ""), segments=segments,
+                layout=layout_spec(edit), edit_type=edit.id if edit else "",
+                captions=sorted(chunks + silent, key=lambda c: c["start"]),
                 bgm=bgm, nickname=opts.nickname if opts.nickname in ("original", "blur", "replace")
                 else "original", warnings=warnings)
     return base
@@ -344,7 +404,7 @@ from ..script.segments import PAGE_H, SKIN_SCALE, SKIN_W, comment_height  # noqa
 
 
 def _paginate(rows: list[dict[str, Any]], start: float, end: float,
-              given: list[list[int]] | None = None) -> None:
+              given: list[list[int]] | None = None, edit: Preset | None = None) -> None:
     """댓글을 스크린샷 한 장씩 나눈다. 대본 단계에서 장을 정했으면(이어지는 댓글 묶음) 그대로 쓰고,
     아니면 원댓글과 그 답글은 되도록 같은 장에, 짧으면 여러 묶음을 한 장에.
     장마다 보여 줄 시간은 글 양에 비례하고, TTS 가 읽는 댓글이 있는 장은 읽기 전에 나온다."""
@@ -352,8 +412,9 @@ def _paginate(rows: list[dict[str, Any]], start: float, end: float,
         by_no = {r["no"]: r for r in rows}
         pages = [[by_no[n] for n in pg if n in by_no] for pg in given]
         pages = [pg for pg in pages if pg]
-        _time_pages(pages, start, end)
+        _time_pages(pages, start, end, edit)
         return
+    page_h = page_height(edit.layout.stage_top, edit.layout.stage_bottom) if edit else PAGE_H
     threads: list[list[dict[str, Any]]] = []
     for r in rows:
         if r["depth"] and threads:
@@ -361,22 +422,28 @@ def _paginate(rows: list[dict[str, Any]], start: float, end: float,
         else:
             threads.append([r])
     pages: list[list[dict[str, Any]]] = []
-    h = PAGE_H + 1
+    h = page_h + 1
     for th in threads:
         th_h = sum(comment_height(r) for r in th) + (8 if len(th) > 1 else 0)
-        if pages and h + th_h <= PAGE_H:
+        if pages and h + th_h <= page_h:
             pages[-1] += th
             h += th_h
         else:
             pages.append(list(th))
             h = th_h
-    _time_pages(pages, start, end)
+    _time_pages(pages, start, end, edit)
 
 
-def _time_pages(pages: list[list[dict[str, Any]]], start: float, end: float) -> None:
+def _time_pages(pages: list[list[dict[str, Any]]], start: float, end: float,
+                edit: Preset | None = None) -> None:
+    """장마다 보여 줄 시간: 편집 유형이 있으면 '최소 2.8초 + 읽는 시간' 비율, 없으면 글 높이 비율."""
     if not pages:
         return
-    weight = [sum(comment_height(r) for r in pg) for pg in pages]
+    if edit is not None:
+        weight = [page_seconds(edit.comments, sum(len(str(r.get("text") or "")) for r in pg),
+                               sum(1 for r in pg if r.get("dccon"))) for pg in pages]
+    else:
+        weight = [sum(comment_height(r) for r in pg) for pg in pages]
     total = sum(weight) or 1.0
     t = start
     starts = []
@@ -391,6 +458,26 @@ def _time_pages(pages: list[list[dict[str, Any]]], start: float, end: float) -> 
         for r in pg:
             r["page"] = k
             r["appear"] = round(starts[k], 3)
+
+
+def _add_verify_warnings(spec: dict[str, Any], job_dir: Path) -> None:
+    """전사 대조(S4)를 돌렸으면 그 결과를 검수 화면 경고로. 파일이 없거나 깨졌으면 아무것도 안 한다."""
+    try:
+        data = json.loads((job_dir / "verify.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    label = {"missing": "누락", "misheard": "오발음 의심", "repeated": "반복"}
+    out = []
+    if data.get("skipped"):
+        out.append(f"전사 대조를 건너뜀: {str(data['skipped'])[:100]}")
+    for c in (data.get("checks") or [])[:50]:
+        if isinstance(c, dict) and c.get("kind") in label:
+            out.append(f"{int(c.get('line') or 0) + 1}번째 줄 {label[c['kind']]} "
+                       f"(일치 {float(c.get('similarity') or 0):.0%}): '{str(c.get('text') or '')[:20]}'")
+    if out and isinstance(spec.get("warnings"), list):
+        spec["warnings"] += out
 
 
 def _dc_date(iso: Any) -> str:
@@ -521,11 +608,12 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
                 spec = build_frame_spec(timing, script, post, public, source, bg_name,
                                         SpecOptions(preset, opts.nickname, opts.bgm_dir,
                                                     str(row["body"] or ""), opts.show_source,
-                                                    _json_list(row["body_styles"])),
+                                                    _json_list(row["body_styles"]), opts.edit),
                                         media, comments)
             else:  # 세그먼트 이전 대본 (썰 카드형)
                 spec = build_spec(timing, str(script.get("title") or ""), str(row["subject"] or ""),
                                   str(script.get("fact") or ""), source, bg_name)
+            _add_verify_warnings(spec, job_dir)
             spec["source_text"] = source_text  # 출처 끄기/켜기를 다시 만들지 않고 바꿀 수 있게
             spec_path = job_dir / "spec.json"
             spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")

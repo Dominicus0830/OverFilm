@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ..media import file_image_size, video_info
+from ..presets import Preset, page_seconds
 from .models import ScriptAnswer
 
 PART = {"title": "hook", "media": "body", "body": "body", "comments": "body", "reaction": "body"}
@@ -50,6 +51,11 @@ SKIN_W = 480
 SKIN_SCALE = 1040 / SKIN_W
 PAGE_H = (0.66 - 0.28) * 1920 / SKIN_SCALE - 8
 MAX_COMMENT_PAGES = 4
+
+
+def page_height(stage_top: float, stage_bottom: float, height: int = 1920) -> float:
+    """댓글 스크린샷 한 장이 들어갈 가상 480px 화면 높이. 무대(%)가 넓을수록 한 장에 더 많이 보인다."""
+    return max(120.0, (stage_bottom - stage_top) / 100 * height / SKIN_SCALE - 8)
 
 
 def comment_height(c: dict[str, Any]) -> float:
@@ -97,6 +103,65 @@ def comment_windows(picked: list[int], comments: list[dict[str, Any]],
         covered.update(page)
         pages.append(page)
     return sorted(pages)
+
+
+def _thread_units(nos: list[int], comments: list[dict[str, Any]]) -> list[list[int]]:
+    """고른 댓글 번호 → 글타래 묶음 (원댓글 + 고른 답글). 답글만 골랐으면 원댓글을 앞에 붙인다."""
+    index = {int(c.get("no") or 0): i for i, c in enumerate(comments)}
+    units: dict[int, list[int]] = {}
+    for n in sorted({n for n in nos if 0 <= n < len(comments)}):
+        root = n
+        if int(comments[n].get("depth") or 0):
+            parent = index.get(int(comments[n].get("parent") or 0))
+            if parent is not None and parent < n:
+                root = parent
+        unit = units.setdefault(root, [root] if root != n else [])
+        if n not in unit:
+            unit.append(n)
+    return [sorted(u) for _, u in sorted(units.items())]
+
+
+def pack_screens(screens: list[list[int]], picked: list[int], comments: list[dict[str, Any]],
+                 page_h: float, max_screens: int, max_total: int,
+                 per_screen: tuple[int, int] = (1, 3)) -> list[list[int]]:
+    """LLM 이 정한 화면 묶음을 믿지 않고 다듬는다 (S19).
+
+    - 없는 번호·중복은 뺀다. 답글을 고르면 원댓글이 같이 들어가고, 원댓글과 답글은 쪼개지 않는다.
+    - 화면 높이(page_h)를 넘으면 글타래 단위로 다음 장으로 넘긴다 (한 글타래가 혼자 넘치면 그대로 한 장).
+    - LLM 이 묶음을 안 줬으면 고른 댓글을 per_screen 위쪽 개수와 높이 안에서 차례로 채운다.
+    - 장 수·전체 개수 상한을 넘으면 뒤쪽을 버린다. 장은 시간순.
+    """
+    groups = [g for g in screens if g] or [list(picked)]
+    claimed: set[int] = set()
+    pages: list[list[int]] = []
+    cap = max(1, per_screen[1]) if not screens else 99
+    for g in groups:
+        cur: list[int] = []
+        h = 0.0
+        for unit in _thread_units([n for n in g if n not in claimed], comments):
+            unit = [n for n in unit if n not in claimed]
+            if not unit:
+                continue
+            uh = sum(comment_height(comments[n]) for n in unit)
+            if cur and (h + uh > page_h or len(cur) + len(unit) > cap):
+                pages.append(cur)
+                cur, h = [], 0.0
+            cur += unit
+            h += uh
+            claimed.update(unit)
+        if cur:
+            pages.append(cur)
+    pages.sort(key=lambda pg: pg[0])
+    out: list[list[int]] = []
+    total = 0
+    for pg in pages[:max(1, max_screens)]:
+        if total + len(pg) > max_total:
+            pg = pg[:max_total - total]
+        if not pg:
+            break
+        out.append(pg)
+        total += len(pg)
+    return out
 
 
 def media_items(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -148,7 +213,8 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
              composition: str = "auto", max_comments: int = 6,
              max_media: int = 6, source: str = "",
              memes: list[Any] | None = None,
-             post_text: str = "") -> tuple[list[dict[str, Any]], list[str]]:
+             post_text: str = "",
+             preset: Preset | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     """AI 답 → 검증한 세그먼트 목록 + 경고. 없는 댓글·미디어 번호는 버린다."""
     from .reactions import fix_reaction, main_hero
 
@@ -162,7 +228,8 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
     segs: list[dict[str, Any]] = []
     for seg in ans.segments:
         s: dict[str, Any] = {
-            "kind": seg.kind, "subtitle": seg.subtitle.strip(), "tts": bool(seg.tts),
+            "kind": seg.kind, "subtitle": seg.subtitle.strip(),
+            "tts": _tts_for(preset, bool(seg.tts)),
             "tts_reason": seg.tts_reason.strip(),
             "lines": [ln.strip()[:200] for ln in seg.lines if ln.strip()][:12],
             "media": [], "comments": [], "read": [],
@@ -183,21 +250,36 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
         if seg.kind == "comments":
             if composition == "B":
                 continue
-            picked: list[int] = []
-            for n in seg.comments:
-                if 0 <= n < len(comments) and n not in picked:
-                    c = comments[n]
-                    parent = index.get(int(c.get("parent") or 0)) if int(c.get("depth") or 0) else None
-                    if parent is not None and parent not in picked:
-                        picked.append(parent)  # 답글은 부모와 같이 (맥락)
-                    picked.append(n)
-            picked = sorted(set(picked))[:max_comments]
+            wanted = [n for n in [*seg.comments, *(n for sc in seg.screens for n in sc)]]
+            if preset is not None and not preset.comments.enabled:
+                continue
+            if preset is not None and preset.comments.skip == "time_order":
+                # 시간순으로 건너뛴 댓글을 화면 단위로 (LLM 이 정한 묶음, 없으면 높이·개수로 채움)
+                lay = preset.layout
+                pages = pack_screens([sc for sc in seg.screens], wanted, comments,
+                                     page_height(lay.stage_top, lay.stage_bottom),
+                                     preset.comments.max_screens, preset.comments.max_total,
+                                     preset.comments.per_screen)
+                picked = sorted({n for pg in pages for n in pg})
+            else:
+                picked = []
+                for n in wanted:
+                    if 0 <= n < len(comments) and n not in picked:
+                        c = comments[n]
+                        parent = index.get(int(c.get("parent") or 0)) if int(c.get("depth") or 0) else None
+                        if parent is not None and parent not in picked:
+                            picked.append(parent)  # 답글은 부모와 같이 (맥락)
+                        picked.append(n)
+                picked = sorted(set(picked))[:max_comments]
+                pages = None
             if not picked:
                 continue
             for n in picked:
                 if _HOSTILE.search(str(comments[n].get("text") or "")):
                     warnings.append(f"댓글 [{n}] 에 욕설·혐오 표현이 있습니다 (검수에서 확인)")
-            s["pages"] = comment_windows(picked, comments)
+            if pages is None:
+                pages = comment_windows(picked, comments)
+            s["pages"] = pages
             s["picked"] = picked
             s["comments"] = [n for pg in s["pages"] for n in pg]
             s["read"] = [n for n in seg.read if n in picked
@@ -219,14 +301,43 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
             s["lines"] = [s["say"]] if s["say"] else []
             if not image and not s["say"]:
                 continue
+        _annotate(s, preset, comments)
         segs.append(s)
     kinds = [s["kind"] for s in segs]
     if not kinds or kinds[0] != "title":
-        segs.insert(0, {"kind": "title", "subtitle": "", "tts": False, "tts_reason": "제목만 보여줌",
-                        "lines": [], "media": [], "comments": [], "read": [], "quote": ""})
+        first = {"kind": "title", "subtitle": "", "tts": False, "tts_reason": "제목만 보여줌",
+                 "lines": [], "media": [], "comments": [], "read": [], "quote": ""}
+        _annotate(first, preset, comments)
+        segs.insert(0, first)
     if composition == "A" and "comments" not in kinds:
         warnings.append("구성 A 로 정했지만 고를 만한 댓글이 없어 B 로 만들었습니다")
     return segs, warnings
+
+
+def _annotate(s: dict[str, Any], preset: Preset | None, comments: list[dict[str, Any]]) -> None:
+    """프리셋의 시간 규칙을 세그먼트에 적어 둔다 (display_seconds·spec 이 읽는다). 프리셋이 없으면 옛 값."""
+    if preset is None:
+        return
+    sec = preset.sections
+    if s["kind"] == "title":
+        s["hold"] = round((sec.hook_sec[0] + sec.hook_sec[1]) / 2, 2)
+    elif s["kind"] == "media":
+        s["image_sec"] = round(sec.media_sec[0], 2)
+        s["clip_max"] = sec.max_clip_sec
+    elif s["kind"] == "comments":
+        secs = []
+        for pg in s.get("pages") or []:
+            rows = [comments[n] for n in pg if 0 <= n < len(comments)]
+            chars = sum(len(str(c.get("text") or "")) for c in rows)
+            secs.append(page_seconds(preset.comments, chars, sum(1 for c in rows if c.get("dccon"))))
+        s["page_secs"] = secs
+
+
+def _tts_for(preset: Preset | None, asked: bool) -> bool:
+    """프리셋이 TTS 를 껐거나 전부 켰으면 LLM 의 세그먼트별 판단보다 우선한다."""
+    if preset is None or preset.tts == "auto":
+        return asked
+    return preset.tts == "on"
 
 
 def display_seconds(seg: dict[str, Any], comments: list[dict[str, Any]],
@@ -234,17 +345,18 @@ def display_seconds(seg: dict[str, Any], comments: list[dict[str, Any]],
     """나레이션 없이도 이 세그먼트가 화면에 있어야 할 최소 시간."""
     kind = seg.get("kind")
     if kind == "title":
-        return 2.0
+        return float(seg.get("hold") or 2.0)
     if kind == "media":
         by_name = {m["name"]: m for m in media}
         total = 0.0
         for pick in seg.get("media") or []:
             m = by_name.get(pick.get("name"), {})
             if m.get("kind") == "video":
-                total += min(MAX_CLIP_SEC, float(m.get("seconds") or MAX_CLIP_SEC))
+                cap = float(seg.get("clip_max") or MAX_CLIP_SEC)
+                total += min(cap, float(m.get("seconds") or cap))
             else:
-                total += 2.5
-        return min(total, 24.0)
+                total += float(seg.get("image_sec") or 2.5)
+        return min(total, 60.0 if seg.get("clip_max") else 24.0)
     if kind == "body":
         return min(8.0, sum(_est_read(t) for t in seg.get("lines") or []) or 3.0)
     if kind == "reaction":
@@ -253,6 +365,8 @@ def display_seconds(seg: dict[str, Any], comments: list[dict[str, Any]],
         return max(2.8, min(5.0, n / 10 + 2.0))
     if kind == "comments":
         pages = seg.get("pages")
+        if seg.get("page_secs"):  # 프리셋: 장당 최소 2.8초 + 읽는 시간
+            return min(90.0, float(sum(seg["page_secs"])))
         if pages:  # 스크린샷 한 장마다 고른 댓글을 읽을 시간 (3.5~6초)
             picked = set(seg.get("picked") or [])
             return min(24.0, sum(min(6.0, 3.5 + 0.7 * len(picked & set(pg))) for pg in pages))
