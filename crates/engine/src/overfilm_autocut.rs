@@ -618,6 +618,7 @@ fn mark(s: &mut Session, cuts: &[Cut]) -> Result<usize> {
 }
 
 fn apply_marks(s: &mut Session, p: &Value) -> Result<Value> {
+    crate::overfilm_checkpoint::take(s, "OverFilm 컷 적용 전");
     let q = s.active_sequence().ok_or(EngineError::NoSequence)?;
     let cuts: Vec<Cut> = q
         .markers

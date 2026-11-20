@@ -30,7 +30,18 @@
 //!   asked for comes from the settings (`request`: their own words, `fixStutter`: stutters written
 //!   as the sentence meant unless said on purpose, on by default), or from the same parameters for
 //!   this run. A request asks about every caption (again too, up to [`REQUEST_MAX`]) and may drop
-//!   captions.
+//!   captions. Each change is sorted for the editor: wrong (a misheard word or spelling, fixed),
+//!   liberty (changed though nothing was wrong: a stutter tidied, words dropped for the request,
+//!   split, removed) and unsure (Claude could not tell what was said: the caption is left and the
+//!   editor is asked, with its guess). `separateTrack` (default: the setting, off) puts the
+//!   corrections on a copy of the track named "<track> (Claude 교정)", switched off, beside the
+//!   untouched original, to compare them (Captions ▸ Show Active Track Only switches between them).
+//! - `overfilm.review.lastCaptions` the last caption review's changes by kind (`groups.wrong`,
+//!   `groups.liberty`, `groups.unsure`), each with the caption's time, before, after, reason and
+//!   question.
+//!
+//! Before a review's answers are applied the project is backed up (`overfilm_checkpoint`), so
+//! Sequence ▸ OverFilm ▸ Undo the Last Big OverFilm Edit takes the whole review back.
 //!
 //! Reviews run as background jobs (Jobs panel; stop cancels the running `claude`). A marker or
 //! caption changed while its review ran is left as it is. The pure recognition is kept in memory
@@ -69,12 +80,21 @@ pub struct ReviewState {
     pub jobs: Vec<PendingReview>,
     /// Captions already reviewed (asked again only with `again`).
     pub reviewed: std::collections::BTreeSet<u64>,
+    /// The last caption review's report (`overfilm.review.lastCaptions`).
+    pub last_captions: Option<Value>,
 }
 
 /// What a running review asked.
 pub enum Asked {
     Cuts(Vec<CutQuestion>),
-    Captions { track: TrackId, cases: Vec<CaptionQuestion>, words: BTreeMap<String, Vec<CapWord>>, texts: BTreeMap<String, String> },
+    Captions {
+        track: TrackId,
+        cases: Vec<CaptionQuestion>,
+        words: BTreeMap<String, Vec<CapWord>>,
+        texts: BTreeMap<String, String>,
+        /// Corrections go on their own track (the reviewed one stays as it was).
+        separate: bool,
+    },
 }
 
 enum Answers {
@@ -97,7 +117,7 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Claude Code Review Settings (OverFilm)…",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"enabled":bool?,"auto":bool?,"cliPath":str?,"model":str?,"timeoutSeconds":10..1800?,"batch":1..20?,"maxItems":1..500?,"request":str?,"fixStutter":bool?}"#,
+            params: r#"{"enabled":bool?,"auto":bool?,"cliPath":str?,"model":str?,"timeoutSeconds":10..1800?,"batch":1..20?,"maxItems":1..500?,"request":str?,"fixStutter":bool?,"separateTrack":bool?}"#,
             enabled: crate::commands::always,
             run: settings_cmd,
             journal: false,
@@ -157,10 +177,20 @@ pub(crate) fn commands() -> Vec<CommandSpec> {
             label: "Ask Claude Code About Unclear Captions (OverFilm)",
             menu: &["Sequence", "OverFilm"],
             shortcut: None,
-            params: r#"{"track":id?,"captions":[id]?,"all":bool=false,"again":bool=false,"mode":"general"|"commentary"?,"lineChars":n=16,"maxLines":1|2=2,"request":str?,"fixStutter":bool?,"wait":bool=false}"#,
+            params: r#"{"track":id?,"captions":[id]?,"all":bool=false,"again":bool=false,"mode":"general"|"commentary"?,"lineChars":n=16,"maxLines":1|2=2,"request":str?,"fixStutter":bool?,"separateTrack":bool?,"wait":bool=false}"#,
             enabled: can_review_captions,
             run: review_captions,
             journal: true,
+        },
+        CommandSpec {
+            id: "overfilm.review.lastCaptions",
+            label: "Last Claude Code Caption Review (OverFilm)",
+            menu: &[],
+            shortcut: None,
+            params: "{}",
+            enabled: crate::commands::always,
+            run: last_captions_cmd,
+            journal: false,
         },
     ]
 }
@@ -243,6 +273,9 @@ fn settings_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     }
     if let Some(b) = bool_p(p, "fixStutter") {
         st.fix_stutter = b;
+    }
+    if let Some(b) = bool_p(p, "separateTrack") {
+        st.separate_track = b;
     }
     let st = st.clamped();
     if st != before {
@@ -590,7 +623,7 @@ fn caption_track(s: &Session, p: &Value) -> Result<TrackId> {
     q.caption_tracks
         .iter()
         .find(|t| t.name == crate::overfilm_transcribe::CAPTION_TRACK)
-        .or_else(|| q.caption_tracks.iter().find(|t| !t.captions.is_empty()))
+        .or_else(|| q.caption_tracks.iter().find(|t| !t.captions.is_empty() && !t.name.ends_with(REVIEWED_SUFFIX)))
         .map(|t| t.id)
         .ok_or_else(|| bad("overfilm.review.captions", "the sequence has no captions"))
 }
@@ -753,7 +786,26 @@ fn review_captions(s: &mut Session, p: &Value) -> Result<Value> {
         }
         (Answers::Captions(answers), errors)
     };
-    start(s, p, Asked::Captions { track, cases, words, texts }, n, st.batch, work)
+    let separate = bool_p(p, "separateTrack").unwrap_or(st.separate_track);
+    start(s, p, Asked::Captions { track, cases, words, texts, separate }, n, st.batch, work)
+}
+
+/// Ends the name of the track the corrections go on when they are kept apart.
+pub const REVIEWED_SUFFIX: &str = " (Claude 교정)";
+
+/// The name of the corrected copy of track `name`.
+pub fn reviewed_name(name: &str) -> String {
+    format!("{name}{REVIEWED_SUFFIX}")
+}
+
+fn last_captions_cmd(s: &mut Session, _: &Value) -> Result<Value> {
+    Ok(s.overfilm_review.last_captions.clone().unwrap_or_else(|| json!({"decided": [], "groups": {"wrong": [], "liberty": [], "unsure": []}})))
+}
+
+/// `report` sorted by kind (keeps without a kind left out).
+fn groups(report: &[Value]) -> Value {
+    let by = |k: &str| report.iter().filter(|r| r["kind"] == k).cloned().collect::<Vec<_>>();
+    json!({"wrong": by("wrong"), "liberty": by("liberty"), "unsure": by("unsure")})
 }
 
 /// The speaker label a caption starts with (`(화자1) `), kept when a fix drops it.
@@ -770,25 +822,69 @@ fn with_label(old: &str, new: &str) -> String {
 }
 
 fn apply_captions(s: &mut Session, track: TrackId, asked: &Asked, answers: Vec<CaptionAnswer>) -> Result<Value> {
-    let Asked::Captions { words, texts, cases, .. } = asked else { return Ok(json!({})) };
+    let Asked::Captions { words, texts, cases, separate, .. } = asked else { return Ok(json!({})) };
+    let separate = *separate;
     let mut report = Vec::new();
     let mut reviewed = Vec::new();
     if answers.is_empty() {
-        return Ok(json!({"decided": report}));
+        return Ok(json!({"decided": report, "groups": groups(&report)}));
     }
-    s.edit("Claude Code Caption Review", |pr, st| {
+    let label = if separate { "Claude Code Caption Review (separate track)" } else { "Claude Code Caption Review" };
+    let target = s.edit(label, |pr, st| {
         let seq = st.active_sequence.ok_or(EngineError::NoSequence)?;
-        let mut ids: Vec<u64> = (0..answers.len().saturating_mul(4)).map(|_| pr.alloc_id()).collect();
+        let orig = pr.sequence(seq).and_then(|q| q.caption_tracks.iter().find(|t| t.id == track)).cloned().ok_or(EngineError::NoSequence)?;
+        let copy_ids = if separate { orig.captions.len().saturating_add(1) } else { 0 };
+        let need = answers.len().saturating_mul(4).saturating_add(copy_ids);
+        let mut ids: Vec<u64> = (0..need).map(|_| pr.alloc_id()).collect();
         let q = pr.sequence_mut(seq).ok_or(EngineError::NoSequence)?;
-        let t = q.caption_tracks.iter_mut().find(|t| t.id == track).ok_or(EngineError::NoSequence)?;
+        let ti = if separate {
+            let name = reviewed_name(&orig.name);
+            match q.caption_tracks.iter().position(|t| t.name == name) {
+                Some(i) => i,
+                None => {
+                    // a copy beside the original, switched off so a render stays as it was
+                    let mut copy = orig.clone();
+                    copy.id = TrackId(ids.pop().unwrap_or_default());
+                    copy.name = name;
+                    copy.enabled = false;
+                    for c in &mut copy.captions {
+                        c.id = ClipId(ids.pop().unwrap_or_default());
+                    }
+                    if copy.id.0 == 0 || copy.captions.iter().any(|c| c.id.0 == 0) {
+                        return Err(EngineError::Other("out of ids".into()));
+                    }
+                    let at = q.caption_tracks.iter().position(|t| t.id == track).map_or(0, |i| i + 1);
+                    q.caption_tracks.insert(at.min(q.caption_tracks.len()), copy);
+                    at.min(q.caption_tracks.len().saturating_sub(1))
+                }
+            }
+        } else {
+            q.caption_tracks.iter().position(|t| t.id == track).ok_or(EngineError::NoSequence)?
+        };
+        let t = q.caption_tracks.get_mut(ti).ok_or(EngineError::NoSequence)?;
         for a in &answers {
-            let Some(i) = t.captions.iter().position(|c| c.id.0.to_string() == a.id) else { continue };
-            let Some(c) = t.captions.get(i).cloned() else { continue };
+            let Some(c) = orig.captions.iter().find(|c| c.id.0.to_string() == a.id) else { continue };
             if texts.get(&a.id) != Some(&c.text) || !cases.iter().any(|x| x.id == a.id && x.start_ms == ms(c.start)) {
                 continue; // edited while the review ran
             }
-            reviewed.push(c.id.0);
-            report.push(json!({"caption": c.id.0, "decision": a.decision, "before": c.text, "text": a.text, "parts": a.parts, "reason": a.reason}));
+            // the caption to change: itself, or its copy (same time and words) on the corrected track
+            let found =
+                if separate { t.captions.iter().position(|x| x.start == c.start && x.text == c.text) } else { t.captions.iter().position(|x| x.id == c.id) };
+            let Some(i) = found else { continue };
+            let Some(c) = t.captions.get(i).cloned() else { continue };
+            reviewed.push(orig.captions.iter().find(|x| x.id.0.to_string() == a.id).map_or(c.id.0, |x| x.id.0));
+            report.push(json!({
+                "caption": a.id.parse::<u64>().unwrap_or(c.id.0),
+                "start": ms(c.start),
+                "time": c.start.0,
+                "decision": a.decision,
+                "kind": a.kind,
+                "before": c.text,
+                "text": a.text,
+                "parts": a.parts,
+                "reason": a.reason,
+                "question": a.question,
+            }));
             match a.decision {
                 CaptionDecision::Keep => {}
                 CaptionDecision::Drop => {
@@ -829,10 +925,12 @@ fn apply_captions(s: &mut Session, track: TrackId, asked: &Asked, answers: Vec<C
             }
         }
         t.captions.sort_by_key(|c| c.start);
-        Ok(())
+        Ok(t.id)
     })?;
     s.overfilm_review.reviewed.extend(reviewed);
-    Ok(json!({"decided": report}))
+    let out = json!({"decided": report, "groups": groups(&report), "track": target.0, "separate": separate});
+    s.overfilm_review.last_captions = Some(out.clone());
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -926,8 +1024,20 @@ pub fn poll(s: &mut Session) {
             Some(Ok(v)) => {
                 let n = v["decided"].as_array().map_or(0, Vec::len);
                 let failed = v["errors"].as_array().map_or(0, Vec::len);
+                let count = |k: &str| v["groups"][k].as_array().map_or(0, Vec::len);
+                let kinds = if v.get("groups").is_some() {
+                    format!(
+                        " — 잘못된 것 {}, 임의로 고친 것 {}, 이해 못한 것 {}{}",
+                        count("wrong"),
+                        count("liberty"),
+                        count("unsure"),
+                        if v["separate"] == true { ", 교정본은 '(Claude 교정)' 트랙(꺼 둠)" } else { "" }
+                    )
+                } else {
+                    String::new()
+                };
                 s.toast(format!(
-                    "Claude Code 검토: {n}개 판단을 반영했습니다{}",
+                    "Claude Code 검토: {n}개 판단을 반영했습니다{kinds}{}",
                     if failed > 0 { format!(" (실패 {failed}번, 작업 창 참고)") } else { String::new() }
                 ));
             }
@@ -953,6 +1063,9 @@ fn poll_one(s: &mut Session, job: u64) -> Option<Result<Value>> {
     if got == 0 && !errors.is_empty() {
         return Some(Err(EngineError::Other(errors.join("; "))));
     }
+    // one way back to before the whole review (none inside a One Go run: it took its own)
+    let what = if matches!(pj.asked, Asked::Cuts(_)) { "Claude 컷 검토 반영 전" } else { "Claude 자막 검토 반영 전" };
+    crate::overfilm_checkpoint::take(s, what);
     let r = match (answers, &pj.asked) {
         (Answers::Cuts(a), Asked::Cuts(cases)) => apply_cuts(s, cases, a),
         (Answers::Captions(a), Asked::Captions { track, .. }) => apply_captions(s, *track, &pj.asked, a),

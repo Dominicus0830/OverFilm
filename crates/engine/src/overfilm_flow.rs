@@ -327,6 +327,8 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let render_p = render_params(s, p, render_format);
     let steps =
         kinds.into_iter().map(|kind| Step { kind, state: StepState::Pending, message: String::new(), job: None, started: None, seconds: None }).collect();
+    // one backup for the whole run: going back to it undoes every step
+    crate::overfilm_checkpoint::take_now(s, "한 번에 흐름 시작 전");
     s.overfilm_flow = Some(Flow {
         seq,
         steps,

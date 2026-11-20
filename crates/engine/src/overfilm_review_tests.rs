@@ -475,3 +475,46 @@ fn the_editors_request_and_stutters() {
     s.execute("edit.undo", json!({})).unwrap();
     assert_eq!(caption_texts(&s), before);
 }
+
+#[test]
+fn kinds_and_a_separate_corrected_track() {
+    let f = fake(|q| {
+        let answers: Vec<Value> = q
+            .prompt
+            .split("### 자막 id=")
+            .skip(1)
+            .map(|sec| {
+                let id = sec.split(' ').next().unwrap().to_string();
+                let current = sec.split("- 순수 인식").next().unwrap();
+                if current.contains("겐지가") {
+                    json!({"id": id, "decision": "fix", "text": "자 겐지가\n들어가고", "reason": "줄바꿈", "kind": "liberty"})
+                } else {
+                    json!({"id": id, "decision": "fix", "text": "엉뚱한 짐작", "kind": "unsure", "question": "무슨 말인가요?", "reason": "안 들림"})
+                }
+            })
+            .collect();
+        Ok(json!({"answers": answers}))
+    });
+    let mut s = session(&f);
+    s.execute("overfilm.captions.fromTranscript", json!({})).unwrap();
+    let before = caption_texts(&s);
+    let tracks = s.active_sequence().unwrap().caption_tracks.len();
+    let r = s.execute("overfilm.review.captions", json!({"wait": true, "separateTrack": true, "lineChars": 16, "maxLines": 2})).unwrap();
+    // the reviewed track is as it was; the copy has the fix and is off
+    assert_eq!(caption_texts(&s), before, "{r}");
+    let q = s.active_sequence().unwrap();
+    assert_eq!(q.caption_tracks.len(), tracks + 1);
+    let copy = q.caption_tracks.iter().find(|t| t.name == reviewed_name(crate::overfilm_transcribe::CAPTION_TRACK)).unwrap();
+    assert!(!copy.enabled);
+    assert!(copy.captions.iter().any(|c| c.text.ends_with("자 겐지가\n들어가고")), "{:?}", copy.captions);
+    // an unsure answer changes nothing, it is a question
+    assert!(!copy.captions.iter().any(|c| c.text.contains("엉뚱한")));
+    let g = &r["groups"];
+    assert_eq!(g["liberty"].as_array().map(Vec::len), Some(1), "{r}");
+    assert!(g["unsure"].as_array().is_some_and(|u| !u.is_empty() && u.iter().all(|x| x["question"] == "무슨 말인가요?")), "{r}");
+    assert_eq!(g["wrong"].as_array().map(Vec::len), Some(0), "{r}");
+    assert_eq!(s.execute("overfilm.review.lastCaptions", json!({})).unwrap()["groups"], *g);
+    // a backup was taken before the answers went in: one step takes the whole review back
+    s.execute("overfilm.checkpoint.restore", json!({})).unwrap();
+    assert_eq!(s.active_sequence().unwrap().caption_tracks.len(), tracks);
+}
