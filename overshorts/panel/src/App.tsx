@@ -4,6 +4,7 @@ import {Home} from './screens/Home';
 import {NewJob} from './screens/NewJob';
 import {Queue} from './screens/Queue';
 import {Review} from './screens/Review';
+import {StyleMaker} from './screens/StyleMaker';
 import {Settings} from './screens/Settings';
 import {Voices} from './screens/Voices';
 
@@ -49,9 +50,10 @@ export function App() {
         {screen === '새로 만들기' && <NewJob go={setScreen} />}
         {screen === '작업 큐' && <Queue tick={tick} events={events} />}
         {screen === '검수' && <Review tick={tick} go={setScreen} />}
+        {screen === '스타일' && <StyleMaker />}
         {screen === '설정' && <Settings />}
         {screen === '보이스' && <Voices tick={tick} />}
-        {['스타일', '소스'].includes(screen) && (
+        {['소스'].includes(screen) && (
           <section className="empty">
             <h1>{screen}</h1>
             <p>이 화면은 다음 단계(M8)에서 만듭니다. 지금은 <code>config.yaml</code> 로 설정합니다.</p>

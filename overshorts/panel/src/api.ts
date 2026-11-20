@@ -59,6 +59,7 @@ export type ReviewItem = {
   gall_name: string; post_url: string; overlap_ratio: number; tone: string; version: number;
   script: {title: string; fact: string; lines: ScriptLine[]; est_seconds: number;
     segments?: Segment[]; title_alts?: string[]; composition?: 'A' | 'B'; composition_reason?: string;
+    variant?: 'A' | 'B'; alt_script_id?: number;
     cringe: {score: number; issues: {line: number; reason: string}[]} | null; warnings: string[]};
   filters: {stage: string; verdict: string; reasons: string[]; fit_score: number | null}[];
   spec: Record<string, unknown> | null; files: string;

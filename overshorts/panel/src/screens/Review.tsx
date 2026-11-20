@@ -79,14 +79,27 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
     } catch (e) { setMsg((e as Error).message); }
   }, [item, dirty]);
 
-  const regenerate = async (body: {tone?: string; preset?: string}) => {
+  const [feedback, setFeedback] = useState('');
+  const regenerate = async (body: {tone?: string; preset?: string; feedback?: string; ab?: boolean}) => {
     if (!item) return;
     try {
       await api(`/api/review/${item.job_id}/regenerate`, body);
-      setMsg(body.tone ? `톤 '${body.tone}'(으)로 대본부터 다시 씁니다` : '렌더 설정만 다시 만듭니다');
+      setMsg(body.feedback ? '피드백을 반영해 대본부터 다시 씁니다' : body.ab ? 'A안·B안 두 버전으로 다시 씁니다'
+        : body.tone ? `톤 '${body.tone}'(으)로 대본부터 다시 씁니다` : '렌더 설정만 다시 만듭니다');
+      setFeedback('');
       setItems((old) => old.filter((x) => x.job_id !== item.job_id));
     } catch (e) { setMsg((e as Error).message); }
     setRegen(false);
+  };
+
+  // A안·B안 전환: 같은 글의 다른 안으로 바꾸고 음성·미리보기를 다시 만든다
+  const pickVariant = async (scriptId: number) => {
+    if (!item) return;
+    try {
+      await api(`/api/review/${item.job_id}/variant`, {script_id: scriptId});
+      setMsg('다른 안으로 바꿨습니다. 음성·미리보기를 다시 만듭니다');
+      setItems((old) => old.filter((x) => x.job_id !== item.job_id));
+    } catch (e) { setMsg((e as Error).message); }
   };
 
   // 단축키: J/K 다음·이전, A 승인, E 수정 반영, R 재생성, D 폐기, O 편집기로 (입력 중에는 끔)
@@ -325,6 +338,10 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
             </div>
           )}
           <VoicePicker jobId={item.job_id} />
+          {item.script.alt_script_id ? (
+            <p className="small">지금 <b>{item.script.variant || 'A'}안</b>{' '}
+              <button onClick={() => pickVariant(item.script.alt_script_id as number)} data-automation-id="review-variant">
+                {item.script.variant === 'B' ? 'A' : 'B'}안으로 바꾸기</button></p>) : null}
           <p className="muted small">톤: {item.tone} · 프리셋: {PRESET_KO[spec?.preset ?? 'card']} · 대본 {item.version}번째</p>
         </div>
         <div className="col">
@@ -356,6 +373,12 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
               <div className="menu-pop">
                 <p className="muted small">톤 바꾸기 → 대본부터</p>
                 {['담백', '드립 조금', '정리형'].map((t) => <button key={t} onClick={() => regenerate({tone: t})}>{t}</button>)}
+                <p className="muted small">피드백 적고 다시 쓰기 → 대본부터</p>
+                <textarea rows={2} maxLength={1000} value={feedback} onChange={(e) => setFeedback(e.target.value)}
+                  placeholder="예: 훅을 더 짧게, 댓글 드립 살리기" data-automation-id="review-feedback" />
+                <button disabled={!feedback.trim()} onClick={() => regenerate({feedback: feedback.trim()})}
+                  data-automation-id="review-feedback-send">피드백으로 다시 쓰기</button>
+                <button onClick={() => regenerate({ab: true})} data-automation-id="review-ab">A안·B안 두 버전으로 쓰기</button>
                 <p className="muted small">프리셋만 → 렌더 설정만</p>
                 <button onClick={() => regenerate({preset: 'frame'})}>프레임형</button>
                 <button onClick={() => regenerate({preset: 'card'})}>썰 카드형</button>
