@@ -1,6 +1,7 @@
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {api} from '../api';
 import type {Screen} from '../App';
+import {EditOptions} from './EditOptions';
 
 type Confirm = {requests_min: number; requests_max: number; hour_left: number; day_left: number};
 type Parsed = {ok: boolean; kind?: string; label?: string; error?: string; recommend_only?: boolean};
@@ -18,6 +19,8 @@ export function NewJob({go}: {go: (s: Screen) => void}) {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [remember, setRemember] = useState(false);
+  const applyOpts = useRef<() => Promise<void>>(async () => undefined);
+  const onReady = useCallback((f: () => Promise<void>) => { applyOpts.current = f; }, []);
 
   useEffect(() => {
     if (!url.trim()) { setParsed(null); return; }
@@ -31,6 +34,7 @@ export function NewJob({go}: {go: (s: Screen) => void}) {
   const start = async (ok = false) => {
     setBusy(true); setMsg('');
     try {
+      await applyOpts.current();
       const r = await api<{ok: boolean; confirm?: Confirm}>('/api/start', {url, recommend_only: recommendOnly,
         min_upvotes: minUp, within_hours: hours, max_posts: maxPosts, tone, confirm: ok,
         remember: ok && remember});
@@ -62,6 +66,7 @@ export function NewJob({go}: {go: (s: Screen) => void}) {
           <option>담백</option><option>드립 조금</option><option>정리형</option>
         </select>
       </label>
+      <EditOptions go={go} onReady={onReady} />
       <button className="link" onClick={() => setAdvanced(!advanced)}>{advanced ? '고급 접기' : '고급'}</button>
       {advanced && gallery && (
         <div className="card">
