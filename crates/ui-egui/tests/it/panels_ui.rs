@@ -1006,7 +1006,11 @@ fn overfilm_panel_runs_from_the_window_menu() {
     assert!(d.ids("overfilm.panel.renderFormat").is_empty(), "the render choices show once the render is ticked");
     d.snapshot("overfilm-panel", None);
     // the lower half: the render and the tools grouped in the order of the work
-    d.ok("ui.scroll", json!({"id": "overfilm.panel.captions", "dy": -800}));
+    // scrolled so the render tick sits just under the panel's tab, however long the panel is
+    // (more tool groups make it longer: a fixed scroll can carry the tick out of sight)
+    let tab = d.rects("panel.tab.OverFilm").first().map(|r| r.1).expect("OverFilm tab");
+    let render = d.rects("overfilm.panel.render").into_iter().find(|(id, _)| id == "overfilm.panel.render").map(|r| r.1).expect("render tick");
+    d.ok("ui.scroll", json!({"id": "overfilm.panel.captions", "dy": tab.bottom() + 120.0 - render.top()}));
     d.frames(3);
     d.click("overfilm.panel.render");
     for key in ["overfilm.panel.renderFormat", "overfilm.panel.renderPath", "overfilm.panel.renderSplit", "overfilm.panel.burnCaptions"] {
