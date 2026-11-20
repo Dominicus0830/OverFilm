@@ -194,3 +194,16 @@ OverFilm 편집기 타임라인으로 넘겨 사람이 더 고칠 수 있다. �
   장당 시간은 `최소 2.8초`와 `1.2초 + 글자 수 × 0.05초` 중 큰 값 (유형별 값).
 - 순화(`script.soften`)와 대본 린터(`script.lint`)는 옵션이고 **기본은 꺼짐**: 내용을 바꾸면 재미가 떨어지므로 기본은 원문 그대로.
 - 전사 대조(`verify.enabled`, 기본 꺼짐): 만든 음성을 STT 로 다시 받아 줄마다 대본과 비교해 `verify.json` 과 검수 경고로 남긴다.
+
+## 커스텀 유형·A/B 대본·설명·해시태그 (S18·S5·S7·S12)
+- **커스텀 유형(S18)**: 패널 API `POST /api/presets/chat` 으로 Claude Code(구독)와 대화하며 편집 규칙을 정한다
+  (`messages`, 선택 `references`=예시 영상 링크·파일 이름, 이전 `current`). 영상은 직접 보지 못하므로 없어도 되고 있으면
+  링크·파일 이름만 참고한다. 대답의 `preset` 은 스키마 검증을 거쳤고 `summary` 로 요약이 온다. 마음에 들면
+  `POST /api/presets/save` 로 `<style>/presets/<id>.json` 에 저장 → `GET /api/presets` 목록과 `render.edit_type` 에서
+  고를 수 있다 (내장 id 와 겹치면 `-2` 를 붙임, `DELETE /api/presets/<id>` 는 내가 만든 것만). 설정 화면(패널) 연결은 아직 없다.
+- **A/B 대본(S5)**: `script.ab: true`, CLI `script --ab`, 또는 `POST /api/review/<id>/regenerate {"ab": true}` 로 A안(원문 흐름 충실)·B안(다른 훅·구성·제목 틀)을
+  만든다. 기본 선택은 A안, `payload.alt_script_id` 로 다른 안을 가리키며 `POST /api/review/<id>/variant {"script_id"}` 로 바꾼다.
+  피드백을 적어 다시 쓰기: `regenerate {"feedback": "훅을 더 짧게"}` / CLI `script --feedback`. 제목 후보는 `title` + `title_alts`(최대 3개).
+- **톤 고정(S7)·설명·해시태그(S12)**: `style/publish/*.md` 에 채널에서 잘 된 영상의 `제목:`·`설명:`·`해시태그:` 를 3~4개 두면 제목 후보와 설명의 말투 기준으로 쓴다
+  (샘플이 없으면 제목 규칙만). 대본 뒤에 `<job 폴더>/publish.json`·`publish.txt` 를 따로 만든다 (`script.publish: off` 로 끔).
+  순화·제목/댓글 고치기는 하지 않는다 (기본은 내용 그대로).

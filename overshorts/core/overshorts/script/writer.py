@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ..db import Store
@@ -21,6 +21,7 @@ from .game_check import check_script_game
 from .reactions import list_memes, meme_block, resolve_segments
 from .models import CringeAnswer, ScriptAnswer
 from .prompts import cringe_task, load_style, script_task
+from .publish import load_samples, title_tone_block, write_publish
 from .segments import flatten, media_items, validate
 from .title_rules import TITLE_BANNED
 
@@ -41,6 +42,10 @@ class ScriptSettings:
     title_tail: str = "auto"  # none | ㄷㄷ | ㅋㅋㅋ | auto (제목 꼬리표, 채널 말투)
     assets_dir: str | Path | None = None  # 영웅 프로필 캐시 (없으면 짤 그림을 받지 않음)
     preset: Preset | None = None  # 편집 유형 (이슈·옵갤·정보·게임·커스텀)
+    ab: bool = False  # A안·B안 두 버전을 만든다 (Claude 호출 2배라 기본 꺼짐)
+    variant: str = ""  # "A" | "B": 이 호출이 쓰는 안 (ab 일 때 script_pending 이 채운다)
+    feedback: str = ""  # 편집자 피드백: 이 글의 대본을 다시 쓸 때 반영 (S5)
+    publish: bool = True  # 대본 뒤에 설명·해시태그 파일(publish.json·txt)도 만든다 (S12)
     soften: bool = False  # 순화: 켜면 욕설·혐오 표현을 나레이션·댓글 고르기에서 피한다. 꺼짐이 기본 (원문 그대로)
     tts: str = "auto"  # 읽어 주기 기본값: auto = AI 가 정함 | on = 본문·댓글 읽음 | off = 자막만
 
@@ -70,11 +75,13 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
     feedback: list[str] | None = None
     rewrites = 0
     memes = list_memes(settings.style_dir)
+    title_samples = title_tone_block(load_samples(settings.style_dir))
     while True:
         task = script_task(title, body, comments, media, style, settings.tone, settings.speech,
                            user_words, settings.chars_per_sec, feedback, settings.composition,
                            settings.max_comments, settings.title_tail, meme_block(memes),
-                           settings.preset, settings.soften)
+                           settings.preset, settings.soften, settings.variant, settings.feedback,
+                           title_samples)
         script, model = router.ask(task, ScriptAnswer)
         segs, seg_warn = validate(script, comments, media, settings.composition,
                                   settings.max_comments, settings.max_media, source, memes,
@@ -109,6 +116,23 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
         rewrites += 1
 
 
+def _payload(out: ScriptOutcome, variant: str = "") -> dict:
+    return {
+        "title": out.script.title,
+        "title_alts": [t for t in out.script.title_alts if t.strip() and t != out.script.title][:2],
+        "fact": out.script.fact,
+        "composition": "A" if any(sg["kind"] == "comments" for sg in out.segments) else "B",
+        "composition_reason": out.script.composition_reason,
+        "segments": out.segments,
+        "lines": out.lines,
+        "est_seconds": out.checks.est_seconds,
+        "cringe": out.cringe.model_dump() if out.cringe else None,
+        "warnings": out.warnings,
+        "rewrites": out.rewrites,
+        **({"variant": variant} if variant else {}),
+    }
+
+
 def apply_tts_default(segs: list[dict], mode: str, media: list[dict],
                       comments: list[dict] | None = None) -> None:
     """설정의 읽어 주기 기본값 (패널 '설정'). auto 면 AI 판단 그대로.
@@ -133,7 +157,8 @@ def apply_tts_default(segs: list[dict], mode: str, media: list[dict],
 
 
 def script_pending(store: Store, router: Router, settings: ScriptSettings,
-                   post_ids: list[int] | None = None, limit: int = 20) -> dict[str, int]:
+                   post_ids: list[int] | None = None, limit: int = 20,
+                   jobs_dir: Path | None = None) -> dict[str, int]:
     """LLM 필터를 통과한 글(jobs.status = filtered)의 대본을 쓴다."""
     q = ("SELECT j.id AS job_id, p.id AS post_id, p.title, p.body, p.comments, p.images, p.posted_at FROM jobs j "
          "JOIN posts p ON p.id = j.post_id WHERE j.status = 'filtered' AND p.discarded = 0")
@@ -148,8 +173,12 @@ def script_pending(store: Store, router: Router, settings: ScriptSettings,
         comments = [c for c in json.loads(row["comments"] or "[]") if isinstance(c, dict)]
         media = media_items(json.loads(row["images"] or "[]"))
         try:
-            out = write_script(router, row["title"], row["body"], comments, settings, media,
-                               row["posted_at"])
+            if settings.ab:
+                out, alt = write_variants(router, row["title"], row["body"], comments, settings, media,
+                                          row["posted_at"])
+            else:
+                out, alt = write_script(router, row["title"], row["body"], comments, settings, media,
+                                        row["posted_at"]), None
         except LlmError as err:
             store.set_job_status(row["job_id"], "filtered", f"대본: {err}")
             counts["failed"] += 1
@@ -158,25 +187,43 @@ def script_pending(store: Store, router: Router, settings: ScriptSettings,
                 break  # 대기열에 그대로 두고 나중에
             continue
         version = store.next_script_version(row["post_id"])
-        payload = {
-            "title": out.script.title,
-            "title_alts": [t for t in out.script.title_alts if t.strip() and t != out.script.title][:2],
-            "fact": out.script.fact,
-            "composition": "A" if any(sg["kind"] == "comments" for sg in out.segments) else "B",
-            "composition_reason": out.script.composition_reason,
-            "segments": out.segments,
-            "lines": out.lines,
-            "est_seconds": out.checks.est_seconds,
-            "cringe": out.cringe.model_dump() if out.cringe else None,
-            "warnings": out.warnings,
-            "rewrites": out.rewrites,
-        }
+        alt_id = None
+        if alt is not None:  # B안을 먼저 넣어 A안이 최신(기본 선택)이 되게 한다
+            alt_id = store.add_script(row["post_id"], version, settings.tone, _payload(alt, "B"),
+                                      alt.checks.overlap_ratio, alt.model)
+            version += 1
+        payload = _payload(out, "A" if alt is not None else "")
+        if alt_id is not None:
+            payload["alt_script_id"] = alt_id
         script_id = store.add_script(row["post_id"], version, settings.tone, payload,
                                      out.checks.overlap_ratio, out.model)
+        if alt_id is not None:
+            store.set_script_payload(alt_id, {**_payload(alt, "B"), "alt_script_id": script_id})
         store.set_job_status(row["job_id"], "scripted", None, script_id=script_id)
         counts["scripted"] += 1
         counts["warned"] += 1 if out.warnings else 0
+        if settings.publish and jobs_dir is not None:
+            spoken = [ln["text"] for ln in out.lines if ln["part"] != "pause"]
+            if write_publish(router, Path(jobs_dir) / str(row["job_id"]), out.script.title,
+                             [out.script.fact] if out.script.fact else [], spoken,
+                             load_samples(settings.style_dir), settings.tone) is None:
+                counts["publish_failed"] = counts.get("publish_failed", 0) + 1
     return counts
+
+
+def write_variants(router: Router, title: str, body: str, comments: list[dict], settings: ScriptSettings,
+                   media: list[dict] | None = None, posted_at: str | None = None,
+                   ) -> tuple[ScriptOutcome, ScriptOutcome | None]:
+    """A안·B안 (S5). A안은 필수, B안이 실패하면(한도 제외) A안만 돌려주고 경고를 붙인다."""
+    a = write_script(router, title, body, comments, replace(settings, variant="A"), media, posted_at)
+    try:
+        b = write_script(router, title, body, comments, replace(settings, variant="B"), media, posted_at)
+    except LimitReached:
+        raise
+    except LlmError as err:
+        a.warnings.append(f"B안을 만들지 못했습니다: {str(err)[:100]}")
+        return a, None
+    return a, b
 
 
 def missing_lines(body: str, segs: list[dict]) -> list[str]:

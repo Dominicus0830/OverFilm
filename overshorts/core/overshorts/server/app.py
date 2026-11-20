@@ -147,6 +147,23 @@ class EditIn(BaseModel):
 class RegenIn(BaseModel):
     tone: str | None = None
     preset: str | None = None
+    feedback: str | None = Field(default=None, max_length=1000)  # 피드백을 넣고 대본 다시 쓰기 (S5)
+    ab: bool = False  # A안·B안 두 버전
+
+
+class VariantIn(BaseModel):
+    script_id: int = Field(ge=1)
+
+
+class PresetChatIn(BaseModel):
+    messages: list[dict[str, Any]] = Field(max_length=30)
+    references: list[str] = Field(default_factory=list, max_length=5)  # 예시 영상 링크·파일 이름 (선택)
+    current: dict[str, Any] | None = None
+
+
+class PresetSaveIn(BaseModel):
+    preset: dict[str, Any]
+    references: list[str] = Field(default_factory=list, max_length=5)
 
 
 class CringeIn(BaseModel):
@@ -512,10 +529,61 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
     @app.post("/api/review/{job_id}/regenerate")
     def regenerate(job_id: int, body: RegenIn) -> dict[str, Any]:
         _job_status(job_id)
-        if not body.tone and not body.preset:
-            raise HTTPException(400, "톤이나 프리셋을 골라 주세요")
+        feedback = (body.feedback or "").strip() or None
+        if not body.tone and not body.preset and not feedback and not body.ab:
+            raise HTTPException(400, "톤·프리셋을 고르거나 피드백을 적어 주세요")
         worker.submit(f"작업 {job_id} 재생성",
-                      lambda p: p.regenerate(job_id, body.tone, body.preset))
+                      lambda p: p.regenerate(job_id, body.tone, body.preset, feedback, body.ab))
+        return {"ok": True}
+
+    @app.post("/api/review/{job_id}/variant")
+    def variant(job_id: int, body: VariantIn) -> dict[str, Any]:
+        """A안·B안 중 다른 안으로 바꾼다 (음성·미리보기를 다시 만든다)."""
+        _job_status(job_id)
+        worker.submit(f"작업 {job_id} 대본 안 바꾸기", lambda p: p.pick_variant(job_id, body.script_id))
+        return {"ok": True}
+
+    # --- 편집 유형 (S17·S18) ---
+    @app.get("/api/presets")
+    def presets_list() -> list[dict[str, Any]]:
+        from ..presets import load_presets
+        from ..presets_custom import summarize
+
+        return [{"id": p.id, "label": p.label, "origin": p.origin, "summary": summarize(p)}
+                for p in load_presets(_style_dir()).values()]
+
+    @app.post("/api/presets/chat")
+    def presets_chat(body: PresetChatIn) -> dict[str, Any]:
+        """Claude Code 와 대화로 커스텀 유형 만들기. 저장은 하지 않고 요약만 돌려준다."""
+        from ..llm import LlmError
+        from ..presets_custom import chat
+
+        s = db()
+        try:
+            router = (pipeline_factory(s) if pipeline_factory else Pipeline(cfg, s, data)).router()
+            try:
+                return {"ok": True, **chat(router, body.messages, body.references, body.current)}
+            except (LlmError, ValueError) as err:
+                return {"ok": False, "error": str(err)[:300]}
+        finally:
+            s.close()
+
+    @app.post("/api/presets/save")
+    def presets_save(body: PresetSaveIn) -> dict[str, Any]:
+        from ..presets_custom import save_custom_preset, summarize
+
+        try:
+            p = save_custom_preset(_style_dir(), body.preset, body.references)
+        except (ValueError, OSError) as err:
+            raise HTTPException(400, str(err)[:300]) from err
+        return {"ok": True, "id": p.id, "summary": summarize(p)}
+
+    @app.delete("/api/presets/{preset_id}")
+    def presets_delete(preset_id: str) -> dict[str, Any]:
+        from ..presets_custom import delete_custom_preset
+
+        if not delete_custom_preset(_style_dir(), preset_id):
+            raise HTTPException(404, "내가 만든 유형이 아닙니다")
         return {"ok": True}
 
     @app.post("/api/review/{job_id}/discard")

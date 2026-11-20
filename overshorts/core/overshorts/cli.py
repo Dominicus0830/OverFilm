@@ -51,6 +51,8 @@ def build_router(cfg: dict, ask: bool = False):
     clients = {"filter": pick(str(llm.get("filter") or "ollama")),
                "script": pick(str(llm.get("script") or "claude_code"))}
     clients["cringe"] = clients["script"]
+    clients["preset"] = clients["script"]  # 커스텀 유형 대화 (S18)
+    clients["publish"] = clients["script"]  # 설명·해시태그 (S12)
     clients["meme"] = clients["script"]  # 짤 웹 검색 (Claude Code 만 검색 도구가 있음)
     fallback = pick(str(llm.get("fallback") or "ollama"))
     mode = str(llm.get("on_limit") or "ask")
@@ -75,9 +77,16 @@ def _llm_stage(args, cfg: dict, store: Store) -> int:
         return 0
     from .script.writer import script_pending
 
+    from dataclasses import replace
+
     settings = script_settings(cfg, args.tone, "./style")
+    if getattr(args, "ab", False):
+        settings = replace(settings, ab=True)
+    if getattr(args, "feedback", None):
+        settings = replace(settings, feedback=str(args.feedback)[:1000])
     try:
-        counts = script_pending(store, router, settings, args.post)
+        counts = script_pending(store, router, settings, args.post,
+                                jobs_dir=Path(str(cfg.get("data_dir") or "./data")) / "jobs")
     finally:
         ollama.unload()
     print(f"대본 {counts['scripted']}개 (경고 붙음 {counts['warned']}), 실패 {counts['failed']}")
@@ -140,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
     sc = sub.add_parser("script", help="필터 통과 글의 대본 쓰기 (Claude Code)")
     sc.add_argument("--post", type=int, action="append", help="이 글만 (여러 번 가능)")
     sc.add_argument("--tone", choices=["담백", "드립 조금", "정리형"])
+    sc.add_argument("--ab", action="store_true", help="A안·B안 두 버전을 만든다 (Claude 호출 2배)")
+    sc.add_argument("--feedback", help="편집자 피드백 한 줄 (이 글들을 다시 쓸 때 반영)")
     ins = sub.add_parser("inspect", help="받은 그림의 얼굴 흐림·선정성 검사")
     ins.add_argument("--no-download", action="store_true", help="모델을 받지 않음 (없으면 검사 못 함)")
 
