@@ -47,6 +47,29 @@ OverFilm 본체(Rust)와 따로 도는 프로그램이라 Rust 워크스페이�
 2026-11-14 실측: 대본 6문장 → 23.3초 wav, 합성 6초, 단어 시각은 숫자 원문 그대로(`500힐밖에`).
 Edge-TTS 는 비공식 엔드포인트라 수익화 채널은 유료 API 권장 (기획서 5.3).
 
+## M6 목소리 클로닝
+
+| 기능 | 파일 |
+| --- | --- |
+| GPT-SoVITS(MIT) 로컬 API 서버(`api_v2.py`) 연동: `POST /tts`, 목소리별 학습 모델 바꾸기 | `core/overshorts/tts/gpt_sovits.py` |
+| 서버 관리: 떠 있으면 그대로, `voice.clone.dir` 를 정하면 필요할 때 띄우고 음성 단계 뒤에 내림(GPU 모델 한 번에 하나) | `tts/gpt_sovits.py`, `tts/stage.py` |
+| 목소리 등록: 녹음/업로드 → 앞뒤 무음 걷기 → 참조 구간 3~10초(GPT-SoVITS 조건) → 대사 → 동의 체크 없으면 거부 | `core/overshorts/tts/voices.py` |
+| 고르기 우선순위: 검수 화면 ‘이 영상만’ > 보이스 화면 > `config.yaml` | `tts/voices.py` `resolve` |
+| 클로닝 실패 → 그 영상 전체를 기성 보이스(Edge-TTS)로 다시 읽고 검수 경고 | `tts/stage.py` |
+| 단어 시각: stable-ts 가 깔려 있으면 강제 정렬, 아니면 음절 비율 | `core/overshorts/tts/align.py` |
+| 보이스 화면(미리듣기·등록 마법사·서버 켜기/끄기), 검수 화면 목소리 바꾸기 | `panel/src/screens/Voices.tsx`, `VoicePicker.tsx`, `server/voices.py` |
+
+라데온·인텔·GPU 없음: GPT-SoVITS 가 CUDA 를 못 찾으면 스스로 CPU 로 돈다 (사용자 결정 2026-11-14, 느려도 허용).
+보이스 화면과 음성 단계 로그에 CPU 경고를 띄운다.
+
+설치 (OverShorts 와 따로):
+
+1. GPT-SoVITS 를 받는다 (Windows 는 GitHub 릴리스의 통합 패키지, `runtime\python.exe` 포함).
+2. `config.yaml` 의 `voice.clone.dir` 에 그 폴더를 적는다 (또는 직접 `python api_v2.py -a 127.0.0.1 -p 9880`).
+3. 패널 ‘보이스’ → 클로닝 목소리 등록: 보기 문장을 읽어 녹음 → 이름·동의 → 등록하고 들어 보기.
+4. 나레이션 목소리를 🎙 목소리로 고른다. 더 비슷하게 하려면 GPT-SoVITS 웹UI 에서 1분 이상 녹음으로 학습한
+   모델(.ckpt/.pth)을 등록 화면 ‘고급’에 적는다.
+
 ## M4 렌더
 
 | 기능 | 파일 |
@@ -71,7 +94,7 @@ Edge-TTS 는 비공식 엔드포인트라 수익화 채널은 유료 API 권장 
 | 작업 큐 | 단계별 진행률, 실패 사유와 ‘이 단계부터 다시’, 일시정지, 실시간 로그(WebSocket) |
 | 검수 | 와이어프레임대로 원문(대본과 겹치는 글자 노란 표시) / 대본(문장별 편집, ▶ 그 문장만 듣기, 오글? 표시, 오글 신고) / 9:16 Player 미리보기. 승인 A·수정 반영 E·재생성 R(톤→대본부터, 프리셋→렌더 설정만)·폐기 D, J/K 이동 |
 
-보이스·스타일·소스·설정 화면은 M8. 오글 신고는 `style/reports.jsonl` 에 쌓이고 M8 스타일 화면에서 금지 목록 반영을 승인한다.
+스타일·소스·설정 화면은 M8 (보이스 화면은 M6). 오글 신고는 `style/reports.jsonl` 에 쌓이고 M8 스타일 화면에서 금지 목록 반영을 승인한다.
 긴 작업은 작업 스레드 하나가 차례로 돈다 (크롤링은 한 줄로만, GPU 모델은 한 번에 하나만).
 
 ```sh
@@ -156,7 +179,8 @@ OverFilm 편집기 타임라인으로 넘겨 사람이 더 고칠 수 있다. �
 
 ## 다음
 
-- M6 클로닝(GPT-SoVITS, AMD 는 CPU), M7 OverFilm MCP·`doctor`, M8 설정 화면 전부
+- M7 OverFilm MCP·`doctor`, M8 설정 화면 전부
+- M6 남은 것: 실제 GPT-SoVITS 로 사용자 PC(라데온, CPU) 확인, 한국어 품질 CosyVoice2 비교
 
 ## 편집 유형 프리셋 (S17)
 

@@ -3,6 +3,7 @@ import {Player, PlayerRef} from '@remotion/player';
 import {Story} from '../../../render/src/Story';
 import {sanitize} from '../../../render/src/spec';
 import {api, ReviewItem, ScriptLine} from '../api';
+import {VoicePicker} from './VoicePicker';
 import type {Screen} from '../App';
 
 const PART_KO: Record<string, string> = {hook: '훅', body: '전개', comment: '댓글 읽기', outro: '마무리'};
@@ -323,6 +324,7 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
               <div className="actions"><button onClick={sendReport}>저장</button><button onClick={() => setReport(null)}>취소</button></div>
             </div>
           )}
+          <VoicePicker jobId={item.job_id} />
           <p className="muted small">톤: {item.tone} · 프리셋: {PRESET_KO[spec?.preset ?? 'card']} · 대본 {item.version}번째</p>
         </div>
         <div className="col">

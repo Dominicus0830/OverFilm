@@ -21,6 +21,16 @@ llm:
   ollama_host: http://127.0.0.1:11434
   claude_model: ""        # 비우면 Claude Code 기본 모델
   on_limit: ask           # ask = 패널이 전환/대기를 물음(CLI는 fallback), fallback = 로컬 LLM으로 넘김, wait = 대기열에 둠
+voice:
+  narrator: edge:ko-KR-SunHiNeural   # 기본 목소리 (보이스 화면에서 고르면 그쪽이 먼저). 클로닝이 실패하면 이 기성 보이스로
+  comment: edge:ko-KR-InJoonNeural
+  clone:                    # 목소리 클로닝 (GPT-SoVITS 로컬 서버, 라데온은 CPU 로 느리게)
+    server: http://127.0.0.1:9880
+    dir: null               # GPT-SoVITS 폴더 (api_v2.py 있는 곳). 적으면 필요할 때 켜고 음성 단계 뒤에 끈다
+    python: null            # 비우면 <dir>/runtime/python.exe (통합 패키지) → python
+    config: null            # tts_infer.yaml (비우면 GPT-SoVITS 기본)
+    speed: 1.0
+    align: auto             # auto = stable-ts 깔려 있으면 강제 정렬, 아니면 음절 비율 | syllable
 render:
   tone: 담백              # 담백 | 드립 조금 | 정리형
   preset: auto            # auto = 원문 사진·영상 있으면 프레임형, 없으면 썰 카드형 | frame | card
