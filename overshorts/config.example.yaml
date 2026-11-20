@@ -36,6 +36,8 @@ render:
   browser_executable: null      # 비우면 Remotion 이 받은 Chrome
 script:
   lint: false             # 대본 린터(S3): 읽기 전에 개인정보·금지 표현·길이를 검사해 걸리면 그 작업을 멈춤. 내용은 고치지 않음
+  ab: false               # A안·B안 두 버전 대본(S5). 켜면 Claude 호출 2배. 패널/CLI 에서 글마다 따로 켤 수도 있음 (--ab)
+  publish: on             # 설명·해시태그 파일(publish.json·txt, S12). 제목에는 해시태그를 넣지 않음. off 면 안 만듦
   soften: false           # 순화: 켜면 욕설·혐오 표현을 나레이션·댓글 고르기에서 피함. 꺼짐 = 원문 그대로 (기본)
 verify:
   enabled: false          # 전사 대조(S4): 만든 음성을 STT 로 다시 받아 대본과 비교 (누락·반복·오발음 경고)

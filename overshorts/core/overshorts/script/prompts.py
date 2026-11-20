@@ -21,6 +21,13 @@ TONES = {
 }
 SPEECH = {"반말": "반말(~다, ~함)", "해요체": "해요체(~해요)"}
 
+# A안·B안: 같은 글을 서로 다르게 짠 두 버전 (S5). 사실·규칙은 같고 접근만 다르다.
+VARIANTS = {
+    "A": "이번은 A안이다: 원문의 흐름과 순서에 충실하게 짠다. 훅은 글의 가장 큰 사건 한 장면, 제목은 틀 A~D 중에서.",
+    "B": "이번은 B안이다: A안과 다르게 짠다. 훅은 다른 장면(반전·결과를 먼저 보이되 스포는 하지 않는다)으로 "
+         "시작하고, 장면 순서·세그먼트 구성과 제목 틀을 A안과 다르게 고른다. 같은 사실, 다른 접근이다.",
+}
+
 MAX_EXAMPLES = 3
 MAX_EXAMPLE_CHARS = 1500
 
@@ -95,7 +102,8 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
                 tone: str, speech: str, banned_words: list[str], chars_per_sec: float,
                 feedback: list[str] | None = None, composition: str = "auto",
                 max_comments: int = 6, title_tail: str = "auto",
-                memes: str = "", preset: Preset | None = None, soften: bool = False) -> Task:
+                memes: str = "", preset: Preset | None = None, soften: bool = False,
+                variant: str = "", user_feedback: str = "", title_samples: str = "") -> Task:
     """세그먼트 대본 (기획서 3.3 개정 6): 구성 A/B, 세그먼트별 TTS 판단, 실제 댓글은 번호로만."""
     max_chars = int(55 * chars_per_sec)
     comp = {"A": "구성은 A 로 정해져 있다.", "B": "구성은 B 로 정해져 있다 (댓글 세그먼트 없음)."}.get(
@@ -139,10 +147,13 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
         GAME_RULES,
         REACTION_RULES + "\n짤 모음 (짤:이름 으로 쓴다):\n" + (memes or "(비어 있음)"),
         title_rules(title_tail) + "\n(ㅋㅋㅋ·ㄷㄷ 금지와 아래 사용자 금지 표현은 나레이션에만 적용한다. 제목은 위 제목 규칙만 따른다.)",
+        *([title_samples] if title_samples else []),
         f"말투: {SPEECH.get(speech, SPEECH['반말'])}로 통일. 톤: {TONES.get(tone, TONES['담백'])}",
         "쓰지 말 것: 여러분·인사·'알아볼게요', 충격·실화냐·소름·경악, '과연 그 결과는?' 같은 떡밥 질문, "
         "'~했다고 합니다' 반복, ㅋㅋㅋ·ㄹㅇ 남발, ~노 같은 정치색 커뮤 어미, 훈계·교훈, 구독·좋아요 요청.",
     ]
+    if variant in VARIANTS:
+        parts.append(VARIANTS[variant])
     if is_short_post(body):
         parts.append("이 글은 짧은 뻘글이다(본문 몇 줄). 짤 장면 구성으로 짠다: title(원제, 글 머리) → 본문 줄마다 "
                      "reaction 하나(그 줄 그대로 say + 어울리는 그림 + say_style) → 필요하면 comments. "
@@ -158,6 +169,9 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
     prompt = (untrusted("post", f"제목: {title}\n\n{body[:6000]}") + "\n\n"
               + untrusted("media", media_block(media)) + "\n\n"
               + untrusted("comments", numbered_comments(comments) or "(댓글 없음)"))
+    if user_feedback.strip():
+        prompt += ("\n\n편집자 피드백(최우선으로 반영하되 원문에 없는 사실은 지어내지 않는다):\n"
+                   + user_feedback.strip()[:1000])
     if feedback:
         prompt += ("\n\n앞서 쓴 대본에 아래 문제가 있었다. 고쳐서 처음부터 다시 써라:\n- "
                    + "\n- ".join(feedback[:20]))

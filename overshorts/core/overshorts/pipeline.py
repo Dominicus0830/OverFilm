@@ -104,13 +104,21 @@ class Pipeline:
         self._unload_ollama()
         self._say("filter", f"통과 {c['pass']}, 검토 필요 {c['review']}, 막힘 {c['block']}")
 
-    def script(self, tone: str | None = None, post_ids: list[int] | None = None) -> None:
+    def script(self, tone: str | None = None, post_ids: list[int] | None = None,
+               ab: bool | None = None, feedback: str | None = None) -> None:
+        from dataclasses import replace
+
         from .script.writer import script_pending
 
         settings = script_settings(self.cfg, tone)
-        self._say("script", "대본 쓰는 중 (Claude)")
-        c = script_pending(self.store, self.router(), settings, post_ids)
-        self._say("script", f"대본 {c['scripted']}개, 실패 {c['failed']}")
+        if ab is not None:
+            settings = replace(settings, ab=ab or settings.ab)
+        if feedback:
+            settings = replace(settings, feedback=feedback[:1000])
+        self._say("script", "대본 쓰는 중 (Claude)" + (" — A안·B안" if settings.ab else ""))
+        c = script_pending(self.store, self.router(), settings, post_ids, jobs_dir=self.data / "jobs")
+        self._say("script", f"대본 {c['scripted']}개, 실패 {c['failed']}"
+                  + (f", 설명·해시태그 실패 {c['publish_failed']}" if c.get("publish_failed") else ""))
         if c.get("limited"):
             # 기획서 3.7-8: Claude 한도 → 로컬 LLM 으로 바꿀지 묻는다 (품질이 낮아짐)
             self.emit({"type": "confirm", "kind": "llm_limit",
@@ -333,20 +341,34 @@ class Pipeline:
         sid = self.store.add_script(row["post_id"], version, row["tone"], payload, overlap, "사람")
         self.store.set_job_status(job_id, "scripted", None, script_id=sid)
 
-    def regenerate(self, job_id: int, tone: str | None, preset: str | None) -> None:
-        """톤을 바꾸면 대본부터, 프리셋만 바꾸면 렌더 설정만 다시 (3.6)."""
+    def regenerate(self, job_id: int, tone: str | None, preset: str | None,
+                   feedback: str | None = None, ab: bool = False) -> None:
+        """톤·피드백·A/B 를 주면 대본부터, 프리셋만 바꾸면 렌더 설정만 다시 (3.6, S5)."""
         row = self.store.conn.execute("SELECT post_id FROM jobs WHERE id=?", (job_id,)).fetchone()
         if row is None:
             raise ValueError("작업을 찾지 못했습니다")
-        if tone:
+        if tone or feedback or ab:
+            if preset:
+                self.store.conn.execute("UPDATE jobs SET preset=? WHERE id=?", (preset, job_id))
             self.store.set_job_status(job_id, "filtered", None)
-            self.script(tone=tone, post_ids=[int(row["post_id"])])
+            self.script(tone=tone, post_ids=[int(row["post_id"])], ab=ab or None, feedback=feedback)
             self.voice()
             self.preview()
         elif preset:
             self.store.conn.execute("UPDATE jobs SET preset=? WHERE id=?", (preset, job_id))
             self.store.set_job_status(job_id, "aligned", None)
             self.preview()
+        self.emit({"type": "jobs_changed"})
+
+    def pick_variant(self, job_id: int, script_id: int) -> None:
+        """A안·B안 중 다른 안으로 바꾸고 음성·미리보기를 다시 만든다. 같은 글의 안이 아니면 거절."""
+        job = self.store.conn.execute("SELECT post_id, script_id FROM jobs WHERE id=?", (job_id,)).fetchone()
+        new = self.store.conn.execute("SELECT post_id FROM scripts WHERE id=?", (script_id,)).fetchone()
+        if job is None or new is None or int(new["post_id"]) != int(job["post_id"]):
+            raise ValueError("이 작업의 대본이 아닙니다")
+        self.store.set_job_status(job_id, "scripted", None, script_id=script_id)
+        self.voice()
+        self.preview()
         self.emit({"type": "jobs_changed"})
 
     def discard(self, job_id: int) -> None:

@@ -186,6 +186,8 @@ def script_settings(cfg: dict[str, Any], tone: str | None = None, default_style:
         assets_dir=Path(str(cfg.get("data_dir") or "./data")) / "assets",
         preset=edit_preset(cfg),
         soften=flag((cfg.get("script") or {}).get("soften")),
+        ab=flag((cfg.get("script") or {}).get("ab")),
+        publish=str((cfg.get("script") or {}).get("publish", "on")).lower() not in ("false", "off", "no", "0", "끔"),
     )
 
 

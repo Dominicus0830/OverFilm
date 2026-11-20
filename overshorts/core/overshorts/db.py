@@ -287,6 +287,11 @@ class Store:
         self.conn.commit()
         return int(cur.lastrowid or 0)
 
+    def set_script_payload(self, script_id: int, payload: dict[str, Any]) -> None:
+        self.conn.execute("UPDATE scripts SET lines=? WHERE id=?",
+                          (json.dumps(payload, ensure_ascii=False), script_id))
+        self.conn.commit()
+
     def upsert_source(self, url: str, kind: str, gall_type: str, gall_id: str,
                       options: dict[str, Any]) -> None:
         self.conn.execute(
