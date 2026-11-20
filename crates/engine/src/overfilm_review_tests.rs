@@ -499,7 +499,7 @@ fn kinds_and_a_separate_corrected_track() {
     s.execute("overfilm.captions.fromTranscript", json!({})).unwrap();
     let before = caption_texts(&s);
     let tracks = s.active_sequence().unwrap().caption_tracks.len();
-    let r = s.execute("overfilm.review.captions", json!({"wait": true, "separateTrack": true})).unwrap();
+    let r = s.execute("overfilm.review.captions", json!({"wait": true, "separateTrack": true, "lineChars": 16, "maxLines": 2})).unwrap();
     // the reviewed track is as it was; the copy has the fix and is off
     assert_eq!(caption_texts(&s), before, "{r}");
     let q = s.active_sequence().unwrap();
