@@ -40,7 +40,7 @@ export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (a
     return (ia < 0 ? 9 : ia) - (ib < 0 ? 9 : ib);
   });
   return (
-    <div className="card">
+    <div className="group">
       <label className="field">
         <span>편집 스타일 유형</span>
         <select value={type} onChange={(e) => setType(e.target.value)} data-automation-id="new-edit-type">
@@ -48,9 +48,9 @@ export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (a
           {!cur && <option value={type}>{type}</option>}
         </select>
       </label>
-      {cur && <ul className="muted small">{cur.summary.slice(1, 5).map((l) => <li key={l}>{l}</li>)}</ul>}
+      {cur && <ul className="opts muted small">{cur.summary.slice(1, 5).map((l) => <li key={l}>{l}</li>)}</ul>}
       <button className="link" onClick={() => go('스타일')} data-automation-id="new-make-type">내 유형 만들기</button>
-      <p className="muted small">옵션은 기본 꺼짐 = 원문 내용 그대로.</p>
+      <p className="muted small">아래 옵션은 기본으로 꺼져 있어 원문 내용을 그대로 씁니다.</p>
       <label className="check"><input type="checkbox" checked={soften} onChange={(e) => setSoften(e.target.checked)}
         data-automation-id="opt-soften" /> 순화 (욕설·혐오 표현을 피해서 씀)</label>
       <label className="check"><input type="checkbox" checked={lint} onChange={(e) => setLint(e.target.checked)}

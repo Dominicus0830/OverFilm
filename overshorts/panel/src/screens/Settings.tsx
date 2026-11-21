@@ -172,7 +172,7 @@ export function Settings() {
           데이터 폴더: <code>{view.data_dir}</code>
         </div>
         <div className="actions">
-          {msg && <span className="badge ok">{msg}</span>}
+          {msg && <span className="state-ok" role="status">{msg}</span>}
           {err && <span className="error">{err}</span>}
           <button disabled={busy || !changed.length} onClick={() => { setDraft(JSON.parse(JSON.stringify(view.values))); setErr(''); }}
             data-automation-id="set-revert">되돌리기</button>

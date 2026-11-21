@@ -33,7 +33,7 @@ export function VoicePicker({jobId}: {jobId: number}) {
     setMsg('합성하는 중…');
     try { await playVoice(id, '', audio); setMsg(''); } catch (e) { setMsg(String((e as Error).message ?? e)); }
   };
-  const options = info.voices.map((v) => <option key={v.id} value={v.id}>{v.kind === 'clone' ? '🎙 ' : ''}{v.name}</option>);
+  const options = info.voices.map((v) => <option key={v.id} value={v.id}>{v.name}{v.kind === 'clone' ? ' (클로닝)' : ''}</option>);
   return (
     <div className="muted small" data-automation-id="review-voice">
       목소리: {voiceName(info, cur.effective.narrator)}
@@ -51,7 +51,7 @@ export function VoicePicker({jobId}: {jobId: number}) {
               <option value="same">나레이션과 같은 목소리</option>{options}</select></label>
           <div className="actions">
             <button className="primary" onClick={apply} data-automation-id="review-voice-apply">적용 (음성 다시)</button>
-            <button onClick={listen}>▶ 나레이션 미리듣기</button>
+            <button onClick={listen}>나레이션 미리듣기</button>
             <button onClick={() => setOpen(false)}>취소</button>
           </div>
         </div>

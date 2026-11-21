@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {api} from '../api';
 import type {Screen} from '../App';
 import {EditOptions} from './EditOptions';
+import {Dialog} from '../ui/Dialog';
 
 type Confirm = {requests_min: number; requests_max: number; hour_left: number; day_left: number};
 type Parsed = {ok: boolean; kind?: string; label?: string; error?: string; recommend_only?: boolean};
@@ -55,10 +56,10 @@ export function NewJob({go}: {go: (s: Screen) => void}) {
           data-automation-id="new-url" autoFocus />
       </label>
       {parsed && (parsed.ok
-        ? <p className="badge ok">{parsed.label}</p>
-        : <p className="badge warn">알아볼 수 없는 링크: {parsed.error}</p>)}
+        ? <p className="note ok" role="status">{parsed.label}</p>
+        : <p className="note warn" role="status">알아볼 수 없는 링크: {parsed.error}</p>)}
       {gallery && (
-        <p className="badge warn">갤러리 모드는 목록을 훑어 여러 글을 받습니다. 요청 예산 안에서만 돌고, 차단 신호가 오면 바로 멈춥니다.</p>
+        <p className="muted small">갤러리 모드는 목록을 훑어 여러 글을 받습니다. 요청 예산 안에서만 돌고, 차단 신호가 오면 바로 멈춥니다.</p>
       )}
       <label className="field">
         <span>톤</span>
@@ -67,7 +68,9 @@ export function NewJob({go}: {go: (s: Screen) => void}) {
         </select>
       </label>
       <EditOptions go={go} onReady={onReady} />
-      <button className="link" onClick={() => setAdvanced(!advanced)}>{advanced ? '고급 접기' : '고급'}</button>
+      {gallery && (
+        <button className="link" aria-expanded={advanced} onClick={() => setAdvanced(!advanced)}
+          data-automation-id="new-advanced">{advanced ? '고급 접기' : '고급 (수집 범위)'}</button>)}
       {advanced && gallery && (
         <div className="card">
           <label className="check"><input type="checkbox" checked={recommendOnly} onChange={(e) => setRecommendOnly(e.target.checked)} /> 개념글만</label>
@@ -79,24 +82,22 @@ export function NewJob({go}: {go: (s: Screen) => void}) {
       <div className="actions">
         <button className="primary" disabled={!parsed?.ok || busy} onClick={() => start()} data-automation-id="new-start">시작</button>
       </div>
-      {confirm && (
-        <div className="modal-back" role="dialog" aria-modal="true" aria-label="갤러리 크롤링 확인">
-          <div className="modal">
-            <h3>갤러리 크롤링을 시작할까요?</h3>
-            <p>예상 요청 <b>{confirm.requests_min}~{confirm.requests_max}회</b> (글 {maxPosts}개, 사진 포함)</p>
-            <p>남은 예산: 이번 시간 <b>{confirm.hour_left}회</b> · 오늘 <b>{confirm.day_left}회</b></p>
-            {confirm.requests_max > confirm.hour_left && (
-              <p className="badge warn">이번 시간 예산을 넘을 수 있습니다. 넘으면 다음 시간까지 멈췄다가 이어서 받습니다.</p>
-            )}
-            <label className="check"><input type="checkbox" checked={remember}
-              onChange={(e) => setRemember(e.target.checked)} /> 다시 묻지 않기</label>
-            <div className="actions">
-              <button className="primary" onClick={() => start(true)} data-automation-id="crawl-continue">계속</button>
-              <button onClick={() => setConfirm(null)}>취소</button>
-            </div>
+      <Dialog open={confirm !== null} title="갤러리 크롤링을 시작할까요?" onDismiss={() => setConfirm(null)}
+        automationId="crawl-dialog">
+        {confirm && (<>
+          <p>예상 요청 <b>{confirm.requests_min}~{confirm.requests_max}회</b> (글 {maxPosts}개, 사진 포함)</p>
+          <p>남은 예산: 이번 시간 <b>{confirm.hour_left}회</b> · 오늘 <b>{confirm.day_left}회</b></p>
+          {confirm.requests_max > confirm.hour_left && (
+            <p className="note warn">이번 시간 예산을 넘을 수 있습니다. 넘으면 다음 시간까지 멈췄다가 이어서 받습니다.</p>
+          )}
+          <label className="check"><input type="checkbox" checked={remember}
+            onChange={(e) => setRemember(e.target.checked)} /> 다시 묻지 않기</label>
+          <div className="actions">
+            <button onClick={() => setConfirm(null)}>취소</button>
+            <button className="primary" onClick={() => start(true)} data-automation-id="crawl-continue">계속</button>
           </div>
-        </div>
-      )}
+        </>)}
+      </Dialog>
       {msg && <p className="error">{msg}</p>}
     </section>
   );

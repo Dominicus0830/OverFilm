@@ -50,15 +50,20 @@ export function StyleMaker() {
   return (
     <section>
       <h1>스타일 (편집 유형)</h1>
-      <div className="cards">
-        {list.map((p) => (
-          <div className="card" key={p.id}>
-            <h3>{p.label} <span className="badge">{p.origin === 'custom' ? '내 유형' : '기본'}</span></h3>
-            <ul className="muted small">{p.summary.slice(1).map((l) => <li key={l}>{l}</li>)}</ul>
-            {p.origin === 'custom' && <button onClick={() => remove(p.id)}>지우기</button>}
-          </div>
-        ))}
-      </div>
+      <table className="jobs" aria-label="편집 유형">
+        <thead><tr><th>유형</th><th>종류</th><th>규칙</th><th /></tr></thead>
+        <tbody>
+          {list.map((p) => (
+            <tr key={p.id}>
+              <td><b>{p.label}</b></td>
+              <td className="muted">{p.origin === 'custom' ? '내 유형' : '기본'}</td>
+              <td className="muted small">{p.summary.slice(1).join(' · ')}</td>
+              <td>{p.origin === 'custom' && <button className="small-btn" onClick={() => remove(p.id)}
+                data-automation-id={`style-remove-${p.id}`}>지우기</button>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <h2>내 유형 만들기</h2>
       <p className="muted small">Claude Code 와 대화로 규칙을 정합니다. 저장 버튼을 누르기 전에는 아무것도 저장되지 않고,
         기본 유형은 덮어쓰지 않습니다. Claude 는 영상을 직접 볼 수 없어서 링크·파일 이름과 아래 대화만 참고합니다.</p>
@@ -87,7 +92,7 @@ export function StyleMaker() {
           </div>
         </div>
       )}
-      {msg && <p className={msg.startsWith('저장') ? 'badge ok' : 'error'}>{msg}</p>}
+      {msg && <p className={msg.startsWith('저장') ? 'note ok' : 'error'} role="status">{msg}</p>}
     </section>
   );
 }
