@@ -29,7 +29,7 @@ export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (a
   useEffect(() => {
     onReady(async () => {
       await api('/api/settings', {values: {render: {edit_type: type},
-        script: {soften: soften ? 'on' : 'off', lint: lint ? 'on' : 'off'}, verify: {enabled: verify ? 'on' : 'off'}}});
+        script: {soften, lint}, verify: {enabled: verify}}});
     });
   }, [type, soften, lint, verify, onReady]);
 

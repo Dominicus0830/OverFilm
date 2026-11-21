@@ -308,9 +308,15 @@ def _check_num(name: str, value: Any, spec: Setting, integer: bool) -> float:
 
 def _check_value(name: str, value: Any, spec: Setting) -> Any:
     if spec.kind == "bool":
-        if not isinstance(value, bool):
-            raise ValueError(f"{name} 는 켬/끔이어야 합니다")
-        return value
+        if isinstance(value, bool):
+            return value
+        # 예전 패널·손으로 고친 값: "on"/"off", "true"/"false", "켬"/"끔", 1/0, 빈 값(=끔)
+        text = "" if value is None else str(value).strip().lower()
+        if text in ("on", "true", "yes", "1", "켬"):
+            return True
+        if text in ("off", "false", "no", "0", "끔", ""):
+            return False
+        raise ValueError(f"{name} 는 켬/끔이어야 합니다")
     if spec.kind == "int":
         return int(_check_num(name, value, spec, True))
     if spec.kind == "float":
