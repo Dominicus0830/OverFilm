@@ -97,7 +97,7 @@ export function Voices({tick}: {tick: number}) {
   return (
     <section>
       <h1>보이스</h1>
-      {msg && <p className="badge" role="status">{msg}</p>}
+      {msg && <p className="note" role="status">{msg}</p>}
       <div className="cards">
         <div className="card">
           <h3>지금 쓰는 목소리</h3>
@@ -105,14 +105,14 @@ export function Voices({tick}: {tick: number}) {
             <select value={sel.narrator ?? ''} onChange={(e) => select('narrator', e.target.value)}
               data-automation-id="voice-narrator">
               <option value="">설정값 ({voiceName(info, info.config.narrator)})</option>
-              {info.voices.map((v) => <option key={v.id} value={v.id}>{v.kind === 'clone' ? '🎙 ' : ''}{v.name}</option>)}
+              {info.voices.map((v) => <option key={v.id} value={v.id}>{v.name}{v.kind === 'clone' ? ' (클로닝)' : ''}</option>)}
             </select></label>
           <label className="field"><span>댓글 읽는 목소리</span>
             <select value={sel.comment ?? ''} onChange={(e) => select('comment', e.target.value)}
               data-automation-id="voice-comment">
               <option value="">설정값 ({voiceName(info, info.config.comment)})</option>
               <option value="same">나레이션과 같은 목소리 (화자 분리 끔)</option>
-              {info.voices.map((v) => <option key={v.id} value={v.id}>{v.kind === 'clone' ? '🎙 ' : ''}{v.name}</option>)}
+              {info.voices.map((v) => <option key={v.id} value={v.id}>{v.name}{v.kind === 'clone' ? ' (클로닝)' : ''}</option>)}
             </select></label>
           <p className="muted small">클로닝이 실패하면 그 영상은 기성 보이스({voiceName(info, info.fallback.narrator)}
             {' · '}{voiceName(info, info.fallback.comment)})로 읽고 검수 화면에 경고를 남깁니다.
@@ -120,11 +120,11 @@ export function Voices({tick}: {tick: number}) {
         </div>
         <div className="card">
           <h3>클로닝 서버 (GPT-SoVITS)</h3>
-          <p className={info.clone.alive ? 'badge ok' : 'badge'}>{info.clone.alive ? '켜짐' : '꺼짐'}
+          <p className={info.clone.alive ? 'note ok' : 'note muted'}>{info.clone.alive ? '켜짐' : '꺼짐'}
             {info.clone.managed ? ' · OverShorts 가 띄움' : ''}</p>
           <p className="muted small">주소 {info.clone.server}<br />
             {info.clone.dir ? `폴더 ${info.clone.dir}` : '폴더를 정하지 않았습니다: 직접 띄우거나 config.yaml 의 voice.clone.dir 에 GPT-SoVITS 폴더를 적으면 필요할 때 자동으로 켭니다'}</p>
-          {info.clone.cpu_warning && <p className="badge warn">{info.clone.cpu_warning}</p>}
+          {info.clone.cpu_warning && <p className="note warn">{info.clone.cpu_warning}</p>}
           <p className="muted small">단어 자막 시각: {info.clone.align === 'stable_ts' ? 'stable-ts 강제 정렬'
             : '음절 수 비율 (pip install stable-ts 하면 더 정확)'}</p>
           <div className="actions">
@@ -147,7 +147,7 @@ export function Voices({tick}: {tick: number}) {
           <tbody>
             {[...presets, ...clones].map((v) => (
               <tr key={v.id}>
-                <td>{v.kind === 'clone' ? '🎙 ' : ''}<b>{v.name}</b>
+                <td><b>{v.name}</b>
                   <div className="muted small">{v.kind === 'clone'
                     ? `클로닝 · 참조 ${v.ref_sec ?? '?'}초 · “${v.ref_text ?? ''}”` : `기성 보이스 (Edge-TTS) · ${v.id.slice(5)}`}</div></td>
                 <td style={{whiteSpace: 'nowrap', textAlign: 'right'}}>
@@ -341,7 +341,7 @@ function Register({info, onDone, audio}: {info: VoicesInfo; onDone: (name: strin
             onClick={submit} data-automation-id="voice-register">등록하고 들어 보기</button>
         </div>
       </>}
-      {state && <p className="badge" role="status">{state}</p>}
+      {state && <p className="note" role="status">{state}</p>}
     </div>
   );
 }

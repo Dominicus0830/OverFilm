@@ -4,6 +4,7 @@ import {Story} from '../../../render/src/Story';
 import {sanitize} from '../../../render/src/spec';
 import {api, ReviewItem, ScriptLine} from '../api';
 import {VoicePicker} from './VoicePicker';
+import {Switch} from '../ui/Switch';
 import type {Screen} from '../App';
 
 const PART_KO: Record<string, string> = {hook: '훅', body: '전개', comment: '댓글 읽기', outro: '마무리'};
@@ -217,11 +218,10 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
   return (
     <section className="review">
       <header className="review-head">
-        <h1>검수 대기 목록 <span className="muted small">{pos + 1} / {items.length} · J/K</span></h1>
-        {msg && <span className="badge">{msg}</span>}
-        <button className={showSource ? 'toggle on' : 'toggle'} data-automation-id="show-source"
-          title="영상 아래 '출처: DC인사이드 …' 표시" onClick={toggleSource}>
-          출처 표시 {showSource ? '켬' : '끔'}</button>
+        <h1>검수 <span className="muted small num">{pos + 1} / {items.length} · J/K 로 넘기기</span></h1>
+        <span className="status small" role="status">{msg}</span>
+        <Switch checked={showSource} onChange={() => toggleSource()} label="출처 표시"
+          hint="영상 아래 '출처: DC인사이드 …' 표시" automationId="show-source" />
       </header>
       <div className="review-cols">
         <div className="col">
@@ -244,8 +244,8 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
           </ul>
         </div>
         <div className="col">
-          <h3>대본 (문장별 편집)</h3>
-          <p className="muted small">▶ 누르면 그 문장만 듣기 · 예상 {item.script.est_seconds}초</p>
+          <h3>대본</h3>
+          <p className="muted small">문장을 바로 고칠 수 있습니다. ▶ 는 그 문장만 듣기 · 예상 {item.script.est_seconds}초</p>
           <p className="small">화면 제목: <b>{item.script.title}</b>
             {(item.script.title_alts ?? []).length > 0 && (
               <span className="muted"> · 다른 후보: {(item.script.title_alts ?? []).join(' / ')}</span>)}</p>
@@ -267,10 +267,9 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
                     {g.kind === 'reaction' && <span className="muted">{g.image || '그림 없음'}{g.say ? ` · “${g.say}”` : ''}</span>}
                     {g.kind === 'reaction' && <button className="small-btn" data-automation-id={`seg-remove-${seg}`}
                       onClick={() => removeSeg(seg)}>빼기</button>}
-                    <button className={g.tts ? 'toggle on' : 'toggle'} title={g.tts_reason}
-                      data-automation-id={`seg-tts-${seg}`} onClick={() => setTts(seg, !g.tts)}>
-                      TTS {g.tts ? '켬' : '끔'}</button>
-                    {g.tts_reason && <span className="muted small">{g.tts_reason}</span>}
+                    <Switch checked={g.tts} onChange={(v) => setTts(seg, v)} label="TTS 읽기" hint={g.tts_reason}
+                      automationId={`seg-tts-${seg}`} />
+                    {g.tts_reason && <span className="faint">{g.tts_reason}</span>}
                   </div>
                 );
               })()}
@@ -284,13 +283,13 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
                       title={l.part === 'comment' ? '댓글은 원문 그대로 (고칠 수 없음)' : undefined} onChange={(e) => {
                         const next = lines.slice(); next[i] = {...l, text: e.target.value}; setLines(next); setDirty(true);
                       }} />
-                    {flagged.has(spoken.indexOf(i)) && <span className="badge yellow" title={flagged.get(spoken.indexOf(i))}>오글?</span>}
+                    {flagged.has(spoken.indexOf(i)) && <span className="tag warn" title={flagged.get(spoken.indexOf(i))}>오글?</span>}
                     <button className="small-btn" onClick={() => setReport({line: i, reason: ''})}>오글</button>
                   </div>
                 );
               })}
               {item.script.segments && (
-                <button className="small-btn" data-automation-id={`seg-add-reaction-${seg}`}
+                <button className="small-btn seg-add" data-automation-id={`seg-add-reaction-${seg}`}
                   onClick={() => setReact({after: seg, image: '', say: '', say_style: 'calm'})}>＋ 이 뒤에 짤</button>
               )}
             </div>
@@ -340,7 +339,7 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
           <VoicePicker jobId={item.job_id} />
           {item.script.alt_script_id ? (
             <p className="small">지금 <b>{item.script.variant || 'A'}안</b>{' '}
-              <button onClick={() => pickVariant(item.script.alt_script_id as number)} data-automation-id="review-variant">
+              <button className="small-btn" onClick={() => pickVariant(item.script.alt_script_id as number)} data-automation-id="review-variant">
                 {item.script.variant === 'B' ? 'A' : 'B'}안으로 바꾸기</button></p>) : null}
           <p className="muted small">톤: {item.tone} · 프리셋: {PRESET_KO[spec?.preset ?? 'card']} · 대본 {item.version}번째</p>
         </div>
@@ -350,7 +349,7 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
             <Player ref={player} component={Story} inputProps={spec as unknown as Record<string, unknown>}
               durationInFrames={Math.max(1, Math.round(spec.duration * spec.fps))} fps={spec.fps}
               compositionWidth={spec.width} compositionHeight={spec.height} controls
-              style={{width: '100%', aspectRatio: '9 / 16', borderRadius: 16, overflow: 'hidden'}} />
+              style={{width: '100%', aspectRatio: '9 / 16', borderRadius: 4, overflow: 'hidden'}} />
           ) : <p className="muted">미리보기가 없습니다</p>}
           <p className="muted small">9:16 Player, 렌더 없이 재생</p>
         </div>

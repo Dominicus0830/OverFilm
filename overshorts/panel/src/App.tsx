@@ -7,8 +7,11 @@ import {Review} from './screens/Review';
 import {StyleMaker} from './screens/StyleMaker';
 import {Settings} from './screens/Settings';
 import {Voices} from './screens/Voices';
+import {Dialog} from './ui/Dialog';
 
 const SCREENS = ['홈', '새로 만들기', '작업 큐', '검수', '보이스', '스타일', '소스', '설정'] as const;
+/** 아직 화면이 없는 메뉴: 메뉴에 '준비 중'으로 보이고, 누르면 지금 쓰는 방법을 알려 준다. */
+const SOON: readonly string[] = ['소스'];
 export type Screen = (typeof SCREENS)[number];
 
 export function App() {
@@ -39,7 +42,8 @@ export function App() {
         <div className="brand">OverShorts</div>
         {SCREENS.map((s) => (
           <button key={s} className={s === screen ? 'nav on' : 'nav'} onClick={() => setScreen(s)}
-            data-automation-id={`nav-${s}`}>{s}</button>
+            aria-current={s === screen ? 'page' : undefined} data-automation-id={`nav-${s}`}>
+            <span>{s}</span>{SOON.includes(s) && <span className="soon">준비 중</span>}</button>
         ))}
         <button className="nav theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
           {theme === 'dark' ? '라이트 테마' : '다크 테마'}
@@ -53,31 +57,29 @@ export function App() {
         {screen === '스타일' && <StyleMaker />}
         {screen === '설정' && <Settings />}
         {screen === '보이스' && <Voices tick={tick} />}
-        {['소스'].includes(screen) && (
+        {SOON.includes(screen) && (
           <section className="empty">
             <h1>{screen}</h1>
-            <p>이 화면은 다음 단계(M8)에서 만듭니다. 지금은 <code>config.yaml</code> 로 설정합니다.</p>
+            <p>이 화면은 아직 준비 중입니다. 지금은 갤러리 주소를 <b>새로 만들기</b>에 넣거나,
+              <code>config.yaml</code> 의 수집 항목을 고쳐서 씁니다.</p>
+            <div className="actions"><button onClick={() => setScreen('새로 만들기')}>새로 만들기로 가기</button>
+              <button className="link" onClick={() => setScreen('설정')}>설정 열기</button></div>
           </section>
         )}
       </main>
-      {limitAsk && (
-        <div className="modal-back" role="dialog" aria-modal="true" aria-label="Claude 한도">
-          <div className="modal">
-            <h3>Claude 한도에 걸렸습니다</h3>
-            <p>{limitAsk}</p>
-            <label className="check"><input type="checkbox" checked={remember}
-              onChange={(e) => setRemember(e.target.checked)} /> 다시 묻지 않기</label>
-            <div className="actions">
-              <button className="primary" data-automation-id="limit-switch" onClick={() => {
-                api('/api/llm/limit', {action: 'switch', remember}).catch(() => undefined); setLimitAsk(null);
-              }}>로컬 LLM 으로 전환</button>
-              <button data-automation-id="limit-wait" onClick={() => {
-                api('/api/llm/limit', {action: 'wait', remember}).catch(() => undefined); setLimitAsk(null);
-              }}>대기</button>
-            </div>
-          </div>
+      <Dialog open={limitAsk !== null} title="Claude 한도에 걸렸습니다" automationId="limit-dialog">
+        <p>{limitAsk}</p>
+        <label className="check"><input type="checkbox" checked={remember}
+          onChange={(e) => setRemember(e.target.checked)} /> 다시 묻지 않기</label>
+        <div className="actions">
+          <button data-automation-id="limit-wait" onClick={() => {
+            api('/api/llm/limit', {action: 'wait', remember}).catch(() => undefined); setLimitAsk(null);
+          }}>대기</button>
+          <button className="primary" data-automation-id="limit-switch" onClick={() => {
+            api('/api/llm/limit', {action: 'switch', remember}).catch(() => undefined); setLimitAsk(null);
+          }}>로컬 LLM 으로 전환</button>
         </div>
-      )}
+      </Dialog>
     </div>
   );
 }
