@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ..proc import decode_output
+from ..proc import run as proc_run
 from ..script.checks import norm
 
 DEFAULT_STT = "overfilm-subs extract {wav} -o {srt} --no-mask --no-digits --keep-fillers --speakers off"
@@ -114,7 +115,7 @@ def run_stt(wav: Path, command: str | None = None) -> str:
     if not argv:
         raise RuntimeError("STT 명령이 비어 있습니다")
     try:
-        proc = subprocess.run(argv, capture_output=True, timeout=TIMEOUT_SEC)
+        proc = proc_run(argv, timeout=TIMEOUT_SEC)
     except (OSError, subprocess.TimeoutExpired) as err:
         raise RuntimeError(f"STT 실행 실패: {err}") from err
     if proc.returncode != 0:

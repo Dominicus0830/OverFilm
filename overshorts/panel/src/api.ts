@@ -14,6 +14,24 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** DELETE 요청 (작업 큐의 삭제·빼기). 실패하면 api() 처럼 오류 문장으로. */
+export async function apiDelete<T>(path: string): Promise<T> {
+  const res = await fetch(path, {method: 'DELETE'});
+  if (!res.ok) {
+    let msg = `요청 실패 (${res.status})`;
+    try {
+      const j = await res.json();
+      if (typeof j?.detail === 'string') msg = j.detail;
+    } catch { /* 본문 없음 */ }
+    throw new Error(msg);
+  }
+  return res.json() as Promise<T>;
+}
+
+/** 작업 스레드: 지금 도는 것과 대기 중인 것 (작업 큐 화면). */
+export type WorkerState = {current: {id: number; label: string} | null;
+  pending: {id: number; label: string}[]; paused: boolean; cancelling: boolean};
+
 export type Event = {type: string; time?: string; message?: string; stage?: string; label?: string;
   state?: string; level?: string; kind?: string};
 

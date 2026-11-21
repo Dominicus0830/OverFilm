@@ -95,6 +95,11 @@ table.facts { border-collapse: collapse; width: 100%; max-width: 760px; }
 
 /* 상태 글자: 알약 대신 색 있는 글자. 꼭 눈에 띄어야 하는 것만 .tag(4px 사각) */
 .note { margin: 6px 0; } .note.ok { color: var(--ok); } .note.warn { color: var(--warn); }
+.small-btn.danger { color: var(--danger); }
+.tasks { list-style: none; padding: 0; margin: 0 0 16px; }
+.tasks li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.tasks li .grow { flex: 1; min-width: 0; }
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .state-ok { color: var(--ok); } .state-warn { color: var(--warn); }
 .tag { display: inline-block; padding: 0 6px; border-radius: var(--r-sm); font-size: var(--fs-note);
   border: 1px solid var(--line-strong); color: var(--muted); white-space: nowrap; }

@@ -17,6 +17,7 @@ from .crawler.budget import CrawlGuard
 from .crawler.collector import Collector, GalleryOptions
 from .crawler.fetcher import Fetcher
 from .db import Store
+from .proc import check_cancel
 
 Emit = Callable[[dict[str, Any]], None]
 
@@ -39,6 +40,7 @@ class Pipeline:
         self._router = router
 
     def _say(self, stage: str, msg: str, **extra: Any) -> None:
+        check_cancel()  # 작업 큐의 '취소': 단계·글 사이에서 멈춘다
         self.emit({"type": "progress", "stage": stage, "message": msg, **extra})
 
     def router(self):

@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from ..proc import decode_output
+from ..proc import run as proc_run
 from .engines import Engine, Synth, TtsError, Word, get_engine, parse_voice
 
 SAMPLE_RATE = 48_000
@@ -68,10 +69,10 @@ def decode_to_pcm(audio: bytes, ffmpeg: str | None = None) -> bytes:
     if not exe:
         raise TtsError("FFmpeg 가 없어 음성을 합칠 수 없습니다 (설치 후 PATH 에 추가)")
     try:
-        proc = subprocess.run(
+        proc = proc_run(
             [exe, "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-f", "s16le", "-ac", "1",
              "-ar", str(SAMPLE_RATE), "pipe:1"],
-            input=audio, capture_output=True, timeout=120,
+            input=audio, timeout=120,
         )
     except (OSError, subprocess.TimeoutExpired) as err:
         raise TtsError(f"FFmpeg 실행 실패: {err}") from err
