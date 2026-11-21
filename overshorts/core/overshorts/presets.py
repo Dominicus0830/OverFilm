@@ -84,8 +84,8 @@ class CommentRules(BaseModel):
     per_screen: tuple[int, int] = (1, 3)      # 한 화면 권장 개수 (한 줄 댓글이 많으면 위쪽, 디시콘·긴 글이면 아래쪽)
     max_total: int = Field(default=27, ge=1, le=60)  # 영상 전체 최대 댓글 수 (답글 포함)
     max_screens: int = Field(default=9, ge=1, le=20)
-    min_screen_sec: float = Field(default=2.8, ge=1, le=10)  # 장당 최소 시간 (레퍼런스는 2.8초 칼같이)
-    max_screen_sec: float = Field(default=8.0, ge=2, le=20)
+    min_screen_sec: float = Field(default=3.0, ge=1, le=10)  # 장당 3~4초 (2026-11-21 사용자)
+    max_screen_sec: float = Field(default=4.0, ge=2, le=20)
     base_sec: float = Field(default=1.2, ge=0, le=5)         # 읽는 시간 = base + 글자 수 × per_char
     per_char_sec: float = Field(default=0.05, ge=0.01, le=0.3)
     dccon_sec: float = Field(default=0.6, ge=0, le=3)        # 디시콘 하나당 더 보는 시간
@@ -123,6 +123,8 @@ class Preset(BaseModel):
     description: str = Field(default="", max_length=300)
     origin: Literal["builtin", "custom"] = "builtin"
     tts: Literal["off", "auto", "on"] = "off"   # off=읽지 않음, auto=세그먼트마다 LLM 이 판단, on=전부 읽음
+    # 갤글 그대로: 원문에 없는 내용(새 제목·해설·요약·소제목·바깥 짤)을 더하지 않는다 (옵갤형, 2026-11-21 사용자 규칙)
+    verbatim: bool = False
     sections: Sections = Field(default_factory=Sections)
     layout: Layout = Field(default_factory=Layout)
     caption: CaptionRules = Field(default_factory=CaptionRules)
@@ -228,7 +230,7 @@ def apply_overrides(preset: Preset, render_cfg: dict[str, Any]) -> Preset:
 
 
 def page_seconds(rules: CommentRules, chars: int, dccons: int = 0) -> float:
-    """댓글 화면 한 장을 보여 줄 시간: 최소 2.8초 + 읽는 시간 (1.2 + 글자 수 × 0.05), 상한까지."""
+    """댓글 화면 한 장을 보여 줄 시간: 최소 3초 + 읽는 시간 (1.2 + 글자 수 × 0.05), 상한까지."""
     read = rules.base_sec + max(0, chars) * rules.per_char_sec + max(0, dccons) * rules.dccon_sec
     return round(max(rules.min_screen_sec, min(rules.max_screen_sec, read)), 2)
 

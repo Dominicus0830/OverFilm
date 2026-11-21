@@ -6,6 +6,7 @@ aligned 작업 → data/jobs/<id>/public/ 에 voice.wav·배경 영상을 두고
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import re
@@ -14,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..db import Store
 from ..presets import Preset, page_seconds
@@ -284,7 +285,7 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                 number = int(m["name"].split()[-1]) if m["name"].split()[-1].isdigit() else 0
                 item = {"src": srcf, "kind": m["kind"], "display": pick.get("display", "fill"),
                         "number": number,
-                        "caption": media_caption(opts.body, number) if m["kind"] == "image" else "",
+                        "caption": _photo_caption(seg, opts.body, number) if m["kind"] == "image" else "",
                         "start": round(starts[k], 3), "end": round(max(m_end, starts[k] + 0.5), 3),
                         "width": m.get("width") or 0, "height": m.get("height") or 0,
                         "muted": True}
@@ -310,20 +311,27 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                 c = comments[n]
                 con = c.get("dccon") or None
                 con_out = None
-                if con:
-                    local = con.get("local")
-                    key = f"con:{local}"
-                    if local and key not in copied:
-                        copied[key] = _copy(local, public, f"c{len(copied)}")
-                    con_out = {"src": copied.get(key) if local else None,
-                               "name": str(con.get("name") or "")}
+                cons_out: list[dict[str, Any]] = []
+                if isinstance(con, dict):
+                    for one in [con, *(con.get("more") or [])][:4]:
+                        local = one.get("local") if isinstance(one, dict) else None
+                        if not local:
+                            continue
+                        key = f"con:{local}"
+                        if key not in copied:
+                            copied[key] = _copy(local, public, f"c{len(copied)}")
+                        if copied.get(key):
+                            cons_out.append({"src": copied[key], "name": str(one.get("name") or "")})
+                    con_out = cons_out[0] if cons_out else None
+                if not str(c.get("text") or "").strip() and con_out is None:
+                    continue  # 디시콘만 있는 댓글인데 그림을 못 받음: 괄호 글자 대신 건너뛴다 (2026-11-21)
                 nick, ip = str(c.get("nick") or "ㅇㅇ"), str(c.get("ip") or "")
                 if opts.nickname == "replace":
                     nick, ip = "ㅇㅇ", ""
                 out["comments"].append({
                     "no": n, "nick": nick, "ip": ip, "icon": str(c.get("icon") or ""),
                     "text": str(c.get("text") or ""), "depth": int(c.get("depth") or 0),
-                    "dccon": con_out, "appear": start, "page": 0,
+                    "dccon": con_out, "dccons": cons_out, "appear": start, "page": 0, "date": str(c.get("posted") or "")[:20],
                     "read": list(reads[n]) if n in reads else None,
                 })
             _paginate(out["comments"], start, end, seg.get("pages"), edit)
@@ -424,7 +432,7 @@ def _paginate(rows: list[dict[str, Any]], start: float, end: float,
     pages: list[list[dict[str, Any]]] = []
     h = page_h + 1
     for th in threads:
-        th_h = sum(comment_height(r) for r in th) + (8 if len(th) > 1 else 0)
+        th_h = sum(comment_height(r) for r in th) + (14 if len(th) > 1 else 0)
         if pages and h + th_h <= page_h:
             pages[-1] += th
             h += th_h
@@ -532,6 +540,16 @@ def rich_lines(text: str, styles: list[dict[str, Any]] | None) -> list[list[dict
     return out if hit else None
 
 
+def _photo_caption(seg: dict[str, Any], body: str, number: int) -> str:
+    """사진에 넣을 글: 대본이 고른 대로 (original=원문 그 사진 아래 글, none=없음, custom=대본 줄)."""
+    mode = str(seg.get("photo_text") or "original")
+    if mode == "none":
+        return ""
+    if mode == "custom":
+        return "\n".join(str(t) for t in seg.get("lines") or [])[:300]
+    return media_caption(body, number)
+
+
 def media_caption(body: str, number: int) -> str:
     """본문에서 [사진 N] 바로 아래 글 (다음 사진 전까지). 스크린샷처럼 사진 밑에 보인다."""
     out: list[str] = []
@@ -572,8 +590,43 @@ def _json_list(raw: Any) -> list[dict[str, Any]]:
     return [d for d in data if isinstance(d, dict)][:200] if isinstance(data, list) else []
 
 
+def fetch_missing_dccons(comments: list[dict[str, Any]], script: dict[str, Any], save_dir: Path,
+                         fetch: Callable[[str], bytes] | None, limit: int = 30) -> int:
+    """대본에 쓴 댓글의 디시콘 중 수집 때 못 받은 그림을 받아 둔다 (예전 수집은 글당 8개만 받았음).
+    못 받으면(오프라인·차단) 그대로 두고, 그 댓글은 글자만 있거나 빠진다."""
+    if fetch is None:
+        return 0
+    used = {n for seg in script.get("segments") or [] if isinstance(seg, dict)
+            for n in (seg.get("comments") or []) if isinstance(n, int) and 0 <= n < len(comments)}
+    got = 0
+    for n in sorted(used):
+        con = comments[n].get("dccon")
+        if not isinstance(con, dict):
+            continue
+        for one in [con, *(con.get("more") or [])][:4]:
+            if not isinstance(one, dict) or not one.get("url"):
+                continue
+            if one.get("local") and Path(str(one["local"])).is_file():
+                continue
+            name = hashlib.sha1(str(one["url"]).encode("utf-8")).hexdigest()[:16] + ".img"
+            path = save_dir / name
+            if not path.is_file():
+                if got >= limit:
+                    return got
+                got += 1
+                try:
+                    data = fetch(str(one["url"]))
+                    save_dir.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(data)
+                except Exception:  # noqa: BLE001 - 차단·오프라인이면 이 그림만 없이
+                    continue
+            one["local"] = str(path)
+    return got
+
+
 def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
-                 limit: int = 50, opts: SpecOptions | None = None) -> dict[str, int]:
+                 limit: int = 50, opts: SpecOptions | None = None,
+                 fetch_image: Callable[[str], bytes] | None = None) -> dict[str, int]:
     opts = opts or SpecOptions()
     rows = store.conn.execute(
         "SELECT j.id AS job_id, p.gall_id, p.gall_name, p.title, p.subject, p.body, p.images, p.comments, "
@@ -603,6 +656,7 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
             if script.get("segments"):
                 media = media_items(json.loads(row["images"] or "[]"))
                 comments = [c for c in json.loads(row["comments"] or "[]") if isinstance(c, dict)]
+                fetch_missing_dccons(comments, script, job_dir / "dccon", fetch_image)
                 post = {"subject": row["subject"], "title": row["title"],
                         "author": json.loads(row["author"] or "{}"), "posted_at": row["posted_at"]}
                 spec = build_frame_spec(timing, script, post, public, source, bg_name,

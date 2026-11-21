@@ -16,13 +16,13 @@ from pathlib import Path
 from ..db import Store
 from ..llm import LimitReached, LlmError, Router
 from ..presets import Preset
-from .checks import CheckResult, _no_ending, check_script, load_banned
+from .checks import CheckResult, _no_ending, check_script, load_banned, norm
 from .game_check import check_script_game
 from .reactions import list_memes, meme_block, resolve_segments
 from .models import CringeAnswer, ScriptAnswer
 from .prompts import cringe_task, load_style, script_task
 from .publish import load_samples, title_tone_block, write_publish
-from .segments import flatten, media_items, validate
+from .segments import flatten, media_items, strip_marks, validate
 from .title_rules import TITLE_BANNED
 
 MAX_REWRITES = 2
@@ -86,18 +86,22 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
         segs, seg_warn = validate(script, comments, media, settings.composition,
                                   settings.max_comments, settings.max_media, source, memes,
                                   f"{title}\n{body}", settings.preset)
+        verbatim = settings.preset is not None and settings.preset.verbatim
+        if verbatim:
+            seg_warn += keep_verbatim(script, segs, title, body, media)
         apply_tts_default(segs, settings.tts, media, comments)
         lines = flatten(segs, comments, media)
         spoken = [ln for ln in lines if ln["part"] != "pause"]
         checks = check_script(spoken, body, texts, banned, settings.chars_per_sec)
         cringe = None
         problems: list[str] = []
-        title_issues = check_title(script.title) + check_script_game(
+        # 갤글 그대로면 제목은 원제라 제목 규칙·게임 사실 검사를 하지 않는다
+        title_issues = [] if verbatim else check_title(script.title) + check_script_game(
             script.title, [ln["text"] for ln in spoken if ln["part"] != "comment"], source, posted_at)
         title_issues += missing_lines(body, segs)
         if checks.needs_rewrite or title_issues:
             problems += checks.reasons() + title_issues
-        elif settings.cringe_check and spoken:
+        elif settings.cringe_check and spoken and not verbatim:
             pairs = [(ln["part"], ln["text"]) for ln in spoken]
             cringe, _ = router.ask(cringe_task(pairs), CringeAnswer)
             if cringe.score < settings.min_cringe_score:
@@ -114,6 +118,49 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
             return ScriptOutcome(script, segs, lines, checks, cringe, model, rewrites, warnings)
         feedback = problems
         rewrites += 1
+
+
+def keep_verbatim(script: ScriptAnswer, segs: list[dict], title: str, body: str,
+                  media: list[dict]) -> list[str]:
+    """갤글 그대로(옵갤형): AI 가 더한 내용을 걷어 낸다. 제목은 원제, 소제목·사실 없음,
+    짤 장면은 원문 사진만 (사진이 없으면 본문 카드로), 원문에 없는 본문 줄은 뺀다."""
+    warnings: list[str] = []
+    original = (title or "").strip()[:34] or script.title
+    if script.title != original:
+        warnings.append("갤글 그대로: 제목을 원제로 되돌림")
+    script.title, script.title_alts, script.fact = original, [], ""
+    clean = strip_marks(body)
+    src = norm(f"{title}\n{clean}")
+    photos = [m["name"] for m in media if m.get("kind") == "image"]
+    n_photo = 0
+    for s in segs:
+        s["subtitle"] = ""
+        if s.get("kind") == "title":
+            s["lines"] = [original]
+            continue
+        if s.get("photo_text") == "custom":
+            s["photo_text"] = "original"  # 새 글 금지: 원문 글로
+        if s.get("kind") == "reaction":
+            image = str(s.get("image") or "")
+            if not image.startswith("원문:"):
+                if photos:
+                    s["image"] = f"원문:{photos[n_photo % len(photos)]}"
+                    s.pop("image_path", None)
+                else:  # 원문 사진이 없으면 그 줄을 본문 카드로
+                    s.update(kind="body", quote=str(s.get("say") or ""), image="")
+                warnings.append("갤글 그대로: 바깥 짤 대신 원문 사진·본문")
+            n_photo += 1
+        if s.get("kind") in ("media", "body", "reaction"):
+            kept = [ln for ln in s.get("lines") or [] if norm(ln) and norm(ln) in src]
+            if len(kept) != len(s.get("lines") or []):
+                warnings.append("갤글 그대로: 원문에 없는 줄을 뺌")
+            s["lines"] = kept
+            if s.get("kind") == "reaction" and s.get("say") and norm(s["say"]) not in src:
+                s["say"] = kept[0] if kept else ""
+            q = str(s.get("quote") or "")
+            if q and norm(q) not in src:
+                s["quote"] = ""  # 렌더가 원문을 나눠 쓴다
+    return list(dict.fromkeys(warnings))
 
 
 def _payload(out: ScriptOutcome, variant: str = "") -> dict:
@@ -234,16 +281,21 @@ def missing_lines(body: str, segs: list[dict]) -> list[str]:
 
     if not is_short_post(body):
         return []
+    # 사진에 글을 넣을지는 대본이 판단한다 (2026-11-21): 줄이 사진·짤 자막·본문 카드 어디에든 보이면 된다
     says = [str(sg.get("say") or "") for sg in segs if sg.get("kind") == "reaction"]
     if not says:
         return []  # 짤 장면 구성을 고르지 않았으면 (나레이션 구성) 줄 검사는 하지 않는다
+    says += [str(sg.get("quote") or "") for sg in segs if sg.get("kind") == "body"]
+    says += [str(t) for sg in segs if sg.get("kind") == "media" for t in sg.get("lines") or []]
+    if any(sg.get("kind") == "media" and sg.get("photo_text", "original") == "original" for sg in segs):
+        says += body.splitlines()  # 원문 사진 아래 원문 줄이 그대로 보인다
     key = lambda t: re.sub(r"[^가-힣a-zA-Z0-9]", "", t)  # noqa: E731
     out = []
     lines = [ln.strip() for ln in body.splitlines()
              if ln.strip() and not re.fullmatch(r"\[(?:사진|영상) \d+\]", ln.strip())]
     for i, ln in enumerate(lines[:8]):
         if not any(SequenceMatcher(None, key(ln), key(sy)).ratio() >= 0.55 for sy in says):
-            out.append(f"본문 {i + 1}번째 줄 '{ln[:20]}' 의 짤 장면이 빠졌습니다 (줄마다 하나씩, 순서대로)")
+            out.append(f"본문 {i + 1}번째 줄 '{ln[:20]}' 이 영상에 안 보입니다 (사진 위 글·짤 자막·본문 카드 중 어디든)")
     return out
 
 

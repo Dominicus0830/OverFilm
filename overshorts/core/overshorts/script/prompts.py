@@ -98,6 +98,22 @@ def is_short_post(body: str) -> bool:
     return len(re.sub(r"\s", "", text)) <= 300 and len(text.splitlines()) <= 10
 
 
+PHOTO_TEXT_RULES = (
+    "사진 위 글 (photo_text): 사진마다 글을 넣을지 규칙으로 정하지 말고 글·사진을 보고 판단한다. "
+    "사진만으로 웃기거나 사진 속 글자로 충분하면 none, 원문에서 그 사진에 딸린 줄이 장면을 살리면 original, "
+    "원문 줄로는 장면이 이해되지 않을 때만 custom(새 글, 원문에 없는 사실은 지어내지 않음). "
+    "넣는다면 어느 사진에 넣을지도 네가 고른다 (모든 사진에 넣을 필요 없음).")
+
+
+VERBATIM_RULES = """갤글 그대로 (이 유형의 최우선 규칙, 아래 나레이션·짤·제목 규칙보다 먼저):
+- 원문(제목·본문·댓글·사진)에 없는 내용은 한 글자도 더하지 않는다. 해설·요약·설명·감상·'이건 몰랐네' 사실 없음 (fact 는 비운다).
+- 제목은 원문 제목 그대로 쓴다. 바꿔 쓰기·꼬리표·후보 없음 (title_alts 비움). title 세그먼트 lines 는 [원문 제목].
+- media·body 세그먼트의 lines·quote 는 원문 본문 줄을 순서대로 글자 그대로 옮긴다. 고치거나 순서를 바꾸거나 합치지 않는다.
+- subtitle(소제목)은 비운다.
+- reaction 은 원문 사진만 쓴다 (image='원문:사진 N'). say 는 원문 본문 줄 그대로. 영웅 프로필·짤 모음·검색 짤은 쓰지 않는다. 원문 사진이 없으면 reaction 대신 body 로 본문을 보인다.
+- 댓글은 실제 댓글을 원문 순서대로 고른다."""
+
+
 def script_task(title: str, body: str, comments: list[dict], media: list[dict], style: Style,
                 tone: str, speech: str, banned_words: list[str], chars_per_sec: float,
                 feedback: list[str] | None = None, composition: str = "auto",
@@ -110,6 +126,7 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
         composition, "구성 A/B 는 네가 고른다.")
     if preset is not None:
         max_comments = preset.comments.max_total
+    verbatim = preset is not None and preset.verbatim
     screen = ("화면은 검은 배경에 위쪽 고정 제목, 가운데 원문 사진·영상(또는 디시 화면처럼 그린 본문·댓글), "
               "아래 노란 자막이다. " if preset is None or (preset.layout.title_bar
                                                     and preset.layout.caption == "yellow")
@@ -145,19 +162,22 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
            else "원문 표현은 순화하지 않고 그대로 옮긴다 (욕은 초성 처리 같은 자막 규칙만 따른다)."),
         *([prompt_block(preset)] if preset is not None else []),
         GAME_RULES,
-        REACTION_RULES + "\n짤 모음 (짤:이름 으로 쓴다):\n" + (memes or "(비어 있음)"),
-        title_rules(title_tail) + "\n(ㅋㅋㅋ·ㄷㄷ 금지와 아래 사용자 금지 표현은 나레이션에만 적용한다. 제목은 위 제목 규칙만 따른다.)",
-        *([title_samples] if title_samples else []),
+        *([VERBATIM_RULES] if verbatim else [
+            REACTION_RULES + "\n짤 모음 (짤:이름 으로 쓴다):\n" + (memes or "(비어 있음)"),
+            title_rules(title_tail) + "\n(ㅋㅋㅋ·ㄷㄷ 금지와 아래 사용자 금지 표현은 나레이션에만 적용한다. "
+            "제목은 위 제목 규칙만 따른다.)",
+            *([title_samples] if title_samples else [])]),
         f"말투: {SPEECH.get(speech, SPEECH['반말'])}로 통일. 톤: {TONES.get(tone, TONES['담백'])}",
         "쓰지 말 것: 여러분·인사·'알아볼게요', 충격·실화냐·소름·경악, '과연 그 결과는?' 같은 떡밥 질문, "
         "'~했다고 합니다' 반복, ㅋㅋㅋ·ㄹㅇ 남발, ~노 같은 정치색 커뮤 어미, 훈계·교훈, 구독·좋아요 요청.",
     ]
     if variant in VARIANTS:
         parts.append(VARIANTS[variant])
-    if is_short_post(body):
-        parts.append("이 글은 짧은 뻘글이다(본문 몇 줄). 짤 장면 구성으로 짠다: title(원제, 글 머리) → 본문 줄마다 "
-                     "reaction 하나(그 줄 그대로 say + 어울리는 그림 + say_style) → 필요하면 comments. "
-                     "모든 세그먼트 tts=false. 본문을 나레이션으로 풀어 읽지 않는다.")
+    parts.append(PHOTO_TEXT_RULES + (" 이 유형은 갤글 그대로라 custom 은 쓰지 않는다." if verbatim else ""))
+    if is_short_post(body) and not verbatim:
+        parts.append("이 글은 짧은 뻘글이다(본문 몇 줄). 짤 장면 구성이 어울리면 title(원제, 글 머리) → reaction "
+                     "장면들 → 필요하면 comments 로 짠다. 어느 줄을 사진·짤에 얹을지, 줄마다 장면을 나눌지 "
+                     "묶을지는 글을 보고 판단한다. 모든 세그먼트 tts=false. 본문을 나레이션으로 풀어 읽지 않는다.")
     if banned_words:
         parts.append("사용자 금지 표현(나레이션): " + ", ".join(banned_words[:100]))
     if style.guide.strip():
@@ -169,6 +189,9 @@ def script_task(title: str, body: str, comments: list[dict], media: list[dict], 
     prompt = (untrusted("post", f"제목: {title}\n\n{body[:6000]}") + "\n\n"
               + untrusted("media", media_block(media)) + "\n\n"
               + untrusted("comments", numbered_comments(comments) or "(댓글 없음)"))
+    if verbatim and is_short_post(body):
+        prompt += ("\n\n짧은 글이다: title(원제) → 원문 사진·본문을 원문 순서대로 (사진에 원문 줄을 얹을지, "
+                   "사진만 보이고 줄은 본문 카드로 둘지는 판단) → 필요하면 comments. 모든 세그먼트 tts=false.")
     if user_feedback.strip():
         prompt += ("\n\n편집자 피드백(최우선으로 반영하되 원문에 없는 사실은 지어내지 않는다):\n"
                    + user_feedback.strip()[:1000])

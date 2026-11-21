@@ -49,22 +49,26 @@ def numbered_comments(comments: list[dict[str, Any]], limit: int = 50) -> str:
 # 디시 댓글창 스크린샷 한 장 (가상 480px 화면 기준). 화면 28~66% 를 1040/480 배로 키워 채운다.
 SKIN_W = 480
 SKIN_SCALE = 1040 / SKIN_W
-PAGE_H = (0.66 - 0.28) * 1920 / SKIN_SCALE - 8
+# 댓글창은 디시 댓글 CSS 그대로 가상 560px 폭에 그려 1080 으로 키운다 (render/src/DcSkin.tsx CMT_W).
+CMT_W = 560
+CMT_SCALE = 1080 / CMT_W
+PAGE_H = (0.66 - 0.28) * 1920 / CMT_SCALE - 8
 MAX_COMMENT_PAGES = 4
 
 
 def page_height(stage_top: float, stage_bottom: float, height: int = 1920) -> float:
     """댓글 스크린샷 한 장이 들어갈 가상 480px 화면 높이. 무대(%)가 넓을수록 한 장에 더 많이 보인다."""
-    return max(120.0, (stage_bottom - stage_top) / 100 * height / SKIN_SCALE - 8)
+    return max(120.0, (stage_bottom - stage_top) / 100 * height / CMT_SCALE - 8)
 
 
 def comment_height(c: dict[str, Any]) -> float:
-    """디시 댓글 한 줄의 높이 어림. 글 칸이 닉 칸 오른쪽이라 한 줄에 20자, 답글은 17자 안팎."""
-    per_line = 17 if int(c.get("depth") or 0) else 20
+    """디시 댓글 한 줄의 높이 (디시 CSS: 줄 높이 20, 위아래 여백 16 + 선 1, 디시콘 3+100+5).
+    글 칸이 닉 칸 오른쪽이라 한 줄에 20자, 답글은 18자 안팎."""
+    per_line = 18 if int(c.get("depth") or 0) else 20
     text = str(c.get("text") or "")
     lines = sum(max(1, -(-len(p) // per_line)) for p in text.split("\n")) if text else 0
-    con = 96 if c.get("dccon") else 0
-    return max(lines, 0 if con else 1) * 19.5 + con + 17
+    con = 108 if c.get("dccon") else 0
+    return max(lines, 0 if con else 1) * 20 + con + 17
 
 
 def comment_windows(picked: list[int], comments: list[dict[str, Any]],
@@ -164,6 +168,56 @@ def pack_screens(screens: list[list[int]], picked: list[int], comments: list[dic
     return out
 
 
+PAGE_MIN_COMMENTS = 5   # 댓글 화면 한 장에 최소 (댓글이 그보다 적으면 있는 만큼) — 2026-11-21 사용자 지정
+PAGE_MAX_COMMENTS = 13  # 최대
+
+
+def fill_pages(pages: list[list[int]], comments: list[dict[str, Any]], page_h: float,
+               min_n: int = PAGE_MIN_COMMENTS, max_n: int = PAGE_MAX_COMMENTS) -> list[list[int]]:
+    """고른 댓글만 두면 화면 아래가 텅 빈다 (2026-11-21 사용자 의견). 장마다 고른 댓글 뒤로 이어지는
+    댓글을 원래 순서대로 칸이 찰 때까지 채우고, 남으면 앞쪽 댓글로 채운다 (실제 스크린샷처럼).
+    다음 장·앞 장의 댓글은 넘보지 않는다."""
+    taken = {n for pg in pages for n in pg}
+    out: list[list[int]] = []
+    for i, pg in enumerate(pages):
+        page = sorted(pg)[:max_n]
+        for n in sorted(pg)[max_n:]:
+            taken.discard(n)
+        h = sum(comment_height(comments[n]) for n in page if 0 <= n < len(comments))
+
+        def room(ch: float) -> bool:
+            # 최소 개수까지는 칸을 넘겨도 채우고 (스크린샷 아래가 잘린 것처럼), 그 뒤로는 칸 높이·최대 개수까지
+            return len(page) < max_n and (len(page) < min_n or h + ch <= page_h)
+
+        nxt = min(pages[i + 1]) if i + 1 < len(pages) and pages[i + 1] else len(comments)
+        k = page[-1] + 1 if page else 0
+        while k < min(nxt, len(comments)) and k not in taken:
+            ch = comment_height(comments[k])
+            if not room(ch):
+                break
+            page.append(k)
+            taken.add(k)
+            h += ch
+            k += 1
+        # 화면 끝에 원댓글만 걸리고 답글이 잘리면 그 원댓글은 빼고 (고른 댓글은 그대로)
+        while (len(page) > min_n and page[-1] not in pg and page[-1] + 1 < len(comments)
+               and not int(comments[page[-1]].get("depth") or 0)
+               and int(comments[page[-1] + 1].get("depth") or 0)):
+            taken.discard(page.pop())
+        prev = max(out[-1]) if out and out[-1] else -1
+        k = page[0] - 1 if page else -1
+        while k > prev and k not in taken:
+            ch = comment_height(comments[k])
+            if not room(ch):
+                break
+            page.insert(0, k)
+            taken.add(k)
+            h += ch
+            k -= 1
+        out.append(page)
+    return out
+
+
 def media_items(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """쓸 수 있는 원문 미디어 (받았고, 선정성으로 빠지지 않은 것). name = '사진 N' / '영상 N'."""
     out = []
@@ -235,6 +289,8 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
             "media": [], "comments": [], "read": [],
             "quote": seg.quote.strip()[:600] if seg.kind == "body" else "",
         }
+        if seg.kind in ("media", "reaction"):
+            s["photo_text"] = seg.photo_text
         if seg.kind == "media":
             for pick in seg.media:
                 m = by_name.get(pick.n.strip())
@@ -256,11 +312,12 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
             if preset is not None and preset.comments.skip == "time_order":
                 # 시간순으로 건너뛴 댓글을 화면 단위로 (LLM 이 정한 묶음, 없으면 높이·개수로 채움)
                 lay = preset.layout
-                pages = pack_screens([sc for sc in seg.screens], wanted, comments,
-                                     page_height(lay.stage_top, lay.stage_bottom),
+                page_h = page_height(lay.stage_top, lay.stage_bottom)
+                pages = pack_screens([sc for sc in seg.screens], wanted, comments, page_h,
                                      preset.comments.max_screens, preset.comments.max_total,
                                      preset.comments.per_screen)
                 picked = sorted({n for pg in pages for n in pg})
+                pages = fill_pages(pages, comments, page_h)  # 고른 댓글 사이·뒤를 이어지는 댓글로 채움
             else:
                 picked = []
                 for n in wanted:
@@ -278,7 +335,7 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
                 if _HOSTILE.search(str(comments[n].get("text") or "")):
                     warnings.append(f"댓글 [{n}] 에 욕설·혐오 표현이 있습니다 (검수에서 확인)")
             if pages is None:
-                pages = comment_windows(picked, comments)
+                pages = fill_pages(comment_windows(picked, comments), comments, PAGE_H)
             s["pages"] = pages
             s["picked"] = picked
             s["comments"] = [n for pg in s["pages"] for n in pg]
@@ -297,7 +354,8 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
                 image = f"원문:{photos[n_reaction % len(photos)]}"
             if image.startswith("원문:"):
                 n_reaction += 1
-            s["image"], s["say"], s["say_style"] = image, seg.say.strip()[:40], seg.say_style
+            say = "" if seg.photo_text == "none" else seg.say.strip()[:40]
+            s["image"], s["say"], s["say_style"] = image, say, seg.say_style
             s["lines"] = [s["say"]] if s["say"] else []
             if not image and not s["say"]:
                 continue
@@ -369,7 +427,7 @@ def display_seconds(seg: dict[str, Any], comments: list[dict[str, Any]],
             return min(90.0, float(sum(seg["page_secs"])))
         if pages:  # 스크린샷 한 장마다 고른 댓글을 읽을 시간 (3.5~6초)
             picked = set(seg.get("picked") or [])
-            return min(24.0, sum(min(6.0, 3.5 + 0.7 * len(picked & set(pg))) for pg in pages))
+            return min(24.0, sum(min(4.0, 3.0 + 0.3 * len(picked & set(pg))) for pg in pages))
         total = sum(_est_read(comment_label(comments[n])) for n in seg.get("comments") or []
                     if 0 <= n < len(comments))
         return min(14.0, max(2.5, total))

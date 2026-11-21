@@ -411,13 +411,15 @@ def parse_comments(payload: str) -> tuple[list[Comment], int]:
         memo = str(c.get("memo") or "")
         soup = BeautifulSoup(memo, "html.parser")
         dccon = None
+        cons: list[dict] = []  # 한 댓글에 디시콘 여러 개 (디시 화면엔 나란히)
         for img in soup.select("img"):
             src = str(img.get("src") or img.get("data-src") or "")
-            if dccon is None and "dccon" in src and src.startswith(("http", "//")):
+            if len(cons) < 4 and "dccon" in src and src.startswith(("http", "//")):
                 name = str(img.get("conalt") or img.get("title") or img.get("alt") or "")
-                dccon = {"url": "https:" + src if src.startswith("//") else src,
-                         "name": name[:30]}
+                cons.append({"url": "https:" + src if src.startswith("//") else src, "name": name[:30]})
             img.decompose()
+        if cons:
+            dccon = {**cons[0], "more": cons[1:]}
         for br in soup.select("br"):
             br.replace_with("\n")
         text = "\n".join(ln.strip() for ln in soup.get_text("").splitlines() if ln.strip())
