@@ -8,10 +8,15 @@ import {StyleMaker} from './screens/StyleMaker';
 import {Settings} from './screens/Settings';
 import {Voices} from './screens/Voices';
 import {Dialog} from './ui/Dialog';
+import {Icon, IconName} from './ui/Icon';
 
 const SCREENS = ['홈', '새로 만들기', '작업 큐', '검수', '보이스', '스타일', '소스', '설정'] as const;
 /** 아직 화면이 없는 메뉴: 메뉴에 '준비 중'으로 보이고, 누르면 지금 쓰는 방법을 알려 준다. */
 const SOON: readonly string[] = ['소스'];
+/** 메뉴마다 붙는 선형 아이콘(편집기·OverFilmSubs 와 같은 그림). */
+const NAV_ICON: Record<string, IconName> = {
+  '홈': 'home', '새로 만들기': 'plus', '작업 큐': 'list', '검수': 'eye', '보이스': 'mic', '스타일': 'adjust', '소스': 'folder', '설정': 'gear',
+};
 export type Screen = (typeof SCREENS)[number];
 
 export function App() {
@@ -43,13 +48,15 @@ export function App() {
         {SCREENS.map((s) => (
           <button key={s} className={s === screen ? 'nav on' : 'nav'} onClick={() => setScreen(s)}
             aria-current={s === screen ? 'page' : undefined} data-automation-id={`nav-${s}`}>
-            <span>{s}</span>{SOON.includes(s) && <span className="soon">준비 중</span>}</button>
+            <Icon name={NAV_ICON[s] ?? 'list'} /><span className="nav-label">{s}</span>
+            {SOON.includes(s) && <span className="soon">준비 중</span>}</button>
         ))}
         <button className="nav theme" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-          {theme === 'dark' ? '라이트 테마' : '다크 테마'}
+          <Icon name={theme === 'dark' ? 'sun' : 'moon'} /><span className="nav-label">{theme === 'dark' ? '라이트 테마' : '다크 테마'}</span>
         </button>
       </nav>
-      <main className="main">
+      {/* 화면을 바꿀 때 내용만 0.12초 옅게 나타난다(움직임 줄이기 설정이면 없음) */}
+      <main className="main" key={screen}>
         {screen === '홈' && <Home tick={tick} go={setScreen} events={events} />}
         {screen === '새로 만들기' && <NewJob go={setScreen} />}
         {screen === '작업 큐' && <Queue tick={tick} events={events} />}
