@@ -127,6 +127,13 @@ pub enum Icon {
     Moon,
     /// Colour parameters: pick a colour from the Program monitor (a pipette).
     Eyedropper,
+    /// The state of one step of a long run (OverFilm panel): a circle with a mark inside. Done: a
+    /// tick; running: a dot; failed: a cross; skipped: a dash; waiting: the circle alone.
+    StepDone,
+    StepRunning,
+    StepFailed,
+    StepSkipped,
+    StepWaiting,
 }
 
 pub struct Pen16<'a> {
@@ -756,6 +763,19 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             pen.arc(8.0, 8.0, 6.0, -90.0, 90.0);
             pen.line(&[(8.0, 2.0), (8.0, 14.0)]);
         }
+        StepDone | StepRunning | StepFailed | StepSkipped | StepWaiting => {
+            pen.circle(8.0, 8.0, 6.0);
+            match icon {
+                StepDone => pen.line(&[(5.0, 8.2), (7.2, 10.4), (11.2, 5.8)]),
+                StepRunning => pen.dot(8.0, 8.0, 2.2),
+                StepFailed => {
+                    pen.line(&[(5.6, 5.6), (10.4, 10.4)]);
+                    pen.line(&[(10.4, 5.6), (5.6, 10.4)]);
+                }
+                StepSkipped => pen.line(&[(5.0, 8.0), (11.0, 8.0)]),
+                _ => {}
+            }
+        }
         Clock => {
             pen.circle(8.0, 8.0, 6.0);
             pen.line(&[(8.0, 4.5), (8.0, 8.0), (10.5, 9.5)]);
@@ -826,6 +846,11 @@ mod tests {
     use egui::epaint::{ColorMode, Shape};
 
     const ALL: &[Icon] = &[
+        StepDone,
+        StepRunning,
+        StepFailed,
+        StepSkipped,
+        StepWaiting,
         Monitor,
         Sun,
         Moon,
