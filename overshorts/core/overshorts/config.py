@@ -27,7 +27,7 @@ DEFAULTS: dict[str, Any] = {
         ],
         "min_chars": 15,
         "max_chars": 4000,
-        "blur_faces": True,
+        "blur_faces": False,  # 기본 꺼짐 (2026-11-21 사용자 지시)
         "drop_nsfw_images": True,
     },
     "llm": {

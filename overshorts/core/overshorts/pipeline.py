@@ -85,7 +85,7 @@ class Pipeline:
         from .images import ImageInspector, inspect_pending
 
         f = self.cfg.get("filter") or {}
-        insp = ImageInspector(self.data / "models", blur_faces=bool(f.get("blur_faces", True)),
+        insp = ImageInspector(self.data / "models", blur_faces=bool(f.get("blur_faces", False)),
                               drop_nsfw=bool(f.get("drop_nsfw_images", True)))
         try:
             counts = inspect_pending(self.store, insp, self.data / "images")

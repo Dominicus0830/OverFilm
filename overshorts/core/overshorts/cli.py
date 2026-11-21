@@ -178,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
 
             f = cfg.get("filter") or {}
             inspector = ImageInspector(data / "models", download=not args.no_download,
-                                       blur_faces=bool(f.get("blur_faces", True)),
+                                       blur_faces=bool(f.get("blur_faces", False)),
                                        drop_nsfw=bool(f.get("drop_nsfw_images", True)))
             counts = inspect_pending(store, inspector, data / "images")
             print(f"글 {counts['posts']}개, 그림 {counts['images']}장 검사: 얼굴 흐림 "
