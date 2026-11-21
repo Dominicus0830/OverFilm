@@ -123,6 +123,8 @@ class Preset(BaseModel):
     description: str = Field(default="", max_length=300)
     origin: Literal["builtin", "custom"] = "builtin"
     tts: Literal["off", "auto", "on"] = "off"   # off=읽지 않음, auto=세그먼트마다 LLM 이 판단, on=전부 읽음
+    # 갤글 그대로: 원문에 없는 내용(새 제목·해설·요약·소제목·바깥 짤)을 더하지 않는다 (옵갤형, 2026-11-21 사용자 규칙)
+    verbatim: bool = False
     sections: Sections = Field(default_factory=Sections)
     layout: Layout = Field(default_factory=Layout)
     caption: CaptionRules = Field(default_factory=CaptionRules)

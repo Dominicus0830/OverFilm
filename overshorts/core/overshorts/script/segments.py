@@ -235,6 +235,8 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
             "media": [], "comments": [], "read": [],
             "quote": seg.quote.strip()[:600] if seg.kind == "body" else "",
         }
+        if seg.kind in ("media", "reaction"):
+            s["photo_text"] = seg.photo_text
         if seg.kind == "media":
             for pick in seg.media:
                 m = by_name.get(pick.n.strip())
@@ -297,7 +299,8 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
                 image = f"원문:{photos[n_reaction % len(photos)]}"
             if image.startswith("원문:"):
                 n_reaction += 1
-            s["image"], s["say"], s["say_style"] = image, seg.say.strip()[:40], seg.say_style
+            say = "" if seg.photo_text == "none" else seg.say.strip()[:40]
+            s["image"], s["say"], s["say_style"] = image, say, seg.say_style
             s["lines"] = [s["say"]] if s["say"] else []
             if not image and not s["say"]:
                 continue

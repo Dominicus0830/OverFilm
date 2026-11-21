@@ -284,7 +284,7 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                 number = int(m["name"].split()[-1]) if m["name"].split()[-1].isdigit() else 0
                 item = {"src": srcf, "kind": m["kind"], "display": pick.get("display", "fill"),
                         "number": number,
-                        "caption": media_caption(opts.body, number) if m["kind"] == "image" else "",
+                        "caption": _photo_caption(seg, opts.body, number) if m["kind"] == "image" else "",
                         "start": round(starts[k], 3), "end": round(max(m_end, starts[k] + 0.5), 3),
                         "width": m.get("width") or 0, "height": m.get("height") or 0,
                         "muted": True}
@@ -530,6 +530,16 @@ def rich_lines(text: str, styles: list[dict[str, Any]] | None) -> list[list[dict
         else:
             out.append([{"t": ln.strip()}])
     return out if hit else None
+
+
+def _photo_caption(seg: dict[str, Any], body: str, number: int) -> str:
+    """사진에 넣을 글: 대본이 고른 대로 (original=원문 그 사진 아래 글, none=없음, custom=대본 줄)."""
+    mode = str(seg.get("photo_text") or "original")
+    if mode == "none":
+        return ""
+    if mode == "custom":
+        return "\n".join(str(t) for t in seg.get("lines") or [])[:300]
+    return media_caption(body, number)
 
 
 def media_caption(body: str, number: int) -> str:
