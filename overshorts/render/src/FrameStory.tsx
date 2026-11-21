@@ -136,6 +136,18 @@ const PhotoPage: React.FC<{spec: RenderSpec; m: SpecMedia; head: boolean; view: 
   const k = 1080 / SKIN_W;
   const contentH = (head ? 52 : 0) + photoHeight(m);
   const y = useScroll(contentH, view / k, start, end);
+  if (contentH * k <= view) {
+    // 화면에 다 들어가면 흰 바탕을 내용 높이만큼만, 무대 세로 가운데에 (2026-11-21 사용자: 위아래 빈칸 없이)
+    return (
+      <div style={{position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center'}}>
+        <div style={{width: SKIN_W, zoom: k, background: '#fff', color: '#333', fontSize: 13, lineHeight: 1.5,
+          flexShrink: 0}}>
+          {head ? <PostHead post={spec.post} /> : null}
+          <PhotoBlock m={m} />
+        </div>
+      </div>
+    );
+  }
   return (
     <Scaled width={1080} height={view} scrollY={y}>
       {head ? <PostHead post={spec.post} /> : null}

@@ -1,7 +1,7 @@
 // 디시 화면 스크린샷처럼 다시 그린 글 머리·사진·본문·댓글창 (기획서 3.10, 2026-11-15 사용자 피드백).
 // 실제 디시 크기(가로 480px, 글자 13px)로 그린 뒤 화면 폭에 맞게 통째로 키운다. 연출(확대·글자별 색) 없음.
 import React from 'react';
-import {Img, OffthreadVideo, interpolate, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
+import {Img, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {GALLERCON_SVG, REPLY_ARROW_PNG} from './dcAssets';
 import {mapFont} from './fonts';
 import {SpecComment, SpecMedia, SpecPost, StyledLine, StyledRun} from './spec';
@@ -88,15 +88,20 @@ export const PostHead: React.FC<{post: SpecPost}> = ({post}) => (
 
 /** 본문 속 사진·영상과 그 아래 본문 줄. 번호 칩·'댓글 열기' 버튼은 안 그린다 (2026-11-21 사용자). */
 export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
+  const {fps} = useVideoConfig();
   const aspect = m.width && m.height ? m.width / m.height : 16 / 9;
   const h = Math.round(SKIN_W / aspect);
   const style: React.CSSProperties = {width: SKIN_W, height: h, objectFit: 'cover', display: 'block'};
   return (
     <div style={{padding: '8px 0 0'}}>
       <div style={{position: 'relative'}}>
-        {m.kind === 'video' ? <OffthreadVideo src={src(m.src)} muted={m.muted} style={style}
-          playbackRate={m.playback_rate && m.playback_rate > 0 ? m.playback_rate : 1} />
-          : <Img src={src(m.src)} style={style} />}
+        {m.kind === 'video' ? (
+          // 영상은 장면이 시작할 때 처음부터 (Sequence 없이는 영상 전체 시각으로 재생돼 중간부터 나오고 일찍 끝나 멈춰 있었다)
+          <Sequence from={Math.round(m.start * fps)} layout="none">
+            <OffthreadVideo src={src(m.src)} muted={m.muted} style={style}
+              playbackRate={m.playback_rate && m.playback_rate > 0 ? m.playback_rate : 1} />
+          </Sequence>
+        ) : <Img src={src(m.src)} style={style} />}
       </div>
       {m.caption_runs ? (
         <div style={{padding: '4px 2px 6px', wordBreak: 'break-all'}}><RichLines lines={m.caption_runs} /></div>
