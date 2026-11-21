@@ -94,6 +94,16 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
     setRegen(false);
   };
 
+  // AI 가 뺀(옮긴) 단락 되살리기: 그 단락을 원래 자리에 두고 대본부터 다시
+  const restoreAside = async (ids: number[]) => {
+    if (!item) return;
+    try {
+      await api(`/api/review/${item.job_id}/asides`, {ids});
+      setMsg('단락을 원래 자리로 되살리고 대본부터 다시 씁니다');
+      setItems((old) => old.filter((x) => x.job_id !== item.job_id));
+    } catch (e) { setMsg((e as Error).message); }
+  };
+
   // A안·B안 전환: 같은 글의 다른 안으로 바꾸고 음성·미리보기를 다시 만든다
   const pickVariant = async (scriptId: number) => {
     if (!item) return;
@@ -254,6 +264,25 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
             <p className="muted small">구성 {item.script.composition}
               {item.script.composition === 'A' ? ' (제목 → 본문 → 댓글)' : ' (제목 → 본문)'}
               {item.script.composition_reason ? ` · ${item.script.composition_reason}` : ''}</p>
+          )}
+          {(item.script.asides ?? []).length > 0 && (
+            <div className="asides" data-automation-id="review-asides">
+              <p className="small"><b>AI 가 빼거나 옮긴 단락</b>
+                {(item.script.asides ?? []).length > 1 && (
+                  <button className="link" onClick={() => restoreAside((item.script.asides ?? []).map((a) => a.id))}
+                    data-automation-id="review-asides-all"> 모두 되살리기</button>)}</p>
+              <ul className="small">
+                {(item.script.asides ?? []).map((a) => (
+                  <li key={a.id}>
+                    <span className="muted">[{a.action === 'drop' ? '뺌' : a.action === 'end' ? '끝으로 옮김'
+                      : `${a.after}번 단락 뒤로 옮김`}]</span> {a.text}
+                    {a.reason ? <span className="muted"> · {a.reason}</span> : null}{' '}
+                    <button className="link" onClick={() => restoreAside([a.id])}
+                      data-automation-id={`review-aside-${a.id}`}>되살리기</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           {groups.map(({seg, idx}) => (
             <div key={seg} className={item.script.segments ? 'seg' : undefined}>

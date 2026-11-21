@@ -94,7 +94,7 @@ def filter_task(title: str, body: str, comments: list[str], block_categories: li
 def is_short_post(body: str) -> bool:
     """짧은 뻘글: [사진 N] 표시를 빼고 300자 이하, 10줄 이하."""
     text = "\n".join(ln for ln in (body or "").splitlines()
-                     if ln.strip() and not re.fullmatch(r"\s*\[(?:사진|영상) \d+\]\s*", ln))
+                     if ln.strip() and not re.fullmatch(r"\s*\[(?:(?:사진|영상) \d+|맺음말)\]\s*", ln))
     return len(re.sub(r"\s", "", text)) <= 300 and len(text.splitlines()) <= 10
 
 

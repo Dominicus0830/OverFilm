@@ -472,7 +472,7 @@ def with_pauses(edited: list[dict[str, Any]], old: list[dict[str, Any]]) -> list
 
 def strip_marks(body: str) -> str:
     return "\n".join(ln for ln in (body or "").splitlines()
-                     if not re.fullmatch(r"\s*\[(?:사진|영상) \d+\]\s*", ln))
+                     if not re.fullmatch(r"\s*\[(?:(?:사진|영상) \d+|맺음말)\]\s*", ln))
 
 
 def exists(path: str | Path) -> bool:
