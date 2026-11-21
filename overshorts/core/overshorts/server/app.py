@@ -454,6 +454,25 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         worker.submit(f"작업 {job_id} 이 단계부터 다시", run)
         return {"ok": True}
 
+    @app.post("/api/jobs/{job_id}/force")
+    def force(job_id: int) -> dict[str, Any]:
+        """'막힘' 작업을 그래도 만든다. 규칙에서 막혔으면 LLM 필터부터, LLM 필터에서 막혔으면 대본부터."""
+        s = db()
+        try:
+            row = s.conn.execute("SELECT status, error, post_id FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None:
+                raise HTTPException(404, "작업을 찾지 못했습니다")
+            if row["status"] != "blocked":
+                raise HTTPException(409, "막힌 작업이 아닙니다")
+            to = "crawled" if str(row["error"] or "").startswith("규칙:") else "filtered"
+            s.conn.execute("UPDATE posts SET discarded=0 WHERE id=?", (row["post_id"],))
+            s.set_job_status(job_id, to, None)
+            s.add_filter_result(int(row["post_id"]), "human", "pass", ["사람이 그래도 만들기"])
+        finally:
+            s.close()
+        worker.submit(f"작업 {job_id} 그래도 만들기", lambda p: p.run_to_review())
+        return {"ok": True}
+
     @app.delete("/api/jobs/{job_id}")
     def delete_job(job_id: int) -> dict[str, Any]:
         """작업 큐에서 지운다 (작업 폴더의 중간 파일도). 완성된 mp4 는 남긴다.
