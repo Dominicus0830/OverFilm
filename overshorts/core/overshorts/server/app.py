@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import secrets
 import shutil
 import threading
 import traceback
@@ -19,11 +21,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .. import __version__
 from ..config import crawl_limits, load_config
 from ..crawler.budget import CrawlGuard
 from ..crawler.collector import GalleryOptions
@@ -34,6 +37,38 @@ from ..urls import GALL_TYPES, DcUrl, UrlError, parse_url
 from .settings import settings_router
 
 PANEL_DIST = Path(__file__).resolve().parents[3] / "panel" / "dist"
+
+
+def _stop(app: FastAPI, worker: Worker) -> None:
+    """서버를 끈다. 도는 작업이 있으면 먼저 취소해 렌더·FFmpeg 같은 하위 프로그램이 남지 않게 한다."""
+    if worker.current is not None:
+        worker.cancel_current()
+        for _ in range(50):  # 최대 약 10초 기다린다
+            if worker.current is None:
+                break
+            threading.Event().wait(0.2)
+    request_exit = getattr(app.state, "request_exit", None)
+    if callable(request_exit):
+        request_exit()
+
+
+async def _exit_when_no_window(app: FastAPI, hub: Hub, worker: Worker,
+                               grace: float = 12.0, first_wait: float = 180.0) -> None:
+    """창 모드: 패널 창이 모두 닫히고 grace 초 동안 다시 붙지 않으면 서버를 끈다.
+    새로 고침·잠깐 끊김은 패널이 3초 안에 다시 붙으므로 꺼지지 않는다.
+    창이 한 번도 붙지 않으면(창을 못 열었으면) first_wait 초 뒤에 끈다. 숨은 서버가 남지 않게."""
+    loop = asyncio.get_running_loop()
+    started = last_seen = loop.time()
+    seen = False
+    while True:
+        await asyncio.sleep(2.0)
+        now = loop.time()
+        if hub.clients:
+            seen, last_seen = True, now
+            continue
+        if (seen and now - last_seen >= grace) or (not seen and now - started >= first_wait):
+            await asyncio.to_thread(_stop, app, worker)
+            return
 
 
 class Hub:
@@ -260,7 +295,10 @@ class CringeIn(BaseModel):
 
 def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None,
                start_worker: bool = True,
-               pipeline_factory: Callable[[Store], Pipeline] | None = None) -> FastAPI:
+               pipeline_factory: Callable[[Store], Pipeline] | None = None,
+               idle_exit: bool = False, shutdown_token: str | None = None) -> FastAPI:
+    """idle_exit: 창 모드(`serve --window`). 패널 창이 모두 닫히면(WebSocket 이 다 끊기면) 서버를 끈다.
+    shutdown_token: 새 버전 실행기가 이 서버를 끌 때 쓰는 토큰 (/api/shutdown)."""
     cfg = cfg or load_config(config_path)
     data = Path(str(cfg.get("data_dir") or "./data"))
     db_path = data / "overshorts.db"
@@ -272,7 +310,10 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         hub.loop = asyncio.get_running_loop()
         if start_worker:
             worker.start()
+        watch = asyncio.create_task(_exit_when_no_window(_app, hub, worker)) if idle_exit else None
         yield
+        if watch is not None:
+            watch.cancel()
 
     app = FastAPI(title="OverShorts 패널", lifespan=lifespan)
     app.state.worker = worker
@@ -286,6 +327,52 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         return Store(db_path)
 
     app.include_router(settings_router(cfg, config_path, data, worker.submit))
+
+    # --- 창 모드 (window.py) ---
+    @app.get("/api/hello")
+    def hello() -> dict[str, Any]:
+        """실행기가 '이미 켜진 OverShorts 인지, 같은 빌드인지' 알아보는 가벼운 응답."""
+        from ..window import build_id
+
+        build = app.state.__dict__.setdefault("build", build_id())
+        return {"app": "overshorts", "version": __version__, "build": build,
+                "window": idle_exit, "busy": worker.current is not None or worker.tasks.qsize() > 0}
+
+    @app.post("/api/shutdown")
+    def shutdown(x_overshorts_token: str = Header(default="")) -> dict[str, Any]:
+        """새 버전 실행기가 예전 서버를 끈다. 토큰은 데이터 폴더의 .server.json 에만 있어
+        다른 웹 페이지는 부를 수 없다 (사용자 정의 헤더라 브라우저가 다른 사이트의 요청을 막는다)."""
+        if not shutdown_token or not secrets.compare_digest(x_overshorts_token, shutdown_token):
+            raise HTTPException(403, "끌 수 없습니다")
+        threading.Thread(target=_stop, args=(app, worker), name="overshorts-stop", daemon=True).start()
+        return {"ok": True}
+
+    @app.get("/api/server-log")
+    def server_log() -> dict[str, Any]:
+        """창 모드는 콘솔이 없어서 서버 출력이 파일로 간다 (launch.py 가 OVERSHORTS_LOG 로 알려 준다)."""
+        path = os.environ.get("OVERSHORTS_LOG") or ""
+        if not path or not Path(path).is_file():
+            return {"path": path or None, "lines": []}
+        try:
+            with open(path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                f.seek(max(0, f.tell() - 64_000))
+                text = f.read().decode("utf-8", "replace")
+        except OSError as err:
+            raise HTTPException(500, f"로그를 읽지 못했습니다: {err}") from err
+        return {"path": path, "lines": text.splitlines()[-300:]}
+
+    @app.post("/api/server-log/open")
+    def open_server_log_folder() -> dict[str, Any]:
+        path = os.environ.get("OVERSHORTS_LOG") or ""
+        folder = Path(path).parent if path else None
+        if folder is None or not folder.is_dir() or not hasattr(os, "startfile"):
+            raise HTTPException(404, "로그 폴더가 없습니다")
+        try:
+            os.startfile(str(folder))  # type: ignore[attr-defined]  # noqa: S606 - 윈도우 탐색기로 연다
+        except OSError as err:
+            raise HTTPException(500, f"폴더를 열지 못했습니다: {err}") from err
+        return {"ok": True}
 
     # --- 홈 ---
     @app.get("/api/status")
@@ -452,6 +539,25 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
             p.run_to_review()
 
         worker.submit(f"작업 {job_id} 이 단계부터 다시", run)
+        return {"ok": True}
+
+    @app.post("/api/jobs/{job_id}/force")
+    def force(job_id: int) -> dict[str, Any]:
+        """'막힘' 작업을 그래도 만든다. 규칙에서 막혔으면 LLM 필터부터, LLM 필터에서 막혔으면 대본부터."""
+        s = db()
+        try:
+            row = s.conn.execute("SELECT status, error, post_id FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None:
+                raise HTTPException(404, "작업을 찾지 못했습니다")
+            if row["status"] != "blocked":
+                raise HTTPException(409, "막힌 작업이 아닙니다")
+            to = "crawled" if str(row["error"] or "").startswith("규칙:") else "filtered"
+            s.conn.execute("UPDATE posts SET discarded=0 WHERE id=?", (row["post_id"],))
+            s.set_job_status(job_id, to, None)
+            s.add_filter_result(int(row["post_id"]), "human", "pass", ["사람이 그래도 만들기"])
+        finally:
+            s.close()
+        worker.submit(f"작업 {job_id} 그래도 만들기", lambda p: p.run_to_review())
         return {"ok": True}
 
     @app.delete("/api/jobs/{job_id}")
@@ -740,13 +846,21 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         await sock.accept()
         q: asyncio.Queue = asyncio.Queue(maxsize=500)
         hub.clients.add(q)
-        try:
+
+        async def pump() -> None:
             while True:
                 event = await q.get()
                 await sock.send_text(json.dumps(event, ensure_ascii=False))
+
+        sender = asyncio.create_task(pump())
+        try:
+            # 받는 쪽도 돌려야 창이 닫힌 것(연결 끊김)을 바로 안다. 보내기만 하면 다음 이벤트까지 모른다.
+            while not sender.done():
+                await sock.receive_text()
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
+            sender.cancel()
             hub.clients.discard(q)
 
     app.mount("/files/jobs", StaticFiles(directory=str(data / "jobs")), name="jobs")
@@ -757,6 +871,11 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         def panel(path: str):
             if path.startswith("api/"):
                 return JSONResponse({"detail": "없음"}, status_code=404)
+            # 창 아이콘·manifest 같은 dist 맨 위 파일 (panel/public). 하위 폴더나 '..' 는 받지 않는다.
+            if path and "/" not in path and "\\" not in path and not path.startswith("."):
+                top = PANEL_DIST / path
+                if top.is_file() and top.parent == PANEL_DIST:
+                    return FileResponse(top)
             # 새 버전을 설치하면 바로 새 화면이 뜨게 (브라우저가 예전 index.html 을 쓰지 않게)
             return FileResponse(PANEL_DIST / "index.html", headers={"Cache-Control": "no-cache"})
 

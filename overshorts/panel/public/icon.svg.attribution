@@ -1,0 +1,7 @@
+asset:        icon.svg
+title:        OverShorts panel window icon (vertical frame with play mark)
+author:       FilmCraft contributors
+source:       original work (drawn by hand as SVG for the OverShorts window, 2026-11-21)
+license:      MIT OR Apache-2.0
+added:        2026-11-21 by Claude (agent) for Dominicus0830
+notes:        Used as the favicon and manifest icon, so the OverShorts app window shows it in the title bar and taskbar.

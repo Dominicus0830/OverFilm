@@ -23,6 +23,10 @@ _SPACE = re.compile(r"\s+")
 _NO_REPOST = re.compile(r"퍼\s*가지\s*마|퍼가\s*지\s*마|쇼츠\s*(?:금지|싸개|ㄴㄴ)|무단\s*(?:퍼감|전재|사용)\s*금지|펌\s*금지")
 
 
+# 갤러리 수집용 '감' 기준. 글 링크를 직접 넣으면 이 사유로는 막지 않는다 (2026-11-21).
+LENGTH_REASONS = ("그림만 있는 글", "글이 짧습니다", "글이 너무 깁니다")
+
+
 @dataclass
 class RuleConfig:
     min_chars: int = 15
