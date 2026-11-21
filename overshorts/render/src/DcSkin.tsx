@@ -69,7 +69,7 @@ export const Scaled: React.FC<{width: number; height: number; children: React.Re
 // 닉 옆 딱지: 디시 sp_gallercon.svg 스프라이트 (고닉 fix_nik / 반고닉 nik 자리 그대로).
 const NickIcon: React.FC<{icon: string}> = ({icon}) => (icon ? (
   <span style={{display: 'inline-block', boxSizing: 'content-box', width: 0, height: 0, padding: '11px 0 0 12px',
-    marginLeft: 4, verticalAlign: -1, background: `url(${GALLERCON_SVG}) no-repeat`,
+    marginLeft: 2, verticalAlign: -1, background: `url(${GALLERCON_SVG}) no-repeat`,
     backgroundSize: icon === 'fix' ? 101 : 92, backgroundPosition: icon === 'fix' ? '-0.5px -17px' : '0 0'}} />
 ) : null);
 
@@ -146,7 +146,7 @@ const DC_CSS = `
 .dcc .reply .nickname.in>em{max-width:107px}
 .dcc .nickname .ip{display:inline-block;vertical-align:1px;font-family:tahoma,sans-serif;font-size:11px;color:#999}
 .dcc .nomem_nicknum{color:#333}
-.dcc .writer_nikcon{margin-left:4px;line-height:0}
+.dcc .writer_nikcon{margin-left:2px;line-height:0}
 .dcc .writer_nikcon i{display:inline-block;box-sizing:content-box;width:0;height:0;padding:11px 0 0 12px;vertical-align:-1px;background:url(${GALLERCON_SVG}) no-repeat;background-size:92px;background-position:0 0}
 .dcc .writer_nikcon i.fix{background-size:101px;background-position:-0.5px -17px}
 .dcc .cmt_txtbox{float:left;width:${TXT_W}px}
@@ -167,7 +167,6 @@ const DC_CSS = `
 .dcc .reply .comment_dccon{padding-left:16px}
 .dcc .coment_dccon_img{float:left;height:100px;line-height:0}
 .dcc .written_dccon{width:100px;height:100px;object-fit:contain}
-.dcc .dccon_name{line-height:20px;color:#999}
 .dcc .blur{filter:blur(4px)}
 `;
 
@@ -180,17 +179,20 @@ const Writer: React.FC<{c: SpecComment}> = ({c}) => (
   </span>
 );
 
+/** 댓글의 디시콘 그림들 (받은 그림만. 못 받은 건 괄호 글자 대신 안 보임). */
+const cons = (c: SpecComment): string[] => (c.dccons?.length ? c.dccons.map((d) => d.src)
+  : c.dccon?.src ? [c.dccon.src] : []);
+
 const CmtBody: React.FC<{c: SpecComment; blurNick: boolean}> = ({c, blurNick}) => (
   <>
     <div className={blurNick ? 'cmt_nickbox blur' : 'cmt_nickbox'}><Writer c={c} /></div>
     <div className="clear cmt_txtbox">
       {c.text ? <p className="usertxt ub-word">{c.text}</p> : null}
-      {c.dccon ? (
+      {cons(c).length ? (
         <div className="comment_dccon clear">
-          <div className="coment_dccon_img">
-            {c.dccon.src ? <Img className="written_dccon" src={src(c.dccon.src)} />
-              : <span className="dccon_name">({c.dccon.name})</span>}
-          </div>
+          {cons(c).map((d, i) => (
+            <div key={i} className="coment_dccon_img"><Img className="written_dccon" src={src(d)} /></div>
+          ))}
         </div>
       ) : null}
     </div>

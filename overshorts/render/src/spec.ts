@@ -25,6 +25,7 @@ export type SpecPost = {title: string; subject: string; nick: string; ip: string
 export type SpecComment = {
   no: number; nick: string; ip: string; icon: '' | 'fix' | 'half'; text: string; depth: number;
   dccon: {src: string | null; name: string} | null; appear: number; read: [number, number] | null;
+  dccons?: {src: string; name: string}[]; // 한 댓글 디시콘 여러 개 (나란히)
   date?: string; // 디시 댓글 시각 '11.14 17:45:31'
   page: number; // 스크린샷 한 장 번호 (원댓글과 답글은 같은 장)
 };
@@ -164,6 +165,9 @@ export function sanitize(input: unknown): RenderSpec {
       dccon: c?.dccon ? {src: typeof c.dccon.src === 'string' ? c.dccon.src : null, name: str(c.dccon.name)} : null,
       appear: t(c?.appear),
       read: Array.isArray(c?.read) && c.read.length === 2 ? [t(c.read[0]), t(c.read[1])] : null,
+      dccons: (Array.isArray(c?.dccons) ? c.dccons.slice(0, 4) : [])
+        .filter((d: any) => typeof d?.src === 'string' && d.src)
+        .map((d: any) => ({src: str(d.src), name: str(d.name)})),
       date: str(c?.date).slice(0, 20),
       page: Math.round(num(c?.page, 0, 0, 50)),
     })),
