@@ -39,6 +39,18 @@ from .settings import settings_router
 PANEL_DIST = Path(__file__).resolve().parents[3] / "panel" / "dist"
 
 
+def _quiet_connection_reset(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+    """Windows 의 asyncio(Proactor)는 브라우저가 연결을 먼저 끊으면(창을 열 때 미리 열어 둔 연결을
+    닫거나 새로 고칠 때) 이미 끝난 연결을 정리하다 ConnectionResetError(WinError 10054)를
+    'Exception in callback _ProactorBasePipeTransport._call_connection_lost' 로 남긴다.
+    요청 처리와 상관없는 정리 단계라 기능에는 영향이 없다. 서버 기록에서 오류로 오해하지 않게
+    그 경우만 조용히 넘기고, 다른 예외는 그대로 기록한다."""
+    err = context.get("exception")
+    if isinstance(err, ConnectionResetError) and "_call_connection_lost" in repr(context.get("handle")):
+        return
+    loop.default_exception_handler(context)
+
+
 def _stop(app: FastAPI, worker: Worker) -> None:
     """서버를 끈다. 도는 작업이 있으면 먼저 취소해 렌더·FFmpeg 같은 하위 프로그램이 남지 않게 한다."""
     if worker.current is not None:
@@ -308,6 +320,7 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         hub.loop = asyncio.get_running_loop()
+        hub.loop.set_exception_handler(_quiet_connection_reset)
         if start_worker:
             worker.start()
         watch = asyncio.create_task(_exit_when_no_window(_app, hub, worker)) if idle_exit else None
