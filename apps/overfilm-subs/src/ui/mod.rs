@@ -73,6 +73,7 @@ pub fn shell(app: &mut App, root: &mut egui::Ui, ctx: &egui::Context) {
                     go = Some(Page::Settings);
                 }
             });
+            widgets::nav_indicator(ui);
             if let Some(page) = go {
                 app.page = page;
                 app.status = None;

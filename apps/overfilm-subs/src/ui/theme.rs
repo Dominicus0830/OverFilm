@@ -110,6 +110,8 @@ pub fn subtitle() -> TextStyle {
 
 pub const CONTROL_RADIUS: u8 = 4;
 pub const OVERLAY_RADIUS: u8 = 8;
+/// How long a state change moves (`docs/design.md`: 0.12 to 0.18 s, fade or move, no bounce).
+pub const MOTION: f32 = 0.15;
 
 /// Install both themes and the type ramp; egui then follows the system theme.
 pub fn install(ctx: &egui::Context) {
@@ -131,6 +133,7 @@ pub fn install(ctx: &egui::Context) {
         s.spacing.interact_size.y = 32.0;
         s.spacing.combo_height = 320.0;
         s.spacing.menu_margin = egui::Margin::same(4);
+        s.animation_time = MOTION;
     });
 }
 
