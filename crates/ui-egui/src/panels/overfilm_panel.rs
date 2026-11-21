@@ -666,9 +666,13 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         ui.add_space(10.0);
         ui.separator();
         ui.label(RichText::new(tl!("Tools")).strong());
-        egui::Grid::new("overfilm-panel-tools").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            for (group, list) in TOOL_GROUPS.iter() {
-                ui.horizontal(|ui| {
+        // One row per group: the name in a fixed column, the buttons wrapping in the rest. Not a
+        // Grid: a Grid sizes a row from the frame before, so a row whose buttons wrap onto a
+        // second line overlapped the next row.
+        for (group, list) in TOOL_GROUPS.iter() {
+            ui.horizontal_top(|ui| {
+                ui.allocate_ui_with_layout(vec2(96.0, 22.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.set_min_size(vec2(96.0, 22.0));
                     ui.spacing_mut().item_spacing.x = 6.0;
                     inline_icon(ui, group_icon(group), t.text_dim);
                     ui.label(RichText::new(group_label(group)).color(t.text_dim));
@@ -683,9 +687,9 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                         }
                     }
                 });
-                ui.end_row();
-            }
-        });
+            });
+            ui.add_space(4.0);
+        }
         review_results(ui, &mut elems, &facts.last_review, &mut picked, t);
         // the kill list is never taller than the panel, so the panel still scrolls past it
         let fit = f64::from(rect.height() - 90.0 - RUN_BAR_HEIGHT).max(KILLS_MIN);
