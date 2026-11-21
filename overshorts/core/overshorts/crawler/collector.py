@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from ..db import Store
-from ..filters.rules import RuleConfig, check_post
+from ..filters.rules import LENGTH_REASONS, RuleConfig, RuleResult, check_post
 from ..urls import DcUrl, parse_url
 from .budget import CrawlStopped
 from .dc_parser import Comment, Post, parse_comments, parse_list, parse_post, redirects_to_mgallery
@@ -54,6 +54,8 @@ class IngestReport:
             parts.append(f"멈춤: {self.stopped}")
         if self.errors:
             parts.append(f"오류 {len(self.errors)}건")
+        for no, why in self.blocked[:3]:  # 왜 막혔는지 바로 보이게 (2026-11-21)
+            parts.append(f"{no}번 글 막힘: {'; '.join(why) or '사유 없음'}")
         return ", ".join(parts)
 
 
@@ -172,12 +174,17 @@ class Collector:
             report.errors.append(f"{post_no}: 삭제된 글")
             return
         result = check_post(post.title, post.body, post.images, self.rules)
+        if explicit and result.verdict == "block":
+            # 글 링크를 직접 넣었으면 '짧은 글·그림만 있는 글·너무 긴 글' 같은 갤러리 수집용 기준은 보지 않는다.
+            # 개인정보·퍼가기 금지·금지어는 그대로 막되, 작업 큐에 사유와 함께 남겨 '그래도 만들기'를 할 수 있게.
+            kept = [r for r in result.reasons if not r.startswith(LENGTH_REASONS)]
+            result = RuleResult("block" if kept else "pass", kept, result.chars)
         comments: list[Comment] = []
         images = [{"kind": "image", "url": u, "local": None, "inspected": None}
                   for u in post.images]
         images += [{"kind": "video", "url": u, "local": None, "inspected": None}
                    for u in post.videos]
-        if result.verdict == "pass":
+        if result.verdict == "pass" or explicit:
             if self.max_comments > 0 and post.comment_count > 0:
                 comments = self._comments(url, post, view, report)
                 self._dccons(url, post, comments, report)
@@ -189,6 +196,8 @@ class Collector:
             report.saved.append(post_id)
         else:
             report.blocked.append((post_no, result.reasons))
+            if explicit:  # 직접 넣은 글은 큐에 '막힘'으로 보이게 (갤러리 수집은 조용히 건너뜀)
+                self.store.add_job(post_id, "blocked", "규칙: " + "; ".join(result.reasons))
 
     def _images(self, url: DcUrl, post: Post, report: IngestReport) -> list[dict]:
         """규칙을 통과한 글의 첨부 사진·동영상만 받는다.

@@ -86,7 +86,10 @@ export function Queue({tick, events}: {tick: number; events: Event[]}) {
                   {j.error && <div className="muted small">{j.error}</div>}
                 </td>
                 <td><div className="row-actions">
-                  {j.error && j.status !== 'rejected' && (
+                  {j.status === 'blocked' && (
+                    <button className="small-btn" disabled={busy} onClick={() => act(() => api(`/api/jobs/${j.id}/force`, {}))}
+                      data-automation-id={`job-force-${j.id}`}>그래도 만들기</button>)}
+                  {j.error && j.status !== 'rejected' && j.status !== 'blocked' && (
                     <button className="small-btn" disabled={busy} onClick={() => act(() => api(`/api/jobs/${j.id}/retry`, {}))}>이 단계부터 다시</button>)}
                   <button className="small-btn danger" disabled={busy} onClick={() => setToDelete(j)}
                     data-automation-id={`job-delete-${j.id}`}>삭제</button>
