@@ -105,6 +105,7 @@ class SpecOptions:
     show_source: bool = True  # 아래 '출처: …' 표시 (검수 화면에서 켜기/끄기)
     body_styles: list[dict[str, Any]] = field(default_factory=list)  # 글쓴이가 꾸민 줄 (dc_parser.styled_lines)
     edit: Preset | None = None  # 편집 유형 (화면 배치·자막 줄 길이·댓글 시간). 없으면 옛 프레임형
+    direct: bool = True  # 글 연출 AI 판단 (등장·퇴장 시점, 크기·색·굵기·글꼴). 끄면 규칙대로 (render.text_direction)
 
 
 def caption_chunks(scenes: list[dict[str, Any]], max_chars: int = MAX_CAPTION_CHARS,
@@ -406,7 +407,8 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
             c["style"] = "band"
     base.update(version=2, preset=preset, post_title=str(post.get("title") or ""), segments=segments,
                 layout=layout_spec(edit), edit_type=edit.id if edit else "",
-                captions=sorted(chunks + silent, key=lambda c: c["start"]),
+                captions=[{**c, "id": f"C{k}"} for k, c in
+                          enumerate(sorted(chunks + silent, key=lambda c: c["start"]))],
                 bgm=bgm, nickname=opts.nickname if opts.nickname in ("original", "blur", "replace")
                 else "original", warnings=warnings)
     return base
@@ -632,7 +634,7 @@ def fetch_missing_dccons(comments: list[dict[str, Any]], script: dict[str, Any],
 
 def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
                  limit: int = 50, opts: SpecOptions | None = None,
-                 fetch_image: Callable[[str], bytes] | None = None) -> dict[str, int]:
+                 fetch_image: Callable[[str], bytes] | None = None, router: Any = None) -> dict[str, int]:
     opts = opts or SpecOptions()
     rows = store.conn.execute(
         "SELECT j.id AS job_id, p.gall_id, p.gall_name, p.title, p.subject, p.body, p.images, p.comments, "
@@ -673,6 +675,13 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
             else:  # 세그먼트 이전 대본 (썰 카드형)
                 spec = build_spec(timing, str(script.get("title") or ""), str(row["subject"] or ""),
                                   str(script.get("fact") or ""), source, bg_name)
+            if opts.direct and spec.get("version") == 2:
+                # 장면별 글 등장·퇴장 시점과 크기·색·모양을 AI 가 정한다 (2026-11-21 사용자). 끄면 규칙대로
+                from .direct import direct_spec
+
+                warn = direct_spec(spec, job_dir, router)
+                if warn:
+                    spec["warnings"] = [*(spec.get("warnings") or []), warn]
             _add_verify_warnings(spec, job_dir)
             # 수집 때 못 받은 사진·영상: 왜 화면에 없는지 검수에서 보이게
             lost = [f"원문 {'영상' if m.get('kind') == 'video' else '사진'}: {m['error']}"

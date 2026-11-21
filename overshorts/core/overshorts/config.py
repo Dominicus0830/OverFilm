@@ -45,7 +45,7 @@ DEFAULTS: dict[str, Any] = {
                         "config": None, "speed": 1.0, "unload_after": True, "align": "auto"}},
     "render": {"preset": "auto", "tone": "담백", "background_dir": "./assets/bg",
                "composition": "auto", "max_media": 6, "nickname": "original",
-               "bgm_dir": None, "show_source": True, "out_dir": None, "browser_executable": None,
+               "bgm_dir": None, "show_source": True, "text_direction": True, "out_dir": None, "browser_executable": None,
                # 편집 유형(S17): ogal 옵갤형 | issue 이슈형 | info 정보형 | game 게임형 | <style>/presets 의 커스텀 id.
                # 아래 값이 비어(None) 있으면 유형 프리셋의 값을 쓴다.
                "edit_type": "ogal", "max_comments": None, "tts": "preset",
@@ -146,7 +146,7 @@ def spec_options(cfg: dict[str, Any]):
                        nickname=str(r.get("nickname") or "original"),
                        bgm_dir=Path(str(bgm)) if bgm else None,
                        show_source=r.get("show_source", True) is not False,
-                       edit=edit_preset(cfg))
+                       edit=edit_preset(cfg), direct=flag(r.get("text_direction", True)))
 
 
 def flag(value: Any) -> bool:
@@ -266,6 +266,7 @@ SETTINGS: dict[tuple[str, str], Setting] = {
     ("script", "lint"): Setting("bool"),
     ("script", "soften"): Setting("bool"),
     ("verify", "enabled"): Setting("bool"),
+    ("render", "text_direction"): Setting("bool"),
 }
 _FREE_TEXT = re.compile(r"^[\w.:\-/@가-힣 ]{0,120}$")
 
@@ -449,6 +450,7 @@ _NOTES = {
     ("render", "bgm_dir"): "무음이 5초 넘지 않게 깔 BGM (라이선스 있는 것만)",
     ("render", "background_dir"): "직접 녹화했거나 라이선스 있는 배경 영상만",
     ("render", "show_source"): "영상 아래 '출처: DC인사이드 …' 표시",
+    ("render", "text_direction"): "글 연출 AI 판단: 장면마다 글 등장·퇴장 시점, 크기·색·굵기·글꼴 (켬이 기본, 끄면 규칙대로)",
     ("render", "out_dir"): "다 만든 영상 폴더 (비우면 데이터 폴더/approved)",
     ("render", "browser_executable"): "비우면 Remotion 이 받은 Chrome",
     ("style", "dir"): "말투 예시·금지 표현·짤 폴더",

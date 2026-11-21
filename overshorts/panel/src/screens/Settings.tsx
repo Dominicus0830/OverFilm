@@ -39,6 +39,7 @@ const GROUPS: Group[] = [
     {key: 'style.min_cringe_score', label: '오글 검사 기준', hint: '0~10. 이보다 낮으면 대본을 다시 씀', step: 0.5},
   ]},
   {title: '영상', items: [
+    {key: 'render.text_direction', label: '글 연출 AI 판단', hint: '장면마다 글 뜨고 사라지는 때, 크기·색·굵기·글꼴을 AI 가 정함. 끄면 규칙대로'},
     {key: 'render.show_source', label: '출처 표시', hint: "영상 아래 '출처: DC인사이드 …'. 이미 만든 미리보기도 바뀜"},
     {key: 'render.preset', label: '화면 모양', names: {auto: '자동 (원문 사진·영상 있으면 프레임형)', frame: '프레임형', card: '썰 카드형'}},
     {key: 'render.composition', label: '구성', names: {auto: 'AI 가 고름', A: 'A: 제목 → 본문 → 댓글', B: 'B: 제목 → 본문'}},

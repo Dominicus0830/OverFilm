@@ -10,7 +10,7 @@ import {
   BodyText, CMT_W, CommentPage, PhotoBlock, PostHead, SKIN_W, Scaled, photoHeight, runCss, textHeight, useScroll,
 } from './DcSkin';
 import {FONT_FAMILY, HAND_FONT, SHOUT_FONT, loadFonts} from './fonts';
-import {RenderSpec, SayStyle, SpecMedia, SpecSegment, StyledLine, sanitize} from './spec';
+import {RenderSpec, SayStyle, SpecMedia, SpecSegment, StyledLine, TextLook, sanitize} from './spec';
 
 loadFonts();
 
@@ -36,6 +36,17 @@ function current<T extends {start: number}>(items: T[], t: number): T | null {
   return cur;
 }
 
+/** 글 연출 AI 판단의 모양을 자막 CSS 위에 얹는다: 크기는 배율, 색·굵기·글꼴은 바꿀 때만 (2026-11-21). */
+function withLook(css: React.CSSProperties, look: TextLook | null | undefined): React.CSSProperties {
+  if (!look) return css;
+  const out = {...css};
+  if (look.scale && typeof css.fontSize === 'number') out.fontSize = Math.round(css.fontSize * look.scale);
+  if (look.color) out.color = look.color;
+  if (look.bold !== undefined) out.fontWeight = look.bold ? 900 : 400;
+  if (look.font) out.fontFamily = look.font === 'shout' ? SHOUT_FONT : look.font === 'hand' ? HAND_FONT : FONT_FAMILY;
+  return out;
+}
+
 const Title: React.FC<{text: string; height: number; safe: Safe}> = ({text, height, safe}) => (
   <div style={{position: 'absolute', left: 60, right: 60, top: pct(height, safe.title[0]),
     height: pct(height, safe.title[1] - safe.title[0]), display: 'flex', alignItems: 'center',
@@ -56,37 +67,40 @@ const SAY_LOOK: Record<Exclude<SayStyle, 'band'>, React.CSSProperties> = {
   smug: {fontFamily: SHOUT_FONT, fontWeight: 400, fontSize: 108, color: '#FFD43B', WebkitTextStroke: '14px #000'},
 };
 
-const SayCaption: React.FC<{text: string; style: Exclude<SayStyle, 'band'>; height: number; safe: Safe}> = ({
-  text, style, height, safe,
-}) => (
+const SayCaption: React.FC<{text: string; style: Exclude<SayStyle, 'band'>; height: number; safe: Safe;
+  look?: TextLook | null}> = ({text, style, height, safe, look}) => (
   <div style={{position: 'absolute', left: 30, right: 30, top: pct(height, safe.say[0]),
     height: pct(height, safe.say[1] - safe.say[0]), display: 'flex', alignItems: 'center',
     justifyContent: 'center', textAlign: 'center'}}>
-    <div style={{lineHeight: 1.1, wordBreak: 'keep-all', paintOrder: 'stroke fill', ...SAY_LOOK[style],
+    <div style={withLook({lineHeight: 1.1, wordBreak: 'keep-all', paintOrder: 'stroke fill', ...SAY_LOOK[style],
       // 긴 줄은 두 줄 안에 들어가게 줄인다
       fontSize: Math.max(58, Math.round(Number(SAY_LOOK[style].fontSize)
-        * Math.min(1, 12 / Math.max(1, text.replace(/\s/g, '').length)) ** 0.75))}}>
+        * Math.min(1, 12 / Math.max(1, text.replace(/\s/g, '').length)) ** 0.75))}, look)}>
       {text}</div>
   </div>
 );
 
 /** 흰 띠 한 줄 자막: 참고 쇼츠의 짤·클립 아래에 붙은 흰 박스 (한 줄, 가운데). 글자 수에 맞춰 줄인다. */
-const BandCaption: React.FC<{text: string; height: number; safe: Safe}> = ({text, height, safe}) => (
+const BandCaption: React.FC<{text: string; height: number; safe: Safe; look?: TextLook | null}> = ({
+  text, height, safe, look,
+}) => (
   <div style={{position: 'absolute', left: 0, right: 0, top: pct(height, safe.caption[0]),
     height: pct(height, safe.caption[1] - safe.caption[0]), display: 'flex', alignItems: 'center',
     justifyContent: 'center'}}>
-    <div style={{background: '#fff', color: '#111', fontWeight: 800, padding: '10px 28px', maxWidth: '94%',
+    <div style={withLook({background: '#fff', color: '#111', fontWeight: 800, padding: '10px 28px', maxWidth: '94%',
       textAlign: 'center', whiteSpace: 'nowrap', lineHeight: 1.25, letterSpacing: -1,
-      fontSize: Math.max(34, Math.min(60, Math.round(1000 / Math.max(8, text.length))))}}>{text}</div>
+      fontSize: Math.max(34, Math.min(60, Math.round(1000 / Math.max(8, text.length))))}, look)}>{text}</div>
   </div>
 );
 
 // 원문 줄을 그대로 쓴 대사: 글쓴이가 꾸민 색·크기·글꼴·굵게·기울임을 따른다 (2026-11-15 사용자 의견).
 // 바탕은 차분한 흰 글씨(calm)이고 원문 꾸밈이 덮어쓴다. 사진 위에서도 읽히게 검은 테두리는 남긴다.
-const RichSayCaption: React.FC<{runs: StyledLine; height: number; safe: Safe}> = ({runs, height, safe}) => {
+const RichSayCaption: React.FC<{runs: StyledLine; height: number; safe: Safe; scale?: number}> = ({
+  runs, height, safe, scale = 1,
+}) => {
   const base = SAY_LOOK.calm;
   const chars = runs.reduce((n, r) => n + r.t.replace(/\s/g, '').length, 0);
-  const fit = Math.min(1, 12 / Math.max(1, chars)) ** 0.75;
+  const fit = (Math.min(1, 12 / Math.max(1, chars)) ** 0.75) * scale; // scale: 글 연출 AI 판단 크기 배율
   // 원문 크기 비율: 디시 기본 13~16px 이 80, 36px 이면 1.5배까지
   const sizeOf = (px?: number) => Math.max(58, Math.round(Number(base.fontSize) * fit
     * Math.min(1.5, Math.max(1, (px ?? 16) / 20))));
@@ -114,16 +128,21 @@ const Caption: React.FC<{spec: RenderSpec; height: number; safe: Safe}> = ({spec
   const t = frame / fps;
   const cap = spec.captions.find((c) => t >= c.start && t < c.end);
   if (!cap) return null;
-  if (cap.runs) return <RichSayCaption runs={cap.runs} height={height} safe={safe} />;
-  if (cap.style === 'band') return <BandCaption text={cap.words.map((w) => w.text).join(' ')} height={height} safe={safe} />;
-  if (cap.style) return <SayCaption text={cap.words.map((w) => w.text).join(' ')} style={cap.style} height={height} safe={safe} />;
+  if (cap.runs) return <RichSayCaption runs={cap.runs} height={height} safe={safe} scale={cap.look?.scale} />;
+  if (cap.style === 'band') {
+    return <BandCaption text={cap.words.map((w) => w.text).join(' ')} height={height} safe={safe} look={cap.look} />;
+  }
+  if (cap.style) {
+    return <SayCaption text={cap.words.map((w) => w.text).join(' ')} style={cap.style} height={height} safe={safe}
+      look={cap.look} />;
+  }
   // 한 색으로 2~4단어를 통째로 보여 준다 (글자별 색 바뀜·확대 없음)
   return (
     <div style={{position: 'absolute', left: 40, right: 40, top: pct(height, safe.caption[0]),
       height: pct(height, safe.caption[1] - safe.caption[0]), display: 'flex', alignItems: 'center',
       justifyContent: 'center', textAlign: 'center'}}>
-      <div style={{fontSize: 74, fontWeight: 900, letterSpacing: -2, lineHeight: 1.1, wordBreak: 'keep-all',
-        color: '#FFD43B', WebkitTextStroke: '12px #000', paintOrder: 'stroke fill'}}>
+      <div style={withLook({fontSize: 74, fontWeight: 900, letterSpacing: -2, lineHeight: 1.1, wordBreak: 'keep-all',
+        color: '#FFD43B', WebkitTextStroke: '12px #000', paintOrder: 'stroke fill'}, cap.look)}>
         {cap.words.map((w) => w.text).join(' ')}
       </div>
     </div>

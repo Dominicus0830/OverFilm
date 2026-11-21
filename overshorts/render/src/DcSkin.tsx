@@ -3,8 +3,8 @@
 import React from 'react';
 import {Img, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {GALLERCON_SVG, REPLY_ARROW_PNG} from './dcAssets';
-import {mapFont} from './fonts';
-import {SpecComment, SpecMedia, SpecPost, StyledLine, StyledRun} from './spec';
+import {FONT_FAMILY, HAND_FONT, SHOUT_FONT, mapFont} from './fonts';
+import {SpecComment, SpecMedia, SpecPost, StyledLine, StyledRun, TextLook} from './spec';
 
 export const SKIN_W = 480;
 const DC_BLUE = '#3b4890';
@@ -28,13 +28,13 @@ export function runCss(r: StyledRun): React.CSSProperties {
 }
 
 /** 원문 꾸밈을 살린 여러 줄 (디시 화면 속 글). */
-export const RichLines: React.FC<{lines: StyledLine[]}> = ({lines}) => (
+export const RichLines: React.FC<{lines: StyledLine[]; scale?: number}> = ({lines, scale = 1}) => (
   <>
     {lines.map((line, i) => {
-      const size = Math.max(...line.map((r) => skinSize(r.size)), FONT);
+      const size = Math.max(...line.map((r) => skinSize(r.size)), FONT) * scale;
       return (
         <div key={i} style={{fontSize: size, lineHeight: 1.5, minHeight: size * 1.5}}>
-          {line.map((r, k) => <span key={k} style={{...runCss(r), fontSize: skinSize(r.size)}}>{r.t}</span>)}
+          {line.map((r, k) => <span key={k} style={{...runCss(r), fontSize: skinSize(r.size) * scale}}>{r.t}</span>)}
         </div>
       );
     })}
@@ -42,10 +42,10 @@ export const RichLines: React.FC<{lines: StyledLine[]}> = ({lines}) => (
 );
 
 /** 꾸민 줄들의 높이 (가로 468px 에 한글 한 글자 ≈ 글자 크기). */
-export function richHeight(lines: StyledLine[]): number {
+export function richHeight(lines: StyledLine[], scale = 1): number {
   return lines.reduce((h, line) => {
-    const size = Math.max(...line.map((r) => skinSize(r.size)), FONT);
-    const width = line.reduce((w, r) => w + r.t.length * skinSize(r.size), 0);
+    const size = Math.max(...line.map((r) => skinSize(r.size)), FONT) * scale;
+    const width = line.reduce((w, r) => w + r.t.length * skinSize(r.size) * scale, 0);
     return h + Math.max(1, Math.ceil(width / (SKIN_W - 12))) * size * 1.5;
   }, 0);
 }
@@ -87,11 +87,27 @@ export const PostHead: React.FC<{post: SpecPost}> = ({post}) => (
 );
 
 /** 본문 속 사진·영상과 그 아래 본문 줄. 번호 칩·'댓글 열기' 버튼은 안 그린다 (2026-11-21 사용자). */
+/** 글 연출 AI 판단의 모양 (크기 배율·색·굵기·글꼴) → CSS. 크기는 배율로만 (기본 디시 글 13px 기준). */
+export function lookCss(look: TextLook | null | undefined, basePx: number): React.CSSProperties {
+  if (!look) return {};
+  const css: React.CSSProperties = {};
+  if (look.scale) css.fontSize = Math.round(basePx * look.scale * 10) / 10;
+  if (look.color) css.color = look.color;
+  if (look.bold !== undefined) css.fontWeight = look.bold ? 700 : 400;
+  if (look.font) css.fontFamily = look.font === 'shout' ? SHOUT_FONT : look.font === 'hand' ? HAND_FONT : FONT_FAMILY;
+  return css;
+}
+
 export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
+  const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
+  const t = frame / fps;
   const aspect = m.width && m.height ? m.width / m.height : 16 / 9;
   const h = Math.round(SKIN_W / aspect);
   const style: React.CSSProperties = {width: SKIN_W, height: h, objectFit: 'cover', display: 'block'};
+  // 글 연출 AI 판단: 사진·영상 아래 글이 뜨는/사라지는 시각. 자리는 그대로 두고 보이기만 바꿔 화면이 흔들리지 않게
+  const shown = (m.text_from === undefined || t >= m.text_from - 0.02) && (m.text_to === undefined || t < m.text_to);
+  const look = {...lookCss(m.text_look, FONT), visibility: shown ? 'visible' : 'hidden'} as React.CSSProperties;
   return (
     <div style={{padding: '8px 0 0'}}>
       <div style={{position: 'relative'}}>
@@ -104,12 +120,12 @@ export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
         ) : <Img src={src(m.src)} style={style} />}
       </div>
       {m.caption_runs ? (
-        <div style={{padding: '4px 2px 6px', wordBreak: 'break-all',
+        <div style={{padding: '4px 2px 6px', wordBreak: 'break-all', ...look,
           textAlign: m.caption_runs.length === 1 && m.caption_runs[0].reduce((n, r) => n + r.t.length, 0) <= 20
-            ? 'center' : undefined}}><RichLines lines={m.caption_runs} /></div>
+            ? 'center' : undefined}}><RichLines lines={m.caption_runs} scale={m.text_look?.scale} /></div>
       ) : m.caption ? (
         // 한 줄짜리 짧은 글(예: '시발')은 사진·영상 아래 가운데에 (2026-11-21 사용자)
-        <div style={{padding: '4px 2px 6px', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+        <div style={{padding: '4px 2px 6px', whiteSpace: 'pre-wrap', wordBreak: 'break-all', ...look,
           textAlign: !m.caption.includes('\n') && m.caption.length <= 20 ? 'center' : undefined}}>{m.caption}</div>
       ) : null}
     </div>
@@ -118,9 +134,10 @@ export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
 
 export function photoHeight(m: SpecMedia): number {
   const aspect = m.width && m.height ? m.width / m.height : 16 / 9;
-  if (m.caption_runs) return 8 + SKIN_W / aspect + richHeight(m.caption_runs) + 10;
-  const lines = m.caption ? m.caption.split('\n').reduce((n, p) => n + Math.max(1, Math.ceil(p.length / 36)), 0) : 0;
-  return 8 + SKIN_W / aspect + lines * FONT * 1.5 + 10;
+  const k = m.text_look?.scale ?? 1; // 글 연출 AI 판단의 크기 배율
+  if (m.caption_runs) return 8 + SKIN_W / aspect + richHeight(m.caption_runs, k) + 10;
+  const lines = m.caption ? m.caption.split('\n').reduce((n, p) => n + Math.max(1, Math.ceil((p.length * k) / 36)), 0) : 0;
+  return 8 + SKIN_W / aspect + lines * FONT * k * 1.5 + 10;
 }
 
 // 디시 댓글창: 실제 디시 PC 댓글 HTML 구조와 CSS(common.css)를 그대로 쓴다 (2026-11-21 사용자: "HTML CSS 그대로").
