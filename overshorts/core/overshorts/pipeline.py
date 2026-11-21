@@ -160,7 +160,8 @@ class Pipeline:
         r = self.cfg.get("render") or {}
         self._say("render", "최종 렌더 중")
         c = render_approved(self.store, Path(str(r.get("out_dir") or self.data / "approved")),
-                            str(self.cfg.get("encoder") or "auto"), r.get("browser_executable"))
+                            str(self.cfg.get("encoder") or "auto"), r.get("browser_executable"),
+                            concurrency=r.get("concurrency", "auto"))
         self._say("render", f"렌더 {c['rendered']}개, 실패 {c['failed']}")
         self.emit({"type": "jobs_changed"})
 

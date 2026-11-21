@@ -47,6 +47,8 @@ render:
   show_source: true       # 영상 아래 '출처: DC인사이드 …' 표시
   out_dir: ./data/approved
   browser_executable: null      # 비우면 Remotion 이 받은 Chrome
+  concurrency: auto       # 렌더 동시 탭 수: auto = 메모리 16GB 이상이면 늘림(최대 8), 아니면 CPU 스레드 절반 | 1~16
+                          # 늘리면 빨라지지만 탭마다 메모리를 더 씀. 화질은 같음
 script:
   lint: false             # 대본 린터(S3): 읽기 전에 개인정보·금지 표현·길이를 검사해 걸리면 그 작업을 멈춤. 내용은 고치지 않음
   ab: false               # A안·B안 두 버전 대본(S5). 켜면 Claude 호출 2배. 패널/CLI 에서 글마다 따로 켤 수도 있음 (--ab)

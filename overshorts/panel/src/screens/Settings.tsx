@@ -45,6 +45,8 @@ const GROUPS: Group[] = [
     {key: 'render.nickname', label: '닉네임', names: {original: '원본 그대로', blur: '흐리게', replace: 'ㅇㅇ 으로 바꿈'}},
     {key: 'render.max_comments', label: '댓글 최대', hint: '답글 포함', unit: '개'},
     {key: 'render.max_media', label: '원문 사진·영상 최대', unit: '개'},
+    {key: 'render.concurrency', label: '렌더 동시 탭', hint: '늘리면 빨라지고 메모리를 더 씀. 화질은 같음',
+      names: {auto: '자동 (메모리 16GB 이상이면 늘림)'}},
     {key: 'general.encoder', label: '인코더', names: {auto: '자동', nvenc: 'NVIDIA (NVENC)', amf: 'AMD 라데온 (AMF)', cpu: 'CPU'}},
   ]},
   {title: '글 거르기', items: [
