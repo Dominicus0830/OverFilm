@@ -156,7 +156,7 @@ export function sanitize(input: unknown): RenderSpec {
       playback_rate: num(m?.playback_rate, 1, 0.5, 2),
       caption_runs: sanitizeLines(m?.caption_runs),
     })),
-    comments: (Array.isArray(g?.comments) ? g.comments.slice(0, 60) : []).map((c) => ({
+    comments: (Array.isArray(g?.comments) ? g.comments.slice(0, 150) : []).map((c) => ({
       no: num(c?.no, 0, 0, 10000), nick: str(c?.nick).slice(0, 30), ip: str(c?.ip).slice(0, 20),
       icon: c?.icon === 'fix' || c?.icon === 'half' ? c.icon : '', text: str(c?.text),
       depth: num(c?.depth, 0, 0, 3),

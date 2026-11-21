@@ -164,6 +164,44 @@ def pack_screens(screens: list[list[int]], picked: list[int], comments: list[dic
     return out
 
 
+def fill_pages(pages: list[list[int]], comments: list[dict[str, Any]], page_h: float) -> list[list[int]]:
+    """고른 댓글만 두면 화면 아래가 텅 빈다 (2026-11-21 사용자 의견). 장마다 고른 댓글 뒤로 이어지는
+    댓글을 원래 순서대로 칸이 찰 때까지 채우고, 남으면 앞쪽 댓글로 채운다 (실제 스크린샷처럼).
+    다음 장·앞 장의 댓글은 넘보지 않는다."""
+    taken = {n for pg in pages for n in pg}
+    out: list[list[int]] = []
+    for i, pg in enumerate(pages):
+        page = sorted(pg)
+        h = sum(comment_height(comments[n]) for n in page if 0 <= n < len(comments))
+        nxt = min(pages[i + 1]) if i + 1 < len(pages) and pages[i + 1] else len(comments)
+        k = page[-1] + 1 if page else 0
+        while k < min(nxt, len(comments)) and k not in taken:
+            ch = comment_height(comments[k])
+            if h + ch > page_h:
+                break
+            page.append(k)
+            taken.add(k)
+            h += ch
+            k += 1
+        # 화면 끝에 원댓글만 걸리고 답글이 잘리면 그 원댓글은 빼고 (고른 댓글은 그대로)
+        while (len(page) > 1 and page[-1] not in pg and page[-1] + 1 < len(comments)
+               and not int(comments[page[-1]].get("depth") or 0)
+               and int(comments[page[-1] + 1].get("depth") or 0)):
+            taken.discard(page.pop())
+        prev = max(out[-1]) if out and out[-1] else -1
+        k = page[0] - 1 if page else -1
+        while k > prev and k not in taken:
+            ch = comment_height(comments[k])
+            if h + ch > page_h:
+                break
+            page.insert(0, k)
+            taken.add(k)
+            h += ch
+            k -= 1
+        out.append(page)
+    return out
+
+
 def media_items(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """쓸 수 있는 원문 미디어 (받았고, 선정성으로 빠지지 않은 것). name = '사진 N' / '영상 N'."""
     out = []
@@ -258,11 +296,12 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
             if preset is not None and preset.comments.skip == "time_order":
                 # 시간순으로 건너뛴 댓글을 화면 단위로 (LLM 이 정한 묶음, 없으면 높이·개수로 채움)
                 lay = preset.layout
-                pages = pack_screens([sc for sc in seg.screens], wanted, comments,
-                                     page_height(lay.stage_top, lay.stage_bottom),
+                page_h = page_height(lay.stage_top, lay.stage_bottom)
+                pages = pack_screens([sc for sc in seg.screens], wanted, comments, page_h,
                                      preset.comments.max_screens, preset.comments.max_total,
                                      preset.comments.per_screen)
                 picked = sorted({n for pg in pages for n in pg})
+                pages = fill_pages(pages, comments, page_h)  # 고른 댓글 사이·뒤를 이어지는 댓글로 채움
             else:
                 picked = []
                 for n in wanted:
