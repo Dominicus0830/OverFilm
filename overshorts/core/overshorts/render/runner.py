@@ -18,6 +18,8 @@ from pathlib import Path
 
 from ..db import Store
 from ..proc import decode_output
+from ..proc import check_cancel
+from ..proc import run as proc_run
 
 RENDER_DIR = Path(__file__).resolve().parents[3] / "render"
 
@@ -95,8 +97,8 @@ def render_job(spec_path: Path, out_path: Path, encoder: str, browser: str | Non
     out_path.parent.mkdir(parents=True, exist_ok=True)
     flags = 0x0800_0000 if os.name == "nt" else 0
     try:
-        proc = subprocess.run(render_args(spec_path, public, out_path, encoder, browser),
-                              cwd=RENDER_DIR, capture_output=True, timeout=timeout, creationflags=flags)
+        proc = proc_run(render_args(spec_path, public, out_path, encoder, browser),
+                        cwd=RENDER_DIR, timeout=timeout, creationflags=flags)
     except (OSError, subprocess.TimeoutExpired) as err:
         return False, f"렌더 실행 실패: {err}"
     log = decode_output(proc.stdout) + decode_output(proc.stderr)
@@ -118,6 +120,9 @@ def render_approved(store: Store, out_dir: Path, setting: str = "auto",
         "ORDER BY id LIMIT ?", (max(1, min(limit, 100)),)).fetchall()
     counts = {"rendered": 0, "failed": 0}
     for row in rows:
+        check_cancel()
+        if store.conn.execute("SELECT 1 FROM jobs WHERE id=?", (row["id"],)).fetchone() is None:
+            continue  # 렌더를 기다리는 사이 작업 큐에서 지웠다
         out = out_dir / f"overshorts-{row['id']}.mp4"
         ok, log = render_job(Path(row["spec_path"]), out, encoder, browser)
         if ok:

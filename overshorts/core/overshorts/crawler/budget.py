@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from ..db import Store
+from ..proc import sleep as cancellable_sleep
 
 
 @dataclass
@@ -63,7 +64,7 @@ class CrawlGuard:
         store: Store,
         limits: CrawlLimits | None = None,
         clock: Callable[[], float] = time.time,
-        sleep: Callable[[float], None] = time.sleep,
+        sleep: Callable[[float], None] = cancellable_sleep,
         rng: random.Random | None = None,
     ):
         self.store = store

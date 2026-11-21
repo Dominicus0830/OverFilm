@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ..proc import decode_output
+from ..proc import run as proc_run
 from . import LimitReached, LlmError, Task, extract_json
 
 _LOGIN = ("not logged in", "/login", "invalid api key", "authentication", "unauthorized", "oauth")
@@ -74,8 +75,8 @@ class ClaudeCodeClient:
         self.workdir.mkdir(parents=True, exist_ok=True)
         flags = 0x0800_0000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
         try:
-            proc = subprocess.run(
-                self.args(task, schema), input=task.prompt.encode("utf-8"), capture_output=True,
+            proc = proc_run(
+                self.args(task, schema), input=task.prompt.encode("utf-8"),
                 timeout=self.timeout, cwd=self.workdir,
                 env=env, creationflags=flags,
             )

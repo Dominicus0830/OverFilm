@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import queue
+import shutil
 import threading
 import traceback
 from collections.abc import Callable
@@ -29,6 +29,7 @@ from ..crawler.budget import CrawlGuard
 from ..crawler.collector import GalleryOptions
 from ..db import Store
 from ..pipeline import Pipeline
+from ..proc import Cancelled
 from ..urls import GALL_TYPES, DcUrl, UrlError, parse_url
 from .settings import settings_router
 
@@ -58,43 +59,128 @@ class Hub:
                 pass
 
 
+class TaskList:
+    """작업 스레드가 꺼내 쓰는 대기열. queue.Queue 와 달리 대기 중인 것을 보여 주고 뺄 수 있다
+    (작업 큐 화면의 '빼기', 2026-11-21)."""
+
+    def __init__(self) -> None:
+        self._items: list[tuple[int, str, Callable[[Pipeline], None]]] = []
+        self._cond = threading.Condition()
+        self._next_id = 1
+
+    def put(self, label: str, fn: Callable[[Pipeline], None]) -> int:
+        with self._cond:
+            task_id = self._next_id
+            self._next_id += 1
+            self._items.append((task_id, label, fn))
+            self._cond.notify()
+            return task_id
+
+    def get(self) -> tuple[int, str, Callable[[Pipeline], None]]:
+        with self._cond:
+            while not self._items:
+                self._cond.wait()
+            return self._items.pop(0)
+
+    def remove(self, task_id: int) -> bool:
+        with self._cond:
+            before = len(self._items)
+            self._items = [t for t in self._items if t[0] != task_id]
+            return len(self._items) != before
+
+    def clear(self) -> int:
+        with self._cond:
+            n = len(self._items)
+            self._items = []
+            return n
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        with self._cond:
+            return [{"id": t[0], "label": t[1]} for t in self._items]
+
+    def qsize(self) -> int:
+        with self._cond:
+            return len(self._items)
+
+
 class Worker:
     def __init__(self, cfg: dict[str, Any], db_path: Path, data: Path, hub: Hub,
                  pipeline_factory: Callable[[Store], Pipeline] | None = None):
         self.cfg, self.db_path, self.data, self.hub = cfg, db_path, data, hub
-        self.tasks: queue.Queue[tuple[str, Callable[[Pipeline], None]]] = queue.Queue()
+        self.tasks = TaskList()
         self.current: str | None = None
+        self.current_id: int | None = None
         self.paused = threading.Event()
+        self.cancel = threading.Event()  # 지금 도는 작업 취소 (proc.bind_cancel)
         self.factory = pipeline_factory
         self.thread = threading.Thread(target=self._run, name="overshorts-worker", daemon=True)
 
     def start(self) -> None:
         self.thread.start()
 
-    def submit(self, label: str, fn: Callable[[Pipeline], None]) -> None:
-        self.tasks.put((label, fn))
+    def _queue_event(self) -> None:
         self.hub.emit({"type": "queue", "pending": self.tasks.qsize(), "current": self.current})
 
+    def submit(self, label: str, fn: Callable[[Pipeline], None]) -> int:
+        task_id = self.tasks.put(label, fn)
+        self._queue_event()
+        return task_id
+
+    def state(self) -> dict[str, Any]:
+        return {"current": ({"id": self.current_id, "label": self.current}
+                            if self.current is not None else None),
+                "pending": self.tasks.snapshot(), "paused": self.paused.is_set(),
+                "cancelling": self.cancel.is_set() and self.current is not None}
+
+    def remove(self, task_id: int) -> bool:
+        """아직 시작하지 않은 작업을 대기열에서 뺀다."""
+        ok = self.tasks.remove(task_id)
+        if ok:
+            self._queue_event()
+        return ok
+
+    def cancel_current(self, task_id: int | None = None) -> bool:
+        """지금 도는 작업을 멈춘다. 하위 프로그램(렌더·Claude Code·FFmpeg)은 자식까지 끄고,
+        단계는 다음 확인 지점에서 멈춘다. 이미 끝난 단계의 결과는 남으므로 '이 단계부터 다시'로 이어 간다."""
+        if self.current is None or (task_id is not None and task_id != self.current_id):
+            return False
+        self.cancel.set()
+        self.hub.emit({"type": "task", "state": "cancelling", "label": self.current})
+        return True
+
     def _run(self) -> None:
+        from ..proc import bind_cancel
+
+        bind_cancel(self.cancel)
         store = Store(self.db_path)
         pipe = (self.factory(store) if self.factory
                 else Pipeline(self.cfg, store, self.data, emit=self.hub.emit))
         while True:
-            label, fn = self.tasks.get()
+            task_id, label, fn = self.tasks.get()
             while self.paused.is_set():  # 일시정지: 다음 작업을 꺼내지 않고 기다린다
                 threading.Event().wait(1.0)
-            self.current = label
+            self.cancel.clear()
+            self.current, self.current_id = label, task_id
             self.hub.emit({"type": "task", "state": "start", "label": label})
             try:
                 fn(pipe)
                 self.hub.emit({"type": "task", "state": "done", "label": label})
+            except Cancelled:
+                self.hub.emit({"type": "task", "state": "cancelled", "label": label,
+                               "message": "취소했습니다"})
             except Exception as err:  # noqa: BLE001 - 작업 하나가 실패해도 서버는 계속 돈다
                 self.hub.emit({"type": "task", "state": "failed", "label": label,
                                "message": str(err)[:500],
                                "detail": traceback.format_exc(limit=3)[-1500:]})
             finally:
-                self.current = None
+                try:  # 취소가 DB 쓰기 도중이었으면 반쯤 쓴 것을 버린다
+                    store.conn.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
+                self.cancel.clear()
+                self.current, self.current_id = None, None
                 self.hub.emit({"type": "jobs_changed"})
+                self._queue_event()
 
 
 # --- 요청 모델 ---
@@ -367,6 +453,44 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
 
         worker.submit(f"작업 {job_id} 이 단계부터 다시", run)
         return {"ok": True}
+
+    @app.delete("/api/jobs/{job_id}")
+    def delete_job(job_id: int) -> dict[str, Any]:
+        """작업 큐에서 지운다 (작업 폴더의 중간 파일도). 완성된 mp4 는 남긴다.
+        같은 글은 나중에 다시 넣으면 새 작업으로 만들어진다 ('폐기'와 다름)."""
+        s = db()
+        try:
+            row = s.conn.execute("SELECT id FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None:
+                raise HTTPException(404, "작업을 찾지 못했습니다")
+            s.conn.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+            s.conn.commit()
+        finally:
+            s.close()
+        # 지금 도는 작업이 이 글을 만지고 있으면 멈춘다 (단계는 여러 글을 한꺼번에 돌기도 한다)
+        cancelled = bool(worker.current and f"작업 {job_id} " in f"{worker.current} " and
+                         worker.cancel_current())
+        job_dir = (data / "jobs" / str(int(job_id))).resolve()
+        if job_dir.parent == (data / "jobs").resolve():
+            shutil.rmtree(job_dir, ignore_errors=True)
+        hub.emit({"type": "jobs_changed"})
+        return {"ok": True, "cancelled": cancelled}
+
+    @app.get("/api/worker")
+    def worker_state() -> dict[str, Any]:
+        return worker.state()
+
+    @app.post("/api/worker/cancel")
+    def worker_cancel(task_id: int | None = None) -> dict[str, Any]:
+        """지금 도는 작업 취소."""
+        return {"ok": worker.cancel_current(task_id), **worker.state()}
+
+    @app.delete("/api/worker/tasks/{task_id}")
+    def worker_remove(task_id: int) -> dict[str, Any]:
+        """아직 시작하지 않은 작업을 대기열에서 뺀다."""
+        if not worker.remove(task_id):
+            raise HTTPException(404, "대기열에 없는 작업입니다 (이미 시작했거나 끝났습니다)")
+        return {"ok": True, **worker.state()}
 
     @app.post("/api/worker/pause")
     def pause(paused: bool = True) -> dict[str, Any]:

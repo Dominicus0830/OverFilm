@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from ..proc import decode_output
+from ..proc import run as proc_run
 
 log = logging.getLogger(__name__)
 
@@ -341,9 +342,8 @@ def run_stage_export(spec: dict[str, Any], public: Path, out: Path, spans: list[
         job_path = f.name
     log_path = out.resolve().parent / "stage-export.log"
     try:
-        proc = subprocess.run([node, "scripts/stage-export.mjs", job_path], cwd=RENDER_DIR,
-                              capture_output=True, check=False, timeout=timeout,
-                              creationflags=0x0800_0000 if os.name == "nt" else 0)
+        proc = proc_run([node, "scripts/stage-export.mjs", job_path], cwd=RENDER_DIR, timeout=timeout,
+                        creationflags=0x0800_0000 if os.name == "nt" else 0)
     except (OSError, subprocess.TimeoutExpired) as err:
         raise RuntimeError(f"장면 그림 그리기 실패: {err}") from err
     finally:
