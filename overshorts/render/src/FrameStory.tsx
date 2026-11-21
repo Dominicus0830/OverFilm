@@ -7,7 +7,7 @@ import {
   AbsoluteFill, Audio, Img, Sequence, staticFile, useCurrentFrame, useVideoConfig,
 } from 'remotion';
 import {
-  BodyText, CommentPage, PhotoBlock, PostHead, SKIN_W, Scaled, photoHeight, runCss, textHeight, useScroll,
+  BodyText, CMT_W, CommentPage, PhotoBlock, PostHead, SKIN_W, Scaled, photoHeight, runCss, textHeight, useScroll,
 } from './DcSkin';
 import {FONT_FAMILY, HAND_FONT, SHOUT_FONT, loadFonts} from './fonts';
 import {RenderSpec, SayStyle, SpecMedia, SpecSegment, StyledLine, sanitize} from './spec';
@@ -203,10 +203,14 @@ const SegmentStage: React.FC<{spec: RenderSpec; seg: SpecSegment; next: SpecSegm
       const first = seg.comments.find((c) => c.page === p);
       if (first && first.appear <= t + 0.02) page = p;
     }
+    // 댓글 있는 만큼만 흰 상자로, 화면 가운데에 (빈 아래 칸 없이). 넘치면 위부터 보이고 아래가 잘린다.
     return wrap(
-      <Scaled width={1080} height={box.h}>
-        <CommentPage comments={seg.comments.filter((c) => c.page === page)} blurNick={spec.nickname === 'blur'} />
-      </Scaled>,
+      <div style={{position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+        justifyContent: 'safe center', alignItems: 'center'}}>
+        <div style={{zoom: 1080 / CMT_W, flexShrink: 0}}>
+          <CommentPage comments={seg.comments.filter((c) => c.page === page)} blurNick={spec.nickname === 'blur'} />
+        </div>
+      </div>,
     );
   }
   if (seg.kind === 'reaction') {

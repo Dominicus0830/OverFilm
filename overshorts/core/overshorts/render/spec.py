@@ -323,7 +323,7 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                 out["comments"].append({
                     "no": n, "nick": nick, "ip": ip, "icon": str(c.get("icon") or ""),
                     "text": str(c.get("text") or ""), "depth": int(c.get("depth") or 0),
-                    "dccon": con_out, "appear": start, "page": 0,
+                    "dccon": con_out, "appear": start, "page": 0, "date": str(c.get("posted") or "")[:20],
                     "read": list(reads[n]) if n in reads else None,
                 })
             _paginate(out["comments"], start, end, seg.get("pages"), edit)
@@ -424,7 +424,7 @@ def _paginate(rows: list[dict[str, Any]], start: float, end: float,
     pages: list[list[dict[str, Any]]] = []
     h = page_h + 1
     for th in threads:
-        th_h = sum(comment_height(r) for r in th) + (8 if len(th) > 1 else 0)
+        th_h = sum(comment_height(r) for r in th) + (14 if len(th) > 1 else 0)
         if pages and h + th_h <= page_h:
             pages[-1] += th
             h += th_h

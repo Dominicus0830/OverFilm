@@ -49,22 +49,26 @@ def numbered_comments(comments: list[dict[str, Any]], limit: int = 50) -> str:
 # 디시 댓글창 스크린샷 한 장 (가상 480px 화면 기준). 화면 28~66% 를 1040/480 배로 키워 채운다.
 SKIN_W = 480
 SKIN_SCALE = 1040 / SKIN_W
-PAGE_H = (0.66 - 0.28) * 1920 / SKIN_SCALE - 8
+# 댓글창은 디시 댓글 CSS 그대로 가상 560px 폭에 그려 1080 으로 키운다 (render/src/DcSkin.tsx CMT_W).
+CMT_W = 560
+CMT_SCALE = 1080 / CMT_W
+PAGE_H = (0.66 - 0.28) * 1920 / CMT_SCALE - 8
 MAX_COMMENT_PAGES = 4
 
 
 def page_height(stage_top: float, stage_bottom: float, height: int = 1920) -> float:
     """댓글 스크린샷 한 장이 들어갈 가상 480px 화면 높이. 무대(%)가 넓을수록 한 장에 더 많이 보인다."""
-    return max(120.0, (stage_bottom - stage_top) / 100 * height / SKIN_SCALE - 8)
+    return max(120.0, (stage_bottom - stage_top) / 100 * height / CMT_SCALE - 8)
 
 
 def comment_height(c: dict[str, Any]) -> float:
-    """디시 댓글 한 줄의 높이 어림. 글 칸이 닉 칸 오른쪽이라 한 줄에 20자, 답글은 17자 안팎."""
-    per_line = 17 if int(c.get("depth") or 0) else 20
+    """디시 댓글 한 줄의 높이 (디시 CSS: 줄 높이 20, 위아래 여백 16 + 선 1, 디시콘 3+100+5).
+    글 칸이 닉 칸 오른쪽이라 한 줄에 20자, 답글은 18자 안팎."""
+    per_line = 18 if int(c.get("depth") or 0) else 20
     text = str(c.get("text") or "")
     lines = sum(max(1, -(-len(p) // per_line)) for p in text.split("\n")) if text else 0
-    con = 96 if c.get("dccon") else 0
-    return max(lines, 0 if con else 1) * 19.5 + con + 17
+    con = 108 if c.get("dccon") else 0
+    return max(lines, 0 if con else 1) * 20 + con + 17
 
 
 def comment_windows(picked: list[int], comments: list[dict[str, Any]],
@@ -423,7 +427,7 @@ def display_seconds(seg: dict[str, Any], comments: list[dict[str, Any]],
             return min(90.0, float(sum(seg["page_secs"])))
         if pages:  # 스크린샷 한 장마다 고른 댓글을 읽을 시간 (3.5~6초)
             picked = set(seg.get("picked") or [])
-            return min(24.0, sum(min(6.0, 3.5 + 0.7 * len(picked & set(pg))) for pg in pages))
+            return min(24.0, sum(min(4.0, 3.0 + 0.3 * len(picked & set(pg))) for pg in pages))
         total = sum(_est_read(comment_label(comments[n])) for n in seg.get("comments") or []
                     if 0 <= n < len(comments))
         return min(14.0, max(2.5, total))
