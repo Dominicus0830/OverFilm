@@ -104,9 +104,13 @@ export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
         ) : <Img src={src(m.src)} style={style} />}
       </div>
       {m.caption_runs ? (
-        <div style={{padding: '4px 2px 6px', wordBreak: 'break-all'}}><RichLines lines={m.caption_runs} /></div>
+        <div style={{padding: '4px 2px 6px', wordBreak: 'break-all',
+          textAlign: m.caption_runs.length === 1 && m.caption_runs[0].reduce((n, r) => n + r.t.length, 0) <= 20
+            ? 'center' : undefined}}><RichLines lines={m.caption_runs} /></div>
       ) : m.caption ? (
-        <div style={{padding: '4px 2px 6px', whiteSpace: 'pre-wrap', wordBreak: 'break-all'}}>{m.caption}</div>
+        // 한 줄짜리 짧은 글(예: '시발')은 사진·영상 아래 가운데에 (2026-11-21 사용자)
+        <div style={{padding: '4px 2px 6px', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+          textAlign: !m.caption.includes('\n') && m.caption.length <= 20 ? 'center' : undefined}}>{m.caption}</div>
       ) : null}
     </div>
   );
