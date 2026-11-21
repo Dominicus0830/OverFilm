@@ -1,0 +1,22 @@
+1 ICON "icon.ico"
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "041204B0"
+    BEGIN
+      VALUE "CompanyName", "Dominicus0830"
+      VALUE "FileDescription", "OverShorts"
+      VALUE "FileVersion", "0.1.0"
+      VALUE "ProductName", "OverShorts"
+      VALUE "ProductVersion", "0.1.0"
+      VALUE "OriginalFilename", "OverShorts.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0412, 1200
+  END
+END
