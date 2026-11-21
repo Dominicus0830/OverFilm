@@ -207,6 +207,13 @@ OverFilm 편집기 타임라인으로 넘겨 사람이 더 고칠 수 있다. �
   링크·파일 이름만 참고한다. 대답의 `preset` 은 스키마 검증을 거쳤고 `summary` 로 요약이 온다. 마음에 들면
   `POST /api/presets/save` 로 `<style>/presets/<id>.json` 에 저장 → `GET /api/presets` 목록과 `render.edit_type` 에서
   고를 수 있다 (내장 id 와 겹치면 `-2` 를 붙임, `DELETE /api/presets/<id>` 는 내가 만든 것만). 설정 화면(패널) 연결은 아직 없다.
+- **스타일 복사·학습**: 스타일 화면의 '복사'는 유형을 새 이름의 내 유형으로 복제해 바로 저장한다 (`POST /api/presets/<id>/copy {"label"}`,
+  id 는 `<원본>-copy`, 기본 유형도 복사 가능). '학습'은 자료로 기존 유형을 보충하거나 새 유형을 만든다 (`POST /api/presets/learn`,
+  `core/overshorts/presets_learn.py`): Premiere 프로젝트(`.prproj`)나 Premiere 에서 내보낸 XML 에서 읽은 컷 수·컷 길이·트랙·글자·마커·소리 파일,
+  검수를 통과한 쇼츠(`GET /api/presets/passed` 목록을 작은 창에서 고름)의 대본 구성·장면 길이, 유튜브 링크(Claude Code 가 WebSearch·WebFetch 로
+  직접 특징을 모음, 영상 재생은 못 함)를 Claude Code 에게 주고 무엇을 반영할지는 Claude 가 판단한다. 결과는 저장 전 미리 보기로 대화에 이어지고,
+  대화로 더 고치거나 같은 저장 버튼으로 저장한다 (내 유형 보충은 덮어쓰기, 기본 유형 보충은 새 id). 편집기의 'Premiere 스타일 불러오기'는 자막 모양(글꼴·색)
+  을 읽는 기능이라 여기서는 쓰지 않는다 (쇼츠 유형엔 글꼴·색 칸이 없음).
 - **A/B 대본(S5)**: `script.ab: true`, CLI `script --ab`, 또는 `POST /api/review/<id>/regenerate {"ab": true}` 로 A안(원문 흐름 충실)·B안(다른 훅·구성·제목 틀)을
   만든다. 기본 선택은 A안, `payload.alt_script_id` 로 다른 안을 가리키며 `POST /api/review/<id>/variant {"script_id"}` 로 바꾼다.
   피드백을 적어 다시 쓰기: `regenerate {"feedback": "훅을 더 짧게"}` / CLI `script --feedback`. 제목 후보는 `title` + `title_alts`(최대 3개).
