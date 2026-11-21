@@ -153,3 +153,55 @@ def test_background_sdr_only_when_probe_says_so():
     assert is_sdr_probe(v(color_transfer="bt709")) and is_sdr_probe(v())  # 표시 없는 녹화본도 SDR
     assert not is_sdr_probe(v(color_transfer="smpte2084")) and not is_sdr_probe(v(color_transfer="arib-std-b67"))
     assert not is_sdr_probe({"streams": [{"codec_type": "audio"}]}) and not is_sdr_probe({})
+
+
+def test_concurrency_auto_is_never_below_remotion_default():
+    from overshorts.render.runner import auto_concurrency, choose_concurrency
+
+    assert auto_concurrency(4, None) == 2 and auto_concurrency(4, 8) == 2  # 모르거나 적으면 Remotion 기본(절반)
+    assert auto_concurrency(4, 16) == 4  # 측정한 4코어 16GB: 4탭
+    assert auto_concurrency(4, 15.6) == 3 and auto_concurrency(4, 14.9) == 2  # 16GB PC 는 15.x 로 보임
+    assert auto_concurrency(12, 16) == 6 and auto_concurrency(12, 32) == 8  # 상한 8
+    assert auto_concurrency(32, 64) == 16  # 기본이 더 크면 기본 그대로
+    assert auto_concurrency(1, 64) == 1 and auto_concurrency(4, float("nan")) == 2
+    assert choose_concurrency("3", cores=8) == 3 and choose_concurrency(16, cores=4) == 4
+    assert choose_concurrency("auto", cores=4, ram_gb=16) == 4 and choose_concurrency(None, cores=4, ram_gb=4) == 2
+    assert choose_concurrency("0", cores=4) == 1
+
+
+def test_render_args_with_prebuilt_bundle():
+    from pathlib import Path
+
+    args = render_args(Path("s.json"), Path("p"), Path("o.mp4"), "cpu", concurrency=4, serve_dir=Path("/x/serve"))
+    i = args.index("render")
+    assert args[i + 1] == str(Path("/x/serve")) and args[i + 2] == "Story"
+    assert "--concurrency=4" in args and not any(a.startswith("--public-dir") for a in args)
+    old = render_args(Path("s.json"), Path("p"), Path("o.mp4"), "cpu")
+    assert "src/index.ts" in old and "--public-dir=p" in old and not any(a.startswith("--concurrency") for a in old)
+
+
+def test_serve_dir_links_bundle_and_job_public(tmp_path):
+    from overshorts.render.bundle import bundle_key, make_serve_dir
+
+    bundle = tmp_path / "bundle"
+    (bundle / "public").mkdir(parents=True)
+    (bundle / "index.html").write_text("<html>", encoding="utf-8")
+    (bundle / "public" / "stale.txt").write_text("x", encoding="utf-8")
+    pub = tmp_path / "public"
+    (pub / "sub").mkdir(parents=True)
+    (pub / "voice.wav").write_bytes(b"RIFF")
+    (pub / "sub" / "a.png").write_bytes(b"png")
+    serve = make_serve_dir(bundle, pub, tmp_path / "job" / "serve")
+    assert serve is not None
+    assert (serve / "index.html").read_text(encoding="utf-8") == "<html>"
+    assert (serve / "public" / "voice.wav").read_bytes() == b"RIFF" and (serve / "public" / "sub" / "a.png").is_file()
+    assert not (serve / "public" / "stale.txt").exists()
+
+    render = tmp_path / "render"
+    (render / "src").mkdir(parents=True)
+    (render / "src" / "a.tsx").write_text("1", encoding="utf-8")
+    k1 = bundle_key(render)
+    assert k1 and bundle_key(render) == k1
+    (render / "src" / "a.tsx").write_text("2", encoding="utf-8")
+    assert bundle_key(render) != k1
+    assert bundle_key(tmp_path / "nothing") is None

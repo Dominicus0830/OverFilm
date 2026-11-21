@@ -207,7 +207,8 @@ def main(argv: list[str] | None = None) -> int:
             r = cfg.get("render") or {}
             counts = render_approved(store, Path(str(r.get("out_dir") or data / "approved")),
                                      str(cfg.get("encoder") or "auto"),
-                                     r.get("browser_executable"))
+                                     r.get("browser_executable"),
+                                     concurrency=r.get("concurrency", "auto"))
             print(f"렌더 {counts['rendered']}개, 실패 {counts['failed']}")
             return 0
         if args.cmd == "voice":

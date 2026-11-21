@@ -79,6 +79,10 @@ Edge-TTS 는 비공식 엔드포인트라 수익화 채널은 유료 API 권장 
 | 렌더 실행: 승인된 작업만, GPU 감지 → NVIDIA 는 NVENC, 라데온·인텔은 CPU x264, Windows 는 `--gl=angle` | `core/overshorts/render/runner.py` |
 
 배경 영상이 SDR 이면(ffprobe 로 HDR 표시가 없는지 확인) Remotion 색 변환을 건너뛴다: 화면은 같고 카드형 30초 렌더가 4코어 CPU 에서 123초 → 113초 (2026-11-21).
+렌더 준비(webpack 번들)는 템플릿(`render/src`)이 바뀔 때만 한 번 만들어 `<jobs>/.render-bundle/` 에 두고 작업마다 다시 쓴다.
+작업 public 파일은 복사 없이 하드 링크로 붙인다 (작업당 약 12초 절약, 화면은 framemd5 로 프레임 단위 동일). 번들을 못 만들면 예전처럼 작업마다 번들한다.
+동시 탭 수는 `render.concurrency` (패널 설정 '렌더 동시 탭'): `auto` = 메모리 16GB 이상이면 늘림(최대 8), 아니면 Remotion 기본(CPU 스레드 절반).
+4코어 측정에서 4탭이면 카드형 −23%, 프레임형 −40%. 탭마다 메모리를 더 쓰므로 사용자 PC 에서 속도·메모리 확인 필요. 화질은 바뀌지 않는다.
 글꼴 Pretendard(OFL)는 저장소에 넣지 않고 렌더할 때 CDN 에서 불러온다(오프라인이면 맑은 고딕).
 배경 영상은 직접 녹화한 것이나 라이선스 있는 것만 `render.background_dir` 에 넣는다.
 2026-11-14 클라우드 CPU 시험 렌더: 24초 1080×1920 60fps, 1분 44초, 3.2MB (공유 폴더 `overshorts/CardStory-시험-렌더.mp4`).

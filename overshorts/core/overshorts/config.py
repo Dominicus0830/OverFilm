@@ -49,7 +49,9 @@ DEFAULTS: dict[str, Any] = {
                # 편집 유형(S17): ogal 옵갤형 | issue 이슈형 | info 정보형 | game 게임형 | <style>/presets 의 커스텀 id.
                # 아래 값이 비어(None) 있으면 유형 프리셋의 값을 쓴다.
                "edit_type": "ogal", "max_comments": None, "tts": "preset",
-               "caption_max_chars": None, "caption_max_words": None},
+               "caption_max_chars": None, "caption_max_words": None,
+               # 렌더 동시 탭 수: auto = 메모리 16GB 이상이면 늘림, 아니면 Remotion 기본(스레드 절반)
+               "concurrency": "auto"},
     # 사용자 규칙(2026-11-20): 내용을 바꾸면 재미가 떨어지므로 둘 다 꺼짐이 기본이다.
     "script": {"lint": False, "soften": False},
     # 전사 대조(S4): 만든 음성을 STT 로 다시 받아 대본과 비교. stt_command 비우면 overfilm-subs extract.
@@ -242,6 +244,7 @@ SETTINGS: dict[tuple[str, str], Setting] = {
     ("render", "background_dir"): Setting("path"),
     ("render", "bgm_dir"): Setting("path"),
     ("render", "browser_executable"): Setting("path"),
+    ("render", "concurrency"): _choice("auto", "1", "2", "3", "4", "6", "8", "12", "16"),
     ("filter", "min_chars"): Setting("int", lo=0, hi=100_000),
     ("filter", "max_chars"): Setting("int", lo=1, hi=1_000_000),
     ("filter", "blur_faces"): Setting("bool"),
@@ -435,6 +438,7 @@ _NOTES = {
     ("render", "tts"): "preset = 편집 유형을 따름 | off | auto | on",
     ("render", "caption_max_chars"): "쇼츠 자막 한 줄 최대 글자 (비우면 편집 유형 값, 편집기 25자와 별개)",
     ("render", "caption_max_words"): "한 번에 보이는 최대 어절 (비우면 편집 유형 값)",
+    ("render", "concurrency"): "렌더 동시 탭 수: auto = 메모리 16GB 이상이면 늘림(최대 8), 아니면 CPU 스레드 절반 | 숫자",
     ("script", "lint"): "대본 린터: 읽기 전 개인정보·금지 표현·길이 검사 (끔이 기본, 내용은 고치지 않음)",
     ("script", "soften"): "순화: 욕설·혐오 표현을 피함 (끔이 기본 = 원문 그대로)",
     ("verify", "enabled"): "전사 대조: 만든 음성을 STT 로 다시 받아 대본과 비교 (끔이 기본)",
