@@ -6,8 +6,14 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
   if (!res.ok) {
     let msg = `요청 실패 (${res.status})`;
     try {
-      const j = await res.json();
-      if (typeof j?.detail === 'string') msg = j.detail;
+      const text = await res.text();
+      try {
+        const j = JSON.parse(text);
+        if (typeof j?.detail === 'string') msg = j.detail;
+        else if (Array.isArray(j?.detail)) msg = `${msg}: ${j.detail.map((d: {msg?: string}) => d?.msg ?? '').join(', ')}`;
+      } catch {
+        if (text.trim()) msg = `${msg}: ${text.trim().slice(0, 200)}`; // JSON 이 아닌 오류 본문도 보여 준다
+      }
     } catch { /* 본문 없음 */ }
     throw new Error(msg);
   }
