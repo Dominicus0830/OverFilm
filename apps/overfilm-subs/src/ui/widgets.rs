@@ -10,7 +10,7 @@ pub fn pal(ui: &Ui) -> Palette {
     theme::palette(ui.ctx())
 }
 
-/// Page title (28 px).
+/// Page title (20 px, bold).
 pub fn title(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).text_style(egui::TextStyle::Heading).strong());
 }
@@ -103,10 +103,11 @@ fn chevron(ui: &mut Ui, open: bool) -> egui::Response {
     r
 }
 
-/// A Windows toggle switch with "켬"/"끔" on its left.
+/// An on/off switch with "켬"/"끔" beside it: a 4 px rectangle with a square knob (no pill,
+/// `docs/design.md`).
 pub fn toggle(ui: &mut Ui, on: &mut bool) -> egui::Response {
     let p = pal(ui);
-    let (rect, mut r) = ui.allocate_exact_size(vec2(40.0, 20.0), Sense::click());
+    let (rect, mut r) = ui.allocate_exact_size(vec2(36.0, 20.0), Sense::click());
     if r.clicked() {
         *on = !*on;
         r.mark_changed();
@@ -114,15 +115,20 @@ pub fn toggle(ui: &mut Ui, on: &mut bool) -> egui::Response {
     let enabled = ui.is_enabled();
     let t = ui.ctx().animate_bool_responsive(r.id, *on);
     let painter = ui.painter();
-    let radius = CornerRadius::same(10);
+    let radius = CornerRadius::same(theme::CONTROL_RADIUS);
     if *on {
         painter.rect_filled(rect, radius, if enabled { p.accent } else { p.text3 });
     } else {
-        painter.rect_stroke(rect, radius, Stroke::new(1.0, p.text2), StrokeKind::Inside);
+        painter.rect_filled(rect, radius, p.control);
+        painter.rect_stroke(rect, radius, Stroke::new(1.0, if r.hovered() { p.text2 } else { p.control_stroke }), StrokeKind::Inside);
     }
-    let knob = if r.hovered() { 7.0 } else { 6.0 };
+    let knob = 12.0;
     let x = egui::lerp((rect.left() + 10.0)..=(rect.right() - 10.0), t);
-    painter.circle_filled(pos2(x, rect.center().y), knob, if *on { p.on_accent } else { p.text2 });
+    let knob_rect = Rect::from_center_size(pos2(x, rect.center().y), vec2(knob, knob));
+    painter.rect_filled(knob_rect, CornerRadius::same(2), if *on { p.on_accent } else { p.text2 });
+    if r.has_focus() {
+        painter.rect_stroke(rect.expand(2.0), radius, Stroke::new(1.0, p.accent), StrokeKind::Outside);
+    }
     ui.label(if *on { "켬" } else { "끔" });
     r
 }
@@ -173,7 +179,8 @@ pub enum Severity {
     Error,
 }
 
-/// An info bar: coloured background, an icon, bold title and text; `actions` on the right.
+/// An info bar: a 3 px colour bar on the left (no round icon), bold title and text; `actions`
+/// on the right. Only ok and warning tint the background, because they mean something.
 pub fn info_bar(ui: &mut Ui, sev: Severity, title: &str, text: &str, actions: impl FnOnce(&mut Ui)) {
     let p = pal(ui);
     let (bg, fg) = match sev {
@@ -182,23 +189,14 @@ pub fn info_bar(ui: &mut Ui, sev: Severity, title: &str, text: &str, actions: im
         Severity::Warn => (p.warn_bg, p.warn),
         Severity::Error => (p.card, p.bad),
     };
-    egui::Frame::new()
+    let frame = egui::Frame::new()
         .fill(bg)
         .stroke(Stroke::new(1.0, p.stroke))
         .corner_radius(CornerRadius::same(theme::CONTROL_RADIUS))
-        .inner_margin(Margin::symmetric(14, 10))
+        .inner_margin(Margin { left: 16, right: 12, top: 8, bottom: 8 })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                let (rect, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                ui.painter().circle_filled(rect.center(), 8.0, fg);
-                let mark = match sev {
-                    Severity::Ok => "✓",
-                    Severity::Info => "i",
-                    _ => "!",
-                };
-                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, mark, egui::FontId::proportional(11.0), bg);
-                ui.add_space(4.0);
                 let right = 220.0_f32.min(ui.available_width() * 0.4);
                 ui.allocate_ui_with_layout(vec2(ui.available_width() - right, 0.0), Layout::left_to_right(Align::Center).with_main_wrap(true), |ui| {
                     ui.label(RichText::new(title).strong());
@@ -209,6 +207,9 @@ pub fn info_bar(ui: &mut Ui, sev: Severity, title: &str, text: &str, actions: im
                 ui.with_layout(Layout::right_to_left(Align::Center), actions);
             });
         });
+    let r = frame.response.rect;
+    let bar = Rect::from_min_max(pos2(r.left() + 1.0, r.top() + 1.0), pos2(r.left() + 4.0, r.bottom() - 1.0));
+    ui.painter().rect_filled(bar, CornerRadius { nw: theme::CONTROL_RADIUS, sw: theme::CONTROL_RADIUS, ne: 0, se: 0 }, fg);
 }
 
 /// The accent (primary) button.
@@ -227,7 +228,7 @@ pub fn subtle_button(ui: &mut Ui, text: &str) -> egui::Response {
     ui.add(egui::Button::new(text).frame(false).min_size(vec2(0.0, 32.0)))
 }
 
-/// A thin progress bar (3 px, rounded).
+/// A thin progress bar (4 px, 2 px corners).
 pub fn progress_bar(ui: &mut Ui, fraction: f32) {
     let p = pal(ui);
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 4.0), Sense::hover());

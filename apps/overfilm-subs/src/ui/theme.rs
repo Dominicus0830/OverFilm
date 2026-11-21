@@ -1,6 +1,7 @@
-//! Windows 11 look for egui: the colours, corner radii (controls 4, windows and menus 8) and type
-//! ramp (caption 12, body 14, subtitle 20, title 28) of the built-in Windows apps, in light and
-//! dark, following the system theme.
+//! Windows 11 look for egui, held to the shared OverFilm rules in `docs/design.md`: layers by
+//! lightness and a visible 1 px line (no shadow), corners 4 (controls, groups) and 8 (windows,
+//! menus), three type sizes (12 note, 14 body, 20 titles), two weights. Light and dark follow the
+//! system theme. The accent stays this app's own blue until one accent is chosen for all apps.
 
 use eframe::egui::{self, Color32, CornerRadius, FontFamily, FontId, Stroke, TextStyle, Theme, Visuals};
 
@@ -72,9 +73,9 @@ pub const DARK: Palette = Palette {
     card: Color32::from_rgb(0x2b, 0x2b, 0x2b),
     control: Color32::from_rgb(0x2d, 0x2d, 0x2d),
     control_hover: Color32::from_rgb(0x35, 0x35, 0x35),
-    stroke: Color32::from_rgb(0x1c, 0x1c, 0x1c),
-    control_stroke: Color32::from_rgb(0x3d, 0x3d, 0x3d),
-    text: Color32::WHITE,
+    stroke: Color32::from_rgb(0x36, 0x36, 0x36),
+    control_stroke: Color32::from_rgb(0x48, 0x48, 0x48),
+    text: Color32::from_rgb(0xe4, 0xe4, 0xe4),
     text2: Color32::from_rgb(0xc5, 0xc5, 0xc5),
     text3: Color32::from_rgb(0x9a, 0x9a, 0x9a),
     accent: Color32::from_rgb(0x60, 0xcd, 0xff),
@@ -82,7 +83,7 @@ pub const DARK: Palette = Palette {
     accent_soft: Color32::from_rgb(0x1f, 0x3a, 0x4a),
     subtle: Color32::from_rgb(0x32, 0x32, 0x32),
     warn_bg: Color32::from_rgb(0x43, 0x35, 0x19),
-    warn: Color32::from_rgb(0xfc, 0xe1, 0x00),
+    warn: Color32::from_rgb(0xf2, 0xb8, 0x4b),
     ok_bg: Color32::from_rgb(0x39, 0x3d, 0x1b),
     ok: Color32::from_rgb(0x6c, 0xcb, 0x5f),
     bad: Color32::from_rgb(0xff, 0x99, 0xa4),
@@ -102,7 +103,7 @@ pub fn palette(ctx: &egui::Context) -> Palette {
     if ctx.theme() == Theme::Dark { DARK } else { LIGHT }
 }
 
-/// The subtitle and caption text styles (20 and 12 px).
+/// The section-title text style (20 px, the same size as the page title).
 pub fn subtitle() -> TextStyle {
     TextStyle::Name("Subtitle".into())
 }
@@ -121,7 +122,7 @@ pub fn install(ctx: &egui::Context) {
             (TextStyle::Body, FontId::new(14.0, FontFamily::Proportional)),
             (TextStyle::Button, FontId::new(14.0, FontFamily::Proportional)),
             (TextStyle::Monospace, FontId::new(13.0, FontFamily::Monospace)),
-            (TextStyle::Heading, FontId::new(28.0, FontFamily::Proportional)),
+            (TextStyle::Heading, FontId::new(20.0, FontFamily::Proportional)),
             (subtitle(), FontId::new(20.0, FontFamily::Proportional)),
         ]
         .into();
