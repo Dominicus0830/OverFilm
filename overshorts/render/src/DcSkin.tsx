@@ -176,6 +176,13 @@ const Writer: React.FC<{c: SpecComment}> = ({c}) => (
 const cons = (c: SpecComment): string[] => (c.dccons?.length ? c.dccons.map((d) => d.src)
   : c.dccon?.src ? [c.dccon.src] : []);
 
+/** 디시콘 그림 하나. 못 불러오면 깨진 그림 대신 그 칸을 숨긴다. */
+const DcconImg: React.FC<{src: string}> = ({src: url}) => {
+  const [bad, setBad] = React.useState(false);
+  if (bad) return null;
+  return <div className="coment_dccon_img"><Img className="written_dccon" src={url} onError={() => setBad(true)} /></div>;
+};
+
 const CmtBody: React.FC<{c: SpecComment; blurNick: boolean}> = ({c, blurNick}) => (
   <>
     <div className={blurNick ? 'cmt_nickbox blur' : 'cmt_nickbox'}><Writer c={c} /></div>
@@ -184,7 +191,7 @@ const CmtBody: React.FC<{c: SpecComment; blurNick: boolean}> = ({c, blurNick}) =
       {cons(c).length ? (
         <div className="comment_dccon clear">
           {cons(c).map((d, i) => (
-            <div key={i} className="coment_dccon_img"><Img className="written_dccon" src={src(d)} /></div>
+            <DcconImg key={i} src={src(d)} />
           ))}
         </div>
       ) : null}

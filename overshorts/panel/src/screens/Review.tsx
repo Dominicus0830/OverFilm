@@ -57,7 +57,9 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
     return {...s, source: showSource ? (s.source_text || s.source) : '', audio: f(s.audio), background: f(s.background), bgm: f(s.bgm),
       segments: s.segments.map((g) => ({...g,
         media: g.media.map((m) => ({...m, src: item.files + m.src})), image: f(g.image),
-        comments: g.comments.map((c) => ({...c, dccon: c.dccon ? {...c.dccon, src: f(c.dccon.src)} : null})),
+        // 디시콘 그림 주소도 작업 파일 주소로 (dccons 를 빠뜨려 검수 미리보기에서 깨진 그림이 나왔다, 2026-11-21)
+        comments: g.comments.map((c) => ({...c, dccon: c.dccon ? {...c.dccon, src: f(c.dccon.src)} : null,
+          dccons: (c.dccons ?? []).map((d) => ({...d, src: item.files + d.src}))})),
       }))};
   }, [item, showSource]);
 
