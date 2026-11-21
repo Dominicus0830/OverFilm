@@ -164,27 +164,39 @@ def pack_screens(screens: list[list[int]], picked: list[int], comments: list[dic
     return out
 
 
-def fill_pages(pages: list[list[int]], comments: list[dict[str, Any]], page_h: float) -> list[list[int]]:
+PAGE_MIN_COMMENTS = 5   # 댓글 화면 한 장에 최소 (댓글이 그보다 적으면 있는 만큼) — 2026-11-21 사용자 지정
+PAGE_MAX_COMMENTS = 13  # 최대
+
+
+def fill_pages(pages: list[list[int]], comments: list[dict[str, Any]], page_h: float,
+               min_n: int = PAGE_MIN_COMMENTS, max_n: int = PAGE_MAX_COMMENTS) -> list[list[int]]:
     """고른 댓글만 두면 화면 아래가 텅 빈다 (2026-11-21 사용자 의견). 장마다 고른 댓글 뒤로 이어지는
     댓글을 원래 순서대로 칸이 찰 때까지 채우고, 남으면 앞쪽 댓글로 채운다 (실제 스크린샷처럼).
     다음 장·앞 장의 댓글은 넘보지 않는다."""
     taken = {n for pg in pages for n in pg}
     out: list[list[int]] = []
     for i, pg in enumerate(pages):
-        page = sorted(pg)
+        page = sorted(pg)[:max_n]
+        for n in sorted(pg)[max_n:]:
+            taken.discard(n)
         h = sum(comment_height(comments[n]) for n in page if 0 <= n < len(comments))
+
+        def room(ch: float) -> bool:
+            # 최소 개수까지는 칸을 넘겨도 채우고 (스크린샷 아래가 잘린 것처럼), 그 뒤로는 칸 높이·최대 개수까지
+            return len(page) < max_n and (len(page) < min_n or h + ch <= page_h)
+
         nxt = min(pages[i + 1]) if i + 1 < len(pages) and pages[i + 1] else len(comments)
         k = page[-1] + 1 if page else 0
         while k < min(nxt, len(comments)) and k not in taken:
             ch = comment_height(comments[k])
-            if h + ch > page_h:
+            if not room(ch):
                 break
             page.append(k)
             taken.add(k)
             h += ch
             k += 1
         # 화면 끝에 원댓글만 걸리고 답글이 잘리면 그 원댓글은 빼고 (고른 댓글은 그대로)
-        while (len(page) > 1 and page[-1] not in pg and page[-1] + 1 < len(comments)
+        while (len(page) > min_n and page[-1] not in pg and page[-1] + 1 < len(comments)
                and not int(comments[page[-1]].get("depth") or 0)
                and int(comments[page[-1] + 1].get("depth") or 0)):
             taken.discard(page.pop())
@@ -192,7 +204,7 @@ def fill_pages(pages: list[list[int]], comments: list[dict[str, Any]], page_h: f
         k = page[0] - 1 if page else -1
         while k > prev and k not in taken:
             ch = comment_height(comments[k])
-            if h + ch > page_h:
+            if not room(ch):
                 break
             page.insert(0, k)
             taken.add(k)
@@ -319,7 +331,7 @@ def validate(ans: ScriptAnswer, comments: list[dict[str, Any]], media: list[dict
                 if _HOSTILE.search(str(comments[n].get("text") or "")):
                     warnings.append(f"댓글 [{n}] 에 욕설·혐오 표현이 있습니다 (검수에서 확인)")
             if pages is None:
-                pages = comment_windows(picked, comments)
+                pages = fill_pages(comment_windows(picked, comments), comments, PAGE_H)
             s["pages"] = pages
             s["picked"] = picked
             s["comments"] = [n for pg in s["pages"] for n in pg]
