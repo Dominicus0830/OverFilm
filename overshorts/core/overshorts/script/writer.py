@@ -16,6 +16,7 @@ from pathlib import Path
 from ..db import Store
 from ..llm import LimitReached, LlmError, Router
 from ..presets import Preset
+from .asides import apply_asides, dropped, judge_asides
 from .checks import CheckResult, _no_ending, check_script, load_banned, norm
 from .game_check import check_script_game
 from .reactions import list_memes, meme_block, resolve_segments
@@ -47,6 +48,8 @@ class ScriptSettings:
     feedback: str = ""  # 편집자 피드백: 이 글의 대본을 다시 쓸 때 반영 (S5)
     publish: bool = True  # 대본 뒤에 설명·해시태그 파일(publish.json·txt)도 만든다 (S12)
     soften: bool = False  # 순화: 켜면 욕설·혐오 표현을 나레이션·댓글 고르기에서 피한다. 꺼짐이 기본 (원문 그대로)
+    asides: bool = True  # 본문과 상관없는 단락을 AI 가 빼거나 옮김 (2026-11-21, 검수에서 되살림)
+    keep_asides: tuple[int, ...] = ()  # 검수에서 되살린 단락 번호 (판단하지 않고 그 자리에)
     tts: str = "auto"  # 읽어 주기 기본값: auto = AI 가 정함 | on = 본문·댓글 읽음 | off = 자막만
 
 
@@ -60,6 +63,9 @@ class ScriptOutcome:
     model: str
     rewrites: int
     warnings: list[str] = field(default_factory=list)
+    asides: list[dict] = field(default_factory=list)  # 빼거나 옮긴 단락 {id, text, action, after, reason}
+    body_used: str | None = None  # 판단을 반영한 본문 (렌더가 사진 아래 글·본문 카드에 쓴다)
+    kept_asides: list[int] = field(default_factory=list)  # 사용자가 되살린 단락 번호
 
 
 def write_script(router: Router, title: str, body: str, comments: list[dict],
@@ -67,6 +73,16 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
                  posted_at: str | None = None) -> ScriptOutcome:
     """comments: 수집한 댓글 dict 목록 (text, depth, parent, dccon …). media: segments.media_items."""
     media = media or []
+    decisions: list[dict] = []
+    aside_warn: list[str] = []
+    if settings.asides:
+        try:
+            decisions = judge_asides(router, title, body, set(settings.keep_asides))
+        except LimitReached:
+            raise
+        except LlmError as err:  # 판단을 못 하면 원문 그대로 (단락을 임의로 빼지 않음)
+            aside_warn.append(f"상관없는 단락 판단 실패, 원문 그대로: {str(err)[:80]}")
+        body = apply_asides(body, decisions) if decisions else body
     texts = [str(c.get("text") or "") for c in comments]
     source = "\n".join([title, body, *texts])
     style = load_style(settings.style_dir)
@@ -115,7 +131,11 @@ def write_script(router: Router, title: str, body: str, comments: list[dict],
                                              context=f"{title}\n{body[:1000]}", media=media)
             if cringe is not None and cringe.score < settings.min_cringe_score:
                 warnings.append(f"오글 점수 {cringe.score:.1f} 로 기준 미만")
-            return ScriptOutcome(script, segs, lines, checks, cringe, model, rewrites, warnings)
+            moved = dropped(decisions)
+            if moved:
+                warnings.append(f"상관없는 단락 {len(moved)}개를 빼거나 옮김 (검수에서 되살릴 수 있음)")
+            return ScriptOutcome(script, segs, lines, checks, cringe, model, rewrites, aside_warn + warnings,
+                                 moved, body if moved else None, sorted(settings.keep_asides))
         feedback = problems
         rewrites += 1
 
@@ -176,6 +196,9 @@ def _payload(out: ScriptOutcome, variant: str = "") -> dict:
         "cringe": out.cringe.model_dump() if out.cringe else None,
         "warnings": out.warnings,
         "rewrites": out.rewrites,
+        "asides": out.asides,
+        "asides_kept": out.kept_asides,
+        **({"body_used": out.body_used} if out.body_used else {}),
         **({"variant": variant} if variant else {}),
     }
 
@@ -292,7 +315,7 @@ def missing_lines(body: str, segs: list[dict]) -> list[str]:
     key = lambda t: re.sub(r"[^가-힣a-zA-Z0-9]", "", t)  # noqa: E731
     out = []
     lines = [ln.strip() for ln in body.splitlines()
-             if ln.strip() and not re.fullmatch(r"\[(?:사진|영상) \d+\]", ln.strip())]
+             if ln.strip() and not re.fullmatch(r"\[(?:(?:사진|영상) \d+|맺음말)\]", ln.strip())]
     for i, ln in enumerate(lines[:8]):
         if not any(SequenceMatcher(None, key(ln), key(sy)).ratio() >= 0.55 for sy in says):
             out.append(f"본문 {i + 1}번째 줄 '{ln[:20]}' 이 영상에 안 보입니다 (사진 위 글·짤 자막·본문 카드 중 어디든)")

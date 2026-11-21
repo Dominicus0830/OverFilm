@@ -51,7 +51,7 @@ DEFAULTS: dict[str, Any] = {
                "edit_type": "ogal", "max_comments": None, "tts": "preset",
                "caption_max_chars": None, "caption_max_words": None},
     # 사용자 규칙(2026-11-20): 내용을 바꾸면 재미가 떨어지므로 둘 다 꺼짐이 기본이다.
-    "script": {"lint": False, "soften": False},
+    "script": {"lint": False, "soften": False, "asides": True},
     # 전사 대조(S4): 만든 음성을 STT 로 다시 받아 대본과 비교. stt_command 비우면 overfilm-subs extract.
     "verify": {"enabled": False, "stt_command": None},
     "style": {"dir": "../style", "min_cringe_score": 7, "speech": "반말", "title_tail": "auto",
@@ -194,6 +194,7 @@ def script_settings(cfg: dict[str, Any], tone: str | None = None, default_style:
         assets_dir=Path(str(cfg.get("data_dir") or "./data")) / "assets",
         preset=edit_preset(cfg),
         soften=flag((cfg.get("script") or {}).get("soften")),
+        asides=flag((cfg.get("script") or {}).get("asides", True)),
         ab=flag((cfg.get("script") or {}).get("ab")),
         publish=str((cfg.get("script") or {}).get("publish", "on")).lower() not in ("false", "off", "no", "0", "끔"),
     )
@@ -265,6 +266,7 @@ SETTINGS: dict[tuple[str, str], Setting] = {
     ("render", "caption_max_words"): Setting("int", lo=1, hi=8),
     ("script", "lint"): Setting("bool"),
     ("script", "soften"): Setting("bool"),
+    ("script", "asides"): Setting("bool"),
     ("verify", "enabled"): Setting("bool"),
 }
 _FREE_TEXT = re.compile(r"^[\w.:\-/@가-힣 ]{0,120}$")
@@ -443,6 +445,7 @@ _NOTES = {
     ("render", "caption_max_words"): "한 번에 보이는 최대 어절 (비우면 편집 유형 값)",
     ("script", "lint"): "대본 린터: 읽기 전 개인정보·금지 표현·길이 검사 (끔이 기본, 내용은 고치지 않음)",
     ("script", "soften"): "순화: 욕설·혐오 표현을 피함 (끔이 기본 = 원문 그대로)",
+    ("script", "asides"): "상관없는 단락: 주제와 상관없는 맺음말·잡담·광고를 AI 가 빼거나 끝으로 옮김 (켬이 기본, 검수에서 되살림)",
     ("verify", "enabled"): "전사 대조: 만든 음성을 STT 로 다시 받아 대본과 비교 (끔이 기본)",
     ("render", "max_media"): "한 영상에 넣을 원문 미디어 최대 (1~6)",
     ("render", "nickname"): "original = 원본 그대로 | blur = 흐림 | replace = ㅇㅇ 치환",

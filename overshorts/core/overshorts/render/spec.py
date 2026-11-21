@@ -556,6 +556,8 @@ def media_caption(body: str, number: int) -> str:
     on = False
     for ln in (body or "").splitlines():
         m = re.fullmatch(r"\s*\[(사진|영상) (\d+)\]\s*", ln)
+        if ln.strip() == "[맺음말]":  # 끝으로 옮긴 단락: 마지막 사진 아래 글이 아님
+            break
         if m:
             if on:
                 break
@@ -661,7 +663,8 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
                         "author": json.loads(row["author"] or "{}"), "posted_at": row["posted_at"]}
                 spec = build_frame_spec(timing, script, post, public, source, bg_name,
                                         SpecOptions(preset, opts.nickname, opts.bgm_dir,
-                                                    str(row["body"] or ""), opts.show_source,
+                                                    str(script.get("body_used") or row["body"] or ""),
+                                                    opts.show_source,
                                                     _json_list(row["body_styles"]), opts.edit),
                                         media, comments)
             else:  # 세그먼트 이전 대본 (썰 카드형)

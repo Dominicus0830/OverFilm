@@ -155,6 +155,10 @@ class VariantIn(BaseModel):
     script_id: int = Field(ge=1)
 
 
+class AsidesIn(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=40)  # 되살릴 단락 번호
+
+
 class PresetChatIn(BaseModel):
     messages: list[dict[str, Any]] = Field(max_length=30)
     references: list[str] = Field(default_factory=list, max_length=5)  # 예시 영상 링크·파일 이름 (선택)
@@ -534,6 +538,14 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
             raise HTTPException(400, "톤·프리셋을 고르거나 피드백을 적어 주세요")
         worker.submit(f"작업 {job_id} 재생성",
                       lambda p: p.regenerate(job_id, body.tone, body.preset, feedback, body.ab))
+        return {"ok": True}
+
+    @app.post("/api/review/{job_id}/asides")
+    def restore_asides(job_id: int, body: AsidesIn) -> dict[str, Any]:
+        """AI 가 빼거나 옮긴 단락을 되살린다 (대본·음성·미리보기를 다시 만든다)."""
+        _job_status(job_id)
+        ids = [i for i in body.ids if 1 <= i <= 40]
+        worker.submit(f"작업 {job_id} 단락 되살리기", lambda p: p.restore_asides(job_id, ids))
         return {"ok": True}
 
     @app.post("/api/review/{job_id}/variant")

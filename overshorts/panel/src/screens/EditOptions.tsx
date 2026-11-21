@@ -14,6 +14,7 @@ export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (a
   const [soften, setSoften] = useState(false);
   const [lint, setLint] = useState(false);
   const [verify, setVerify] = useState(false);
+  const [asides, setAsides] = useState(true);
   const [err, setErr] = useState('');
 
   useEffect(() => {
@@ -22,6 +23,7 @@ export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (a
       setType(String(s.values.render?.edit_type || 'ogal'));
       setSoften(on(s.values.script?.soften)); setLint(on(s.values.script?.lint));
       setVerify(on(s.values.verify?.enabled));
+      setAsides(s.values.script?.asides === undefined ? true : on(s.values.script?.asides));
     }).catch(() => undefined);
   }, []);
 
@@ -29,9 +31,9 @@ export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (a
   useEffect(() => {
     onReady(async () => {
       await api('/api/settings', {values: {render: {edit_type: type},
-        script: {soften, lint}, verify: {enabled: verify}}});
+        script: {soften, lint, asides}, verify: {enabled: verify}}});
     });
-  }, [type, soften, lint, verify, onReady]);
+  }, [type, soften, lint, verify, asides, onReady]);
 
   const cur = presets.find((p) => p.id === type);
   const order = ['issue', 'ogal', 'info', 'game'];
@@ -50,6 +52,8 @@ export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (a
       </label>
       {cur && <ul className="opts muted small">{cur.summary.slice(1, 5).map((l) => <li key={l}>{l}</li>)}</ul>}
       <button className="link" onClick={() => go('스타일')} data-automation-id="new-make-type">내 유형 만들기</button>
+      <label className="check"><input type="checkbox" checked={asides} onChange={(e) => setAsides(e.target.checked)}
+        data-automation-id="opt-asides" /> 상관없는 단락 정리 (주제와 상관없는 맺음말·잡담을 AI 가 빼거나 끝으로, 검수에서 되살림)</label>
       <p className="muted small">아래 옵션은 기본으로 꺼져 있어 원문 내용을 그대로 씁니다.</p>
       <label className="check"><input type="checkbox" checked={soften} onChange={(e) => setSoften(e.target.checked)}
         data-automation-id="opt-soften" /> 순화 (욕설·혐오 표현을 피해서 씀)</label>

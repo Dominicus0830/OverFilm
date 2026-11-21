@@ -105,7 +105,8 @@ class Pipeline:
         self._say("filter", f"통과 {c['pass']}, 검토 필요 {c['review']}, 막힘 {c['block']}")
 
     def script(self, tone: str | None = None, post_ids: list[int] | None = None,
-               ab: bool | None = None, feedback: str | None = None) -> None:
+               ab: bool | None = None, feedback: str | None = None,
+               keep_asides: list[int] | None = None) -> None:
         from dataclasses import replace
 
         from .script.writer import script_pending
@@ -115,6 +116,8 @@ class Pipeline:
             settings = replace(settings, ab=ab or settings.ab)
         if feedback:
             settings = replace(settings, feedback=feedback[:1000])
+        if keep_asides:
+            settings = replace(settings, keep_asides=tuple(int(i) for i in keep_asides[:40]))
         self._say("script", "대본 쓰는 중 (Claude)" + (" — A안·B안" if settings.ab else ""))
         c = script_pending(self.store, self.router(), settings, post_ids, jobs_dir=self.data / "jobs")
         self._say("script", f"대본 {c['scripted']}개, 실패 {c['failed']}"
@@ -357,6 +360,26 @@ class Pipeline:
             self.store.conn.execute("UPDATE jobs SET preset=? WHERE id=?", (preset, job_id))
             self.store.set_job_status(job_id, "aligned", None)
             self.preview()
+        self.emit({"type": "jobs_changed"})
+
+    def restore_asides(self, job_id: int, ids: list[int]) -> None:
+        """검수에서 뺀 단락을 되살린다: 그 단락은 판단 없이 그 자리에 두고 대본부터 다시."""
+        row = self.store.conn.execute(
+            "SELECT j.post_id, s.lines FROM jobs j JOIN scripts s ON s.id=j.script_id WHERE j.id=?",
+            (job_id,)).fetchone()
+        if row is None:
+            raise ValueError("작업을 찾지 못했습니다")
+        try:
+            before = json.loads(row["lines"] or "{}").get("asides_kept") or []
+        except ValueError:
+            before = []
+        # 이전에 되살린 단락도 계속 되살린 채로
+        kept = {int(i) for i in before if isinstance(i, int)}
+        keep = sorted(kept | {int(i) for i in ids})
+        self.store.set_job_status(job_id, "filtered", None)
+        self.script(post_ids=[int(row["post_id"])], keep_asides=keep)
+        self.voice()
+        self.preview()
         self.emit({"type": "jobs_changed"})
 
     def pick_variant(self, job_id: int, script_id: int) -> None:

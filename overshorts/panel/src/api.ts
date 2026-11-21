@@ -60,6 +60,8 @@ export type ReviewItem = {
   script: {title: string; fact: string; lines: ScriptLine[]; est_seconds: number;
     segments?: Segment[]; title_alts?: string[]; composition?: 'A' | 'B'; composition_reason?: string;
     variant?: 'A' | 'B'; alt_script_id?: number;
+    // AI 가 빼거나 옮긴 본문 단락 (상관없는 맺음말·잡담 등). 검수에서 되살린다
+    asides?: {id: number; text: string; action: 'drop' | 'end' | 'after'; after: number | null; reason: string}[];
     cringe: {score: number; issues: {line: number; reason: string}[]} | null; warnings: string[]};
   filters: {stage: string; verdict: string; reasons: string[]; fit_score: number | null}[];
   spec: Record<string, unknown> | null; files: string;
