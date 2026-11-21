@@ -142,8 +142,14 @@ class Pipeline:
         opts = spec_options(self.cfg)
         if isinstance(self.prefs().get("show_source"), bool):
             opts.show_source = self.prefs()["show_source"]
+        router = None
+        if opts.direct:
+            try:
+                router = self.router()
+            except Exception as e:  # noqa: BLE001 - LLM 이 없으면 글 연출은 규칙대로
+                self._say("preview", f"글 연출 AI 판단 없이 규칙대로: {e}")
         c = spec_pending(self.store, self.data / "jobs", Path(str(bg)) if bg else None, opts=opts,
-                         fetch_image=self.fetcher.get_image)
+                         fetch_image=self.fetcher.get_image, router=router)
         self._say("preview", f"검수 대기 {c['ready']}개")
 
     def run_to_review(self) -> None:

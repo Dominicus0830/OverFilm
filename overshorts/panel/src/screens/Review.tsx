@@ -4,6 +4,7 @@ import {Player, PlayerRef} from '@remotion/player';
 import {Story} from '../../../render/src/Story';
 import {sanitize} from '../../../render/src/spec';
 import {api, ReviewItem, ScriptLine} from '../api';
+import {TextDirection} from './TextDirection';
 import {VoicePicker} from './VoicePicker';
 import {Switch} from '../ui/Switch';
 import type {Screen} from '../App';
@@ -338,6 +339,8 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
             </div>
           )}
           <VoicePicker jobId={item.job_id} />
+          <TextDirection jobId={item.job_id} tick={tick}
+            onSaved={() => api<ReviewItem[]>('/api/review').then(setItems).catch((e) => setMsg(e.message))} />
           {item.script.alt_script_id ? (
             <p className="small">지금 <b>{item.script.variant || 'A'}안</b>{' '}
               <button className="small-btn" onClick={() => pickVariant(item.script.alt_script_id as number)} data-automation-id="review-variant">

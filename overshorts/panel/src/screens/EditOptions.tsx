@@ -14,6 +14,7 @@ export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (a
   const [soften, setSoften] = useState(false);
   const [lint, setLint] = useState(false);
   const [verify, setVerify] = useState(false);
+  const [direct, setDirect] = useState(true);
   const [err, setErr] = useState('');
 
   useEffect(() => {
@@ -22,16 +23,18 @@ export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (a
       setType(String(s.values.render?.edit_type || 'ogal'));
       setSoften(on(s.values.script?.soften)); setLint(on(s.values.script?.lint));
       setVerify(on(s.values.verify?.enabled));
+      setDirect(s.values.render?.text_direction === undefined || s.values.render?.text_direction === null
+        || on(s.values.render?.text_direction));
     }).catch(() => undefined);
   }, []);
 
   // 시작 버튼이 누르기 직전에 호출: 고른 값을 설정에 쓴다
   useEffect(() => {
     onReady(async () => {
-      await api('/api/settings', {values: {render: {edit_type: type},
+      await api('/api/settings', {values: {render: {edit_type: type, text_direction: direct},
         script: {soften, lint}, verify: {enabled: verify}}});
     });
-  }, [type, soften, lint, verify, onReady]);
+  }, [type, soften, lint, verify, direct, onReady]);
 
   const cur = presets.find((p) => p.id === type);
   const order = ['issue', 'ogal', 'info', 'game'];
@@ -57,6 +60,8 @@ export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (a
         data-automation-id="opt-lint" /> 대본 린터 (개인정보·금지 표현·길이 검사, 내용은 안 고침)</label>
       <label className="check"><input type="checkbox" checked={verify} onChange={(e) => setVerify(e.target.checked)}
         data-automation-id="opt-verify" /> 전사 대조 (만든 음성을 다시 받아 대본과 비교)</label>
+      <label className="check"><input type="checkbox" checked={direct} onChange={(e) => setDirect(e.target.checked)}
+        data-automation-id="opt-text-direction" /> 글 연출 AI 판단 (장면마다 글 뜨고 사라지는 때, 크기·색·글꼴. 기본 켬)</label>
       {err && <p className="error">{err}</p>}
     </div>
   );

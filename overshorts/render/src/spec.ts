@@ -20,7 +20,11 @@ export type SpecMedia = {
   playback_rate?: number; // 음성·칸 길이에 맞춘 클립 배속 (0.75~1.25)
   number: number; caption: string; // 원문 사진 번호, 사진 바로 아래 본문 줄 (스크린샷처럼)
   caption_runs: StyledLine[] | null; // 원문에 꾸민 줄이면 줄마다 꾸밈
+  // 글 연출 AI 판단 (2026-11-21): 사진·영상 아래 글이 뜨는/사라지는 시각(초, 없으면 사진과 같이)과 모양
+  text_from?: number; text_to?: number; text_look?: TextLook | null;
 };
+/** 글 연출 AI 판단 (등장·퇴장 시점과 함께 크기 배율·색·굵기·글꼴). 없으면 지금 모양 그대로. */
+export type TextLook = {scale?: number; color?: string; bold?: boolean; font?: 'base' | 'shout' | 'hand'};
 export type SpecPost = {title: string; subject: string; nick: string; ip: string; icon: string; date: string};
 export type SpecComment = {
   no: number; nick: string; ip: string; icon: '' | 'fix' | 'half'; text: string; depth: number;
@@ -37,7 +41,7 @@ export type SpecSegment = {
 };
 export type SayStyle = 'calm' | 'shout' | 'question' | 'sad' | 'smug' | 'band'; // band = 흰 띠 한 줄
 export type SpecCaption = {start: number; end: number; seg: number; words: SpecWord[]; style: SayStyle | null;
-  runs: StyledLine | null}; // 원문 줄을 그대로 쓴 짤 장면 대사면 원문 꾸밈
+  runs: StyledLine | null; look?: TextLook | null}; // 원문 줄을 그대로 쓴 짤 장면 대사면 원문 꾸밈
 /** 화면 배치 (편집 유형 프리셋): 세로 위치는 화면 높이 %. 없으면 옛 프레임형(제목 바 + 노란 자막). */
 export type SpecLayout = {
   title_bar: boolean; caption: 'yellow' | 'band' | 'none';
@@ -127,6 +131,17 @@ export function sanitizeRuns(v: unknown, maxRuns = 40): StyledLine | null {
   return out.length ? out : null;
 }
 
+export function sanitizeLook(v: unknown): TextLook | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  const out: TextLook = {};
+  if (typeof o.scale === 'number' && Number.isFinite(o.scale)) out.scale = Math.min(1.8, Math.max(0.6, o.scale));
+  if (typeof o.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(o.color)) out.color = o.color;
+  if (typeof o.bold === 'boolean') out.bold = o.bold;
+  if (o.font === 'base' || o.font === 'shout' || o.font === 'hand') out.font = o.font;
+  return Object.keys(out).length ? out : null;
+}
+
 const sanitizeLines = (v: unknown): StyledLine[] | null => {
   if (!Array.isArray(v)) return null;
   const lines = v.slice(0, 60).map((l) => sanitizeRuns(l) ?? []);
@@ -157,6 +172,9 @@ export function sanitize(input: unknown): RenderSpec {
       number: Math.round(num(m?.number, 0, 0, 999)), caption: str(m?.caption),
       playback_rate: num(m?.playback_rate, 1, 0.5, 2),
       caption_runs: sanitizeLines(m?.caption_runs),
+      ...(typeof m?.text_from === 'number' ? {text_from: t(m.text_from)} : {}),
+      ...(typeof m?.text_to === 'number' ? {text_to: t(m.text_to)} : {}),
+      text_look: sanitizeLook(m?.text_look),
     })),
     comments: (Array.isArray(g?.comments) ? g.comments.slice(0, 150) : []).map((c) => ({
       no: num(c?.no, 0, 0, 10000), nick: str(c?.nick).slice(0, 30), ip: str(c?.ip).slice(0, 20),
@@ -175,7 +193,7 @@ export function sanitize(input: unknown): RenderSpec {
   const captions: SpecCaption[] = (Array.isArray(s.captions) ? s.captions.slice(0, 400) : []).map((c) => ({
     start: t(c?.start), end: t(c?.end), seg: num(c?.seg, 0, 0, 20), words: words(c?.words).slice(0, 8),
     style: (['calm', 'shout', 'question', 'sad', 'smug', 'band'] as readonly unknown[]).includes(c?.style) ? c.style as SayStyle : null,
-    runs: sanitizeRuns(c?.runs),
+    runs: sanitizeRuns(c?.runs), look: sanitizeLook(c?.look),
   }));
   const pair = (v: unknown, d: [number, number]): [number, number] => {
     const a = Array.isArray(v) && v.length === 2 ? v : d;

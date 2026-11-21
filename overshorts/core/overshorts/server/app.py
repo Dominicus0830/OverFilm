@@ -123,6 +123,10 @@ class SegTtsIn(BaseModel):
     tts: bool
 
 
+class DirectionIn(BaseModel):
+    picks: list[dict[str, Any]] = Field(default_factory=list, max_length=80)
+
+
 class SourceIn(BaseModel):
     show: bool
 
@@ -489,6 +493,43 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         worker.submit(f"작업 {job_id} 짤 넣기", lambda p: p.add_reaction(job_id, body.after, body.image, body.say,
                                                                      body.say_style))
         return {"ok": True}
+
+    def _spec_path(job_id: int) -> Path:
+        s = db()
+        try:
+            row = s.conn.execute("SELECT spec_path FROM jobs WHERE id=?", (job_id,)).fetchone()
+        finally:
+            s.close()
+        if row is None or not row["spec_path"]:
+            raise HTTPException(404, "미리보기가 아직 없습니다")
+        return Path(str(row["spec_path"]))
+
+    @app.get("/api/review/{job_id}/direction")
+    def get_direction(job_id: int) -> dict[str, Any]:
+        """장면별 글 연출 (AI 판단 또는 검수에서 고친 값): 글마다 등장·퇴장 시점, 크기·색·굵기·글꼴."""
+        from ..render.direct import load, review_rows
+
+        path = _spec_path(job_id)
+        try:
+            spec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            raise HTTPException(404, f"미리보기를 읽지 못했습니다: {e}") from e
+        saved = load(path.parent)
+        return {"on": bool(spec.get("direction")), "source": saved.get("source") or "",
+                "rows": review_rows(spec, saved.get("picks") or [])}
+
+    @app.post("/api/review/{job_id}/direction")
+    def set_direction(job_id: int, body: DirectionIn) -> dict[str, Any]:
+        """검수에서 고친 글 연출을 저장하고 미리보기(spec.json)에 바로 반영 (다시 만들지 않음)."""
+        from ..render.direct import review_rows, set_picks
+
+        path = _spec_path(job_id)
+        try:
+            spec = set_picks(path, path.parent, body.picks)
+        except (OSError, json.JSONDecodeError) as e:
+            raise HTTPException(409, f"미리보기를 고치지 못했습니다: {e}") from e
+        hub.emit({"type": "jobs_changed"})
+        return {"ok": True, "rows": review_rows(spec, body.picks)}
 
     @app.delete("/api/review/{job_id}/segment/{seg}")
     def remove_segment(job_id: int, seg: int) -> dict[str, Any]:
