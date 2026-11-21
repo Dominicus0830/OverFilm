@@ -91,13 +91,20 @@ fn inline_icon(ui: &mut egui::Ui, icon: Icon, color: egui::Color32) -> Rect {
     r
 }
 
-/// A line icon to the left of a button's centred words (Run, Stop).
-fn button_icon(ui: &egui::Ui, r: &egui::Response, icon: Icon, words: &str, color: egui::Color32) {
-    let font = egui::TextStyle::Button.resolve(ui.style());
-    let w = ui.painter().layout_no_wrap(words.to_string(), font, color).size().x;
-    let c = egui::pos2(r.rect.center().x - w / 2.0 - 12.0, r.rect.center().y);
-    let color = if r.enabled() { color } else { color.gamma_multiply(0.5) };
-    icons::paint(ui.painter(), Rect::from_center_size(c, vec2(12.0, 12.0)), icon, color);
+/// A full-width button with a 12 pt line icon before its words (Run, Stop): the icon has its own
+/// place in the button's layout, so it stays before the words however they are aligned.
+fn icon_button(ui: &mut egui::Ui, enabled: bool, icon: Icon, words: RichText, fill: Option<egui::Color32>, color: egui::Color32) -> egui::Response {
+    let salt = egui::IdSalt::new(("overfilm-panel-button-icon", words.text()));
+    let mut b = egui::Button::new((egui::Atom::custom(salt, vec2(12.0, 12.0)), words)).min_size(vec2(ui.available_width(), 30.0));
+    if let Some(fill) = fill {
+        b = b.fill(fill);
+    }
+    let r = ui.add_enabled_ui(enabled, |ui| b.atom_ui(ui)).inner;
+    if let Some(rect) = r.rect(salt) {
+        let color = if enabled { color } else { color.gamma_multiply(0.5) };
+        icons::paint(ui.painter(), rect, icon, color);
+    }
+    r.response
 }
 
 /// Choices that appear under a tick: they fade in over the style's animation time (0.12 s, none
@@ -696,17 +703,15 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     // Run (or Stop) under the choices: the one filled button of the panel
     bar.separator();
     if running {
-        let r = bar.add_sized([bar.available_width(), 30.0], egui::Button::new(tl!("Stop")));
-        button_icon(&bar, &r, Icon::Square, tl!("Stop"), t.text);
+        let r = icon_button(&mut bar, true, Icon::Square, RichText::new(tl!("Stop")), None, t.text);
         elems.push((format!("{PRE}.stop"), r.rect, "Stop".into()));
         stop = r.clicked();
     } else {
         if !has_seq {
             bar.label(RichText::new(tl!("Open a sequence first.")).color(t.text_dim).size(11.0));
         }
-        let b = egui::Button::new(RichText::new(tl!("Run")).strong().color(egui::Color32::WHITE)).fill(t.accent);
-        let r = bar.add_enabled(has_seq, b.min_size(vec2(bar.available_width(), 30.0)));
-        button_icon(&bar, &r, Icon::Play, tl!("Run"), egui::Color32::WHITE);
+        let words = RichText::new(tl!("Run")).strong().color(egui::Color32::WHITE);
+        let r = icon_button(&mut bar, has_seq, Icon::Play, words, Some(t.accent), egui::Color32::WHITE);
         elems.push((format!("{PRE}.run"), r.rect, "Run".into()));
         run = r.clicked();
     }
