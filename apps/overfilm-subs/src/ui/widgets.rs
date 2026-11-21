@@ -2,7 +2,7 @@
 //! control on the right), toggle switches, radio cards, info bars, the navigation rail, accent
 //! buttons and small line icons.
 
-use eframe::egui::{self, Align, Color32, CornerRadius, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
+use eframe::egui::{self, Align, Color32, CornerRadius, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
 use super::theme::{self, Palette};
 
@@ -91,15 +91,9 @@ fn chevron(ui: &mut Ui, open: bool) -> egui::Response {
     if r.hovered() {
         ui.painter().rect_filled(rect, CornerRadius::same(theme::CONTROL_RADIUS), p.subtle);
     }
-    let c = rect.center();
-    let (a, b, d) = if open {
-        (pos2(c.x - 4.0, c.y + 2.0), pos2(c.x, c.y - 2.0), pos2(c.x + 4.0, c.y + 2.0))
-    } else {
-        (pos2(c.x - 4.0, c.y - 2.0), pos2(c.x, c.y + 2.0), pos2(c.x + 4.0, c.y - 2.0))
-    };
-    let s = Stroke::new(1.3, p.text2);
-    ui.painter().line_segment([a, b], s);
-    ui.painter().line_segment([b, d], s);
+    // turns over (down when closed, up when open) in `MOTION` seconds
+    let t = ui.ctx().animate_bool_with_time(r.id, open, theme::MOTION);
+    icon_turned(ui, Rect::from_center_size(rect.center(), vec2(16.0, 16.0)), Icon::ChevronDown, p.text2, t * std::f32::consts::PI);
     r
 }
 
@@ -238,7 +232,8 @@ pub fn progress_bar(ui: &mut Ui, fraction: f32) {
     ui.painter().rect_filled(done, CornerRadius::same(2), p.accent);
 }
 
-/// Small line icons for the navigation rail.
+/// Line icons, the same set as the editor's (`crates/ui-egui/src/icons.rs`, `docs/design.md`):
+/// drawn in code on a 16 x 16 grid with a 1.25 stroke, one colour, no third-party artwork.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
     Add,
@@ -246,66 +241,95 @@ pub enum Icon {
     Mic,
     Book,
     Gear,
+    ChevronDown,
+}
+
+/// A pen on the 16 x 16 icon grid inside `rect`, optionally turned by `turn` radians about the
+/// centre (the expander chevron).
+struct Pen16<'a> {
+    painter: &'a egui::Painter,
+    rect: Rect,
+    turn: f32,
+    stroke: Stroke,
+}
+
+impl Pen16<'_> {
+    fn s(&self) -> f32 {
+        self.rect.width().min(self.rect.height()) / 16.0
+    }
+    fn p(&self, x: f32, y: f32) -> Pos2 {
+        let v = vec2(x - 8.0, y - 8.0) * self.s();
+        let (sin, cos) = self.turn.sin_cos();
+        self.rect.center() + vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
+    }
+    fn line(&self, pts: &[(f32, f32)]) {
+        let v: Vec<Pos2> = pts.iter().map(|(x, y)| self.p(*x, *y)).collect();
+        self.painter.add(egui::Shape::line(v, self.stroke));
+    }
+    fn circle(&self, x: f32, y: f32, r: f32) {
+        self.painter.circle_stroke(self.p(x, y), r * self.s(), self.stroke);
+    }
+    fn arc(&self, cx: f32, cy: f32, r: f32, a0: f32, a1: f32) {
+        let pts: Vec<(f32, f32)> = (0..=20)
+            .map(|i| {
+                let a = (a0 + (a1 - a0) * i as f32 / 20.0).to_radians();
+                (cx + r * a.cos(), cy + r * a.sin())
+            })
+            .collect();
+        self.line(&pts);
+    }
 }
 
 pub fn icon(ui: &Ui, rect: Rect, which: Icon, color: Color32) {
-    let s = Stroke::new(1.4, color);
-    let c = rect.center();
-    let painter = ui.painter();
+    icon_turned(ui, rect, which, color, 0.0);
+}
+
+fn icon_turned(ui: &Ui, rect: Rect, which: Icon, color: Color32, turn: f32) {
+    let s = rect.width().min(rect.height()) / 16.0;
+    let pen = Pen16 { painter: ui.painter(), rect, turn, stroke: Stroke::new((1.25 * s).max(1.0), color) };
     match which {
         Icon::Add => {
-            painter.line_segment([pos2(c.x - 6.0, c.y), pos2(c.x + 6.0, c.y)], s);
-            painter.line_segment([pos2(c.x, c.y - 6.0), pos2(c.x, c.y + 6.0)], s);
+            pen.line(&[(8.0, 3.0), (8.0, 13.0)]);
+            pen.line(&[(3.0, 8.0), (13.0, 8.0)]);
         }
         Icon::Clock => {
-            painter.circle_stroke(c, 6.5, s);
-            painter.line_segment([c, pos2(c.x, c.y - 4.0)], s);
-            painter.line_segment([c, pos2(c.x + 3.0, c.y + 1.5)], s);
+            pen.circle(8.0, 8.0, 6.0);
+            pen.line(&[(8.0, 4.5), (8.0, 8.0), (10.5, 9.5)]);
         }
         Icon::Mic => {
-            let body = Rect::from_center_size(pos2(c.x, c.y - 2.0), vec2(5.0, 9.0));
-            painter.rect_stroke(body, CornerRadius::same(3), s, StrokeKind::Middle);
-            let arc: Vec<Pos2> = (0..=12)
-                .map(|k| {
-                    let a = std::f32::consts::PI * (k as f32 / 12.0);
-                    pos2(c.x - 5.0 * a.cos(), c.y + 1.0 + 4.5 * a.sin())
-                })
-                .collect();
-            painter.add(egui::Shape::line(arc, s));
-            painter.line_segment([pos2(c.x, c.y + 5.5), pos2(c.x, c.y + 7.5)], s);
+            pen.line(&[(6.0, 2.0), (10.0, 2.0), (10.0, 10.0), (6.0, 10.0), (6.0, 2.0)]);
+            pen.arc(8.0, 8.0, 4.5, 0.0, 180.0);
+            pen.line(&[(8.0, 12.5), (8.0, 14.5)]);
         }
         Icon::Book => {
             // an open book: two pages meeting at the spine
-            let l = [
-                pos2(c.x, c.y - 4.5),
-                pos2(c.x - 3.5, c.y - 6.0),
-                pos2(c.x - 7.0, c.y - 5.0),
-                pos2(c.x - 7.0, c.y + 5.0),
-                pos2(c.x - 3.5, c.y + 4.0),
-                pos2(c.x, c.y + 5.5),
-            ];
-            let r = [
-                pos2(c.x, c.y - 4.5),
-                pos2(c.x + 3.5, c.y - 6.0),
-                pos2(c.x + 7.0, c.y - 5.0),
-                pos2(c.x + 7.0, c.y + 5.0),
-                pos2(c.x + 3.5, c.y + 4.0),
-                pos2(c.x, c.y + 5.5),
-            ];
-            painter.add(egui::Shape::line(l.to_vec(), s));
-            painter.add(egui::Shape::line(r.to_vec(), s));
-            painter.line_segment([pos2(c.x, c.y - 4.5), pos2(c.x, c.y + 5.5)], s);
+            pen.line(&[(8.0, 4.0), (5.0, 2.8), (1.5, 3.5), (1.5, 12.5), (5.0, 11.8), (8.0, 13.0)]);
+            pen.line(&[(8.0, 4.0), (11.0, 2.8), (14.5, 3.5), (14.5, 12.5), (11.0, 11.8), (8.0, 13.0)]);
+            pen.line(&[(8.0, 4.0), (8.0, 13.0)]);
         }
         Icon::Gear => {
-            painter.circle_stroke(c, 2.5, s);
-            for k in 0..8 {
-                let a = std::f32::consts::TAU * (k as f32 / 8.0);
-                let d = Vec2::angled(a);
-                painter.line_segment([c + d * 4.5, c + d * 6.8], s);
+            pen.circle(8.0, 8.0, 2.2);
+            for i in 0..8 {
+                let a = (i as f32 * 45.0).to_radians();
+                pen.line(&[(8.0 + 4.0 * a.cos(), 8.0 + 4.0 * a.sin()), (8.0 + 6.0 * a.cos(), 8.0 + 6.0 * a.sin())]);
             }
-            painter.circle_stroke(c, 4.6, s);
+            pen.circle(8.0, 8.0, 4.2);
         }
+        Icon::ChevronDown => pen.line(&[(4.0, 6.0), (8.0, 10.0), (12.0, 6.0)]),
     }
+}
+
+/// The selected item's marker on the navigation rail: a 3 px bar that glides to the item chosen
+/// (`MOTION` seconds) instead of jumping. Each [`nav_item`] that is selected leaves its place.
+pub fn nav_indicator(ui: &Ui) {
+    let p = pal(ui);
+    let key = egui::Id::unique("overfilm-subs-nav-selected");
+    let Some((x, y)) = ui.ctx().data(|d| d.get_temp::<(f32, f32)>(key)) else {
+        return;
+    };
+    let y = ui.ctx().animate_value_with_time(key.with("y"), y, theme::MOTION);
+    let bar = Rect::from_min_size(pos2(x, y - 8.0), vec2(3.0, 16.0));
+    ui.painter().rect_filled(bar, CornerRadius::same(2), p.accent);
 }
 
 /// One item of the navigation rail; returns true when clicked.
@@ -318,8 +342,7 @@ pub fn nav_item(ui: &mut Ui, which: Icon, label: &str, selected: bool, compact: 
         ui.painter().rect_filled(rect, CornerRadius::same(theme::CONTROL_RADIUS), if selected { p.subtle } else { p.control_hover });
     }
     if selected {
-        let bar = Rect::from_min_size(pos2(rect.left(), rect.center().y - 8.0), vec2(3.0, 16.0));
-        ui.painter().rect_filled(bar, CornerRadius::same(2), p.accent);
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique("overfilm-subs-nav-selected"), (rect.left(), rect.center().y)));
     }
     let icon_rect = Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), vec2(16.0, 16.0));
     icon(ui, icon_rect, which, p.text);
