@@ -1,4 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
+import {Icon} from '../ui/Icon';
 import {api} from '../api';
 
 // 보이스 화면 (기획서 3.7): 기성 보이스 미리듣기, 클로닝 등록 마법사(녹음/업로드 → 대사 → 동의 → 테스트 합성),
@@ -152,7 +153,7 @@ export function Voices({tick}: {tick: number}) {
                     ? `클로닝 · 참조 ${v.ref_sec ?? '?'}초 · “${v.ref_text ?? ''}”` : `기성 보이스 (Edge-TTS) · ${v.id.slice(5)}`}</div></td>
                 <td style={{whiteSpace: 'nowrap', textAlign: 'right'}}>
                   <button className="small-btn" disabled={busy !== null} onClick={() => preview(v.id)}
-                    data-automation-id={`voice-preview-${v.id}`}>{busy === v.id ? '합성 중…' : '▶ 미리듣기'}</button>
+                    data-automation-id={`voice-preview-${v.id}`}>{busy === v.id ? '합성 중…' : <><Icon name="play" size={12} /> 미리듣기</>}</button>
                   {v.kind === 'clone' && <>
                     {' '}<button className="small-btn" onClick={() => playRef(v)}>참조 음성</button>
                     {' '}<button className="small-btn" onClick={() => rename(v)}>이름</button>
@@ -284,14 +285,14 @@ function Register({info, onDone, audio}: {info: VoicesInfo; onDone: (name: strin
       ))}
       <div className="actions">
         {!recording
-          ? <button className="primary" onClick={startRec} data-automation-id="voice-record">● 녹음 시작</button>
-          : <button className="primary" onClick={stopRec} data-automation-id="voice-record-stop">■ 녹음 끝</button>}
+          ? <button className="primary" onClick={startRec} data-automation-id="voice-record"><Icon name="record" size={12} /> 녹음 시작</button>
+          : <button className="primary" onClick={stopRec} data-automation-id="voice-record-stop"><Icon name="stop" size={12} /> 녹음 끝</button>}
         <label className="small-btn" style={{cursor: 'pointer'}}>파일 올리기 (wav·mp3·m4a, 15MB 까지)
           <input type="file" accept="audio/*,video/webm" style={{display: 'none'}} data-automation-id="voice-upload"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) take(f, f.name); e.target.value = ''; }} /></label>
         {picked && <button onClick={() => {
           audio.current?.pause(); audio.current = new Audio(URL.createObjectURL(picked.blob)); audio.current.play();
-        }}>▶ 들어 보기</button>}
+        }}><Icon name="play" size={12} /> 들어 보기</button>}
       </div>
       {picked && <p className="muted small">{picked.name}{picked.duration !== null ? ` · ${picked.duration.toFixed(1)}초` : ''}
         {picked.speech ? ` · 말소리 ${picked.speech[0]}~${picked.speech[1]}초` : ''}</p>}
@@ -310,7 +311,7 @@ function Register({info, onDone, audio}: {info: VoicesInfo; onDone: (name: strin
             a.currentTime = Number(range[0]) || 0; a.play();
             const end = Number(range[1]);
             a.ontimeupdate = () => { if (end && a.currentTime >= end) a.pause(); };
-          }}>▶ 구간만 듣기</button>}
+          }}><Icon name="play" size={12} /> 구간만 듣기</button>}
         </div>
         <label className="field"><span>구간에서 한 말</span>
           <textarea rows={2} value={refText} maxLength={200} onChange={(e) => setRefText(e.target.value)}
@@ -323,8 +324,8 @@ function Register({info, onDone, audio}: {info: VoicesInfo; onDone: (name: strin
             data-automation-id="voice-name" /></label>
         <label className="check" style={{justifyContent: 'flex-start'}}><input type="checkbox" style={{width: 'auto', flex: 'none'}} checked={consent} onChange={(e) => setConsent(e.target.checked)}
           data-automation-id="voice-consent" /> {info.consent_text}</label>
-        <button className="small-btn" style={{marginTop: 8}} onClick={() => setAdvanced(!advanced)}>
-          고급 (GPT-SoVITS 로 학습한 모델) {advanced ? '▴' : '▾'}</button>
+        <button className="small-btn" style={{marginTop: 8}} onClick={() => setAdvanced(!advanced)} aria-expanded={advanced}>
+          고급 (GPT-SoVITS 로 학습한 모델) <Icon name="chevron" size={12} className={advanced ? 'turn open' : 'turn'} /></button>
         {advanced && <>
           <label className="field"><span>GPT 모델 (.ckpt, 선택)</span>
             <input value={weights.gpt} onChange={(e) => setWeights({...weights, gpt: e.target.value})}

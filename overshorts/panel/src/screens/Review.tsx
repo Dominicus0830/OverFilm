@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {Icon} from '../ui/Icon';
 import {Player, PlayerRef} from '@remotion/player';
 import {Story} from '../../../render/src/Story';
 import {sanitize} from '../../../render/src/spec';
@@ -245,7 +246,7 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
         </div>
         <div className="col">
           <h3>대본</h3>
-          <p className="muted small">문장을 바로 고칠 수 있습니다. ▶ 는 그 문장만 듣기 · 예상 {item.script.est_seconds}초</p>
+          <p className="muted small">문장을 바로 고칠 수 있습니다. 재생 단추는 그 문장만 듣기 · 예상 {item.script.est_seconds}초</p>
           <p className="small">화면 제목: <b>{item.script.title}</b>
             {(item.script.title_alts ?? []).length > 0 && (
               <span className="muted"> · 다른 후보: {(item.script.title_alts ?? []).join(' / ')}</span>)}</p>
@@ -277,7 +278,7 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
                 const l = lines[i];
                 return (
                   <div key={i} className={flagged.has(spoken.indexOf(i)) ? 'line flagged' : 'line'}>
-                    <button className="play" aria-label={`${i + 1}번째 문장 듣기`} onClick={() => playLine(i)}>▶</button>
+                    <button className="play" aria-label={`${i + 1}번째 문장 듣기`} onClick={() => playLine(i)}><Icon name="play" size={12} /></button>
                     <span className="part">{PART_KO[l.part] ?? l.part}</span>
                     <input value={l.text} aria-label={`${i + 1}번째 문장`} readOnly={l.part === 'comment'}
                       title={l.part === 'comment' ? '댓글은 원문 그대로 (고칠 수 없음)' : undefined} onChange={(e) => {
@@ -367,7 +368,8 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
           <button className="primary" onClick={() => act('approve')} data-automation-id="review-approve">승인 (A)</button>
           <button disabled={!dirty} onClick={() => act('edit')} data-automation-id="review-edit">수정 반영 (E)</button>
           <div className="menu">
-            <button onClick={() => setRegen(!regen)} data-automation-id="review-regen">재생성 ▾ (R)</button>
+            <button onClick={() => setRegen(!regen)} data-automation-id="review-regen" aria-expanded={regen}>
+              재생성 (R) <Icon name="chevron" size={12} className={regen ? 'turn open' : 'turn'} /></button>
             {regen && (
               <div className="menu-pop">
                 <p className="muted small">톤 바꾸기 → 대본부터</p>
