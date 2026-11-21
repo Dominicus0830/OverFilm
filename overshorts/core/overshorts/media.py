@@ -84,3 +84,34 @@ def video_info(path: str | Path, ffprobe: str | None = None) -> dict | None:
     return {"width": int(v.get("width") or 0), "height": int(v.get("height") or 0),
             "seconds": round(seconds, 2),
             "audio": any(s.get("codec_type") == "audio" for s in streams)}
+
+
+# HDR 전송 특성 (PQ·HLG). 이것만 Remotion 의 색 변환(tone mapping)이 결과를 바꾼다.
+_HDR_TRANSFER = {"smpte2084", "arib-std-b67"}
+
+
+def is_sdr_probe(data: dict) -> bool:
+    """ffprobe JSON 에서 첫 영상 스트림이 SDR 인지. 영상이 없거나 모르면 False (색 변환 유지)."""
+    streams = data.get("streams") if isinstance(data, dict) else None
+    v = next((s for s in streams or [] if isinstance(s, dict) and s.get("codec_type") == "video"), None)
+    if v is None:
+        return False
+    transfer = str(v.get("color_transfer") or "").lower()
+    return transfer not in _HDR_TRANSFER
+
+
+def video_is_sdr(path: str | Path, ffprobe: str | None = None) -> bool:
+    """SDR 영상이면 True. ffprobe 가 없거나 실패하면 False (안전한 쪽: 색 변환을 그대로 한다)."""
+    exe = ffprobe or shutil.which("ffprobe")
+    if not exe:
+        return False
+    try:
+        proc = subprocess.run(
+            [exe, "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_type,color_transfer", "-of", "json", str(path)],
+            capture_output=True, timeout=30, check=False)
+        if proc.returncode != 0:
+            return False
+        return is_sdr_probe(json.loads(proc.stdout or b"{}"))
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return False
