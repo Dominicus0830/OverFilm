@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ..db import Store
+from ..media import video_is_sdr
 from ..presets import Preset, page_seconds
 from ..script.checks import norm
 from ..script.segments import media_items, page_height, strip_marks
@@ -613,6 +614,8 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
             else:  # 세그먼트 이전 대본 (썰 카드형)
                 spec = build_spec(timing, str(script.get("title") or ""), str(row["subject"] or ""),
                                   str(script.get("fact") or ""), source, bg_name)
+            # SDR 배경이면 Remotion 색 변환을 건너뛴다: 화면은 같고 카드형 30초 렌더 123→113초 (2026-11-21 실측)
+            spec["background_sdr"] = bool(bg_name) and video_is_sdr(public / bg_name)
             _add_verify_warnings(spec, job_dir)
             spec["source_text"] = source_text  # 출처 끄기/켜기를 다시 만들지 않고 바꿀 수 있게
             spec["warnings"] = [*(timing.get("warnings") or []), *(spec.get("warnings") or [])]

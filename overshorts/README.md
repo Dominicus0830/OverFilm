@@ -78,6 +78,7 @@ Edge-TTS 는 비공식 엔드포인트라 수익화 채널은 유료 API 권장 
 | Remotion `CardStory`: 상단 제목바, 중앙 글 카드(읽는 단어까지 밝게, 댓글은 파란 카드), 단어 팝업 자막, 배경 영상 반복, 출처 | `render/src/CardStory.tsx` |
 | 렌더 실행: 승인된 작업만, GPU 감지 → NVIDIA 는 NVENC, 라데온·인텔은 CPU x264, Windows 는 `--gl=angle` | `core/overshorts/render/runner.py` |
 
+배경 영상이 SDR 이면(ffprobe 로 HDR 표시가 없는지 확인) Remotion 색 변환을 건너뛴다: 화면은 같고 카드형 30초 렌더가 4코어 CPU 에서 123초 → 113초 (2026-11-21).
 글꼴 Pretendard(OFL)는 저장소에 넣지 않고 렌더할 때 CDN 에서 불러온다(오프라인이면 맑은 고딕).
 배경 영상은 직접 녹화한 것이나 라이선스 있는 것만 `render.background_dir` 에 넣는다.
 2026-11-14 클라우드 CPU 시험 렌더: 24초 1080×1920 60fps, 1분 44초, 3.2MB (공유 폴더 `overshorts/CardStory-시험-렌더.mp4`).

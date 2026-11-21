@@ -102,7 +102,7 @@ export const CardStory: React.FC<Record<string, unknown>> = (props) => {
       <AbsoluteFill style={{top: 960}}>
         {spec.background ? (
           <Loop durationInFrames={Math.max(1, Math.round(spec.duration * fps))}>
-            <OffthreadVideo src={src(spec.background)} muted
+            <OffthreadVideo src={src(spec.background)} muted toneMapped={!spec.background_sdr}
               style={{width: '100%', height: '100%', objectFit: 'cover'}} />
           </Loop>
         ) : (

@@ -45,6 +45,7 @@ def test_spec_stage(tmp_path):
     assert spec_pending(store, tmp_path / "jobs", bg) == {"ready": 1, "failed": 0}
     spec = json.loads((d / "spec.json").read_text(encoding="utf-8"))
     assert spec["source"] == "출처: DC인사이드 예시 마이너 갤러리" and spec["background"] == "bg.mp4"
+    assert spec["background_sdr"] is False  # 읽을 수 없는 배경은 색 변환 유지
     assert (d / "public" / "voice.wav").exists() and (d / "public" / "bg.mp4").exists()
     assert store.conn.execute("SELECT status FROM jobs").fetchone()["status"] == "preview_ready"
 
@@ -141,3 +142,14 @@ def test_render_calls_remotion_cli_with_node():
     args = render_args(Path("s.json"), Path("p"), Path("o.mp4"), "cpu")
     if runner.REMOTION_CLI.is_file() and __import__("shutil").which("node"):
         assert args[1].endswith("remotion-cli.js") and args[2] == "render"
+
+
+def test_background_sdr_only_when_probe_says_so():
+    from overshorts.media import is_sdr_probe
+
+    def v(**kw):
+        return {"streams": [{"codec_type": "video", **kw}]}
+
+    assert is_sdr_probe(v(color_transfer="bt709")) and is_sdr_probe(v())  # 표시 없는 녹화본도 SDR
+    assert not is_sdr_probe(v(color_transfer="smpte2084")) and not is_sdr_probe(v(color_transfer="arib-std-b67"))
+    assert not is_sdr_probe({"streams": [{"codec_type": "audio"}]}) and not is_sdr_probe({})

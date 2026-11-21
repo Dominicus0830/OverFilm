@@ -65,6 +65,8 @@ export type RenderSpec = {
   source_text?: string; // 출처를 꺼도 원래 문구를 기억 (다시 켤 때)
   audio: string | null; // public 폴더 기준 경로
   background: string | null;
+  /** 배경 영상이 SDR 이라고 Python 이 ffprobe 로 확인함: 색 변환(tone mapping)을 건너뛴다 */
+  background_sdr: boolean;
   theme: {dark: boolean; accent: string};
   scenes: SpecScene[];
   /** 'stage' = 장면만 (제목·자막·출처·소리 없이, 투명 바탕): OverFilm 편집기로 넘길 그림을 그릴 때 */
@@ -91,6 +93,7 @@ export const EMPTY_SPEC: RenderSpec = {
   source: '출처: DC인사이드 예시 갤러리',
   audio: null,
   background: null,
+  background_sdr: false,
   theme: {dark: true, accent: '#FFD43B'},
   scenes: [
     {part: 'hook', speaker: 'narrator', text: '힐러가 받은 힐량이 3천이었다.', start: 0, end: 2.4,
@@ -206,6 +209,7 @@ export function sanitize(input: unknown): RenderSpec {
     source: str(s.source), source_text: str(s.source_text),
     audio: typeof s.audio === 'string' ? s.audio : null,
     background: typeof s.background === 'string' ? s.background : null,
+    background_sdr: s.background_sdr === true,
     theme: {dark: s.theme?.dark !== false, accent: str(s.theme?.accent, '#FFD43B') || '#FFD43B'},
     layers: s.layers === 'stage' ? 'stage' : 'all',
     scenes: scenes.map((sc) => ({
