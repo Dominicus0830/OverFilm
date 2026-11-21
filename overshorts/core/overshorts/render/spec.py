@@ -285,7 +285,8 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                 number = int(m["name"].split()[-1]) if m["name"].split()[-1].isdigit() else 0
                 item = {"src": srcf, "kind": m["kind"], "display": pick.get("display", "fill"),
                         "number": number,
-                        "caption": _photo_caption(seg, opts.body, number) if m["kind"] == "image" else "",
+                        # 사진·영상 아래 원문 글 (디시 화면처럼 한 덩어리). 영상도 그 아래 글을 붙인다 (2026-11-21)
+                        "caption": _photo_caption(seg, opts.body, number, m["kind"]),
                         "start": round(starts[k], 3), "end": round(max(m_end, starts[k] + 0.5), 3),
                         "width": m.get("width") or 0, "height": m.get("height") or 0,
                         "muted": True}
@@ -362,7 +363,8 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                 cap["runs"] = flat
             silent.append(cap)
         if (edit is not None and crules is not None and edit.layout.caption == "band"
-                and out["kind"] == "media" and out["media"] and not seg.get("tts")):
+                and out["kind"] == "media" and out["media"] and not seg.get("tts")
+                and not any(it.get("caption") for it in out["media"])):  # 원문 글이 사진·영상 아래 있으면 띠 자막 중복 안 함
             # 클립·짤 아래 흰 띠 한 줄 (S14): 짤이 뜬 뒤 band_delay 초 뒤부터 장면 끝까지 고정
             line = next((str(t).strip() for t in seg.get("lines") or [] if str(t).strip()), "")
             if line:
@@ -371,7 +373,10 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                                "words": [{"text": line[:crules.max_chars * 2], "start": t0, "end": round(end, 3)}]})
         segments.append(out)
     has_media = any(sg["media"] or sg.get("image") for sg in segments)
-    preset = opts.preset if opts.preset in ("frame", "card") else ("frame" if has_media else "card")
+    # 편집 유형(옵갤형 등)을 골랐으면 미디어가 없어도 그 유형 화면(디시 화면) 그대로.
+    # 썰 카드형 자동 전환은 유형이 없을 때만 (2026-11-21: 영상을 못 받은 글이 카드형으로 바뀐 버그)
+    preset = opts.preset if opts.preset in ("frame", "card") else (
+        "frame" if has_media or edit is not None else "card")
     bgm = None
     if opts.bgm_dir is not None and opts.bgm_dir.is_dir():
         try:
@@ -540,18 +545,19 @@ def rich_lines(text: str, styles: list[dict[str, Any]] | None) -> list[list[dict
     return out if hit else None
 
 
-def _photo_caption(seg: dict[str, Any], body: str, number: int) -> str:
+def _photo_caption(seg: dict[str, Any], body: str, number: int, kind: str = "image") -> str:
     """사진에 넣을 글: 대본이 고른 대로 (original=원문 그 사진 아래 글, none=없음, custom=대본 줄)."""
     mode = str(seg.get("photo_text") or "original")
     if mode == "none":
         return ""
     if mode == "custom":
         return "\n".join(str(t) for t in seg.get("lines") or [])[:300]
-    return media_caption(body, number)
+    return media_caption(body, number, kind)
 
 
-def media_caption(body: str, number: int) -> str:
-    """본문에서 [사진 N] 바로 아래 글 (다음 사진 전까지). 스크린샷처럼 사진 밑에 보인다."""
+def media_caption(body: str, number: int, kind: str = "image") -> str:
+    """본문에서 [사진 N]·[영상 N] 바로 아래 글 (다음 사진 전까지). 스크린샷처럼 사진 밑에 보인다."""
+    want = "영상" if kind == "video" else "사진"
     out: list[str] = []
     on = False
     for ln in (body or "").splitlines():
@@ -559,7 +565,7 @@ def media_caption(body: str, number: int) -> str:
         if m:
             if on:
                 break
-            on = m.group(1) == "사진" and int(m.group(2)) == number
+            on = m.group(1) == want and int(m.group(2)) == number
             continue
         if on and ln.strip():
             out.append(ln.strip())
@@ -668,6 +674,11 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
                 spec = build_spec(timing, str(script.get("title") or ""), str(row["subject"] or ""),
                                   str(script.get("fact") or ""), source, bg_name)
             _add_verify_warnings(spec, job_dir)
+            # 수집 때 못 받은 사진·영상: 왜 화면에 없는지 검수에서 보이게
+            lost = [f"원문 {'영상' if m.get('kind') == 'video' else '사진'}: {m['error']}"
+                    for m in _json_list(row["images"]) if isinstance(m, dict) and m.get("error")]
+            if lost:
+                spec["warnings"] = [*(spec.get("warnings") or []), *lost[:5]]
             spec["source_text"] = source_text  # 출처 끄기/켜기를 다시 만들지 않고 바꿀 수 있게
             spec["warnings"] = [*(timing.get("warnings") or []), *(spec.get("warnings") or [])]
             spec_path = job_dir / "spec.json"

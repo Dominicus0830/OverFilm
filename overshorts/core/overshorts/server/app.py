@@ -189,6 +189,13 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         yield
 
     app = FastAPI(title="OverShorts 패널", lifespan=lifespan)
+
+    @app.exception_handler(Exception)
+    async def server_error(_request: Any, exc: Exception) -> JSONResponse:
+        # 처리 못 한 오류도 화면에 원인 한 줄을 보여 준다 (전엔 '요청 실패 (500)'만 보였다, 2026-11-21).
+        # 자세한 추적은 로그(%LOCALAPPDATA%\OverShorts\logs\overshorts.log)에 그대로 남는다.
+        return JSONResponse({"detail": f"서버 오류: {type(exc).__name__}: {str(exc)[:200]} "
+                                       "(자세한 내용은 OverShorts 로그 파일)"}, status_code=500)
     app.state.worker = worker
     app.state.hub = hub
     (data / "jobs").mkdir(parents=True, exist_ok=True)

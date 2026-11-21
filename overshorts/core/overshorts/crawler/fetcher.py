@@ -139,6 +139,18 @@ class Fetcher:
             raise FetchError(f"그림이 너무 큽니다 ({len(resp.content)} 바이트): {url}")
         return resp.content
 
+    def get_motion(self, url: str, max_bytes: int = 80 * 1024 * 1024) -> tuple[bytes, bool]:
+        """본문 영상·움짤 한 번 받기: (내용, 영상인가). 디시 움짤 주소는 mp4 대신 webp·gif 를 주기도 한다."""
+        resp = self._send("GET", url, REFERER, None)
+        head = resp.content[:12]
+        if len(resp.content) > max_bytes:
+            raise FetchError(f"영상이 너무 큽니다 ({len(resp.content)} 바이트): {url}")
+        if resp.content_type.startswith("video/") or head[4:8] == b"ftyp" or head[:4] == b"\x1a\x45\xdf\xa3":
+            return resp.content, True
+        if _image_magic(resp.content):
+            return resp.content, False
+        raise FetchError(f"영상·움짤이 아닙니다 ({resp.content_type or '종류 없음'}): {url}")
+
     def get_video(self, url: str, max_bytes: int = 80 * 1024 * 1024) -> bytes:
         """본문 속 동영상 (mp4·webm). 그림과 같이 요청 예산에 센다."""
         resp = self._send("GET", url, REFERER, None)

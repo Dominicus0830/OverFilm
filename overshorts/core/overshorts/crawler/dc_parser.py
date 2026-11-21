@@ -52,6 +52,7 @@ class Post:
     body: str
     images: list[str] = field(default_factory=list)
     videos: list[str] = field(default_factory=list)  # 본문 속 동영상 주소 (직접 받을 수 있는 것)
+    video_alts: dict[str, list[str]] = field(default_factory=dict)  # 같은 영상의 다른 주소 (mp4 실패 시)
     upvotes: int = 0
     views: int = 0
     comment_count: int = 0
@@ -162,16 +163,18 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
             if src.startswith("http") and src not in images:
                 images.append(src)
                 img.replace_with(f"\n[사진 {len(images)}]\n")
+        video_alts: dict[str, list[str]] = {}
         for vid in write.select("video"):
-            srcs = [vid.get("data-src") or vid.get("src") or ""]
-            srcs += [s.get("data-src") or s.get("src") or "" for s in vid.select("source")]
-            for src in srcs:
-                if src.startswith("//"):
-                    src = "https:" + src
-                if src.startswith("http") and src not in videos:
-                    videos.append(src)
-                    vid.replace_with(f"\n[영상 {len(videos)}]\n")
-                    break
+            # 디시 움짤: <source type=video/mp4> 는 mp4, video 의 data-src 는 같은 움짤의 webp (2026-11-21 확인).
+            # mp4 를 먼저 받고, 못 받으면 나머지 주소를 차례로.
+            srcs = [s.get("data-src") or s.get("src") or "" for s in vid.select("source")]
+            srcs += [vid.get("data-src") or vid.get("src") or ""]
+            srcs = [("https:" + s if s.startswith("//") else s) for s in srcs]
+            srcs = list(dict.fromkeys(s for s in srcs if s.startswith("http")))
+            if srcs and srcs[0] not in videos:
+                videos.append(srcs[0])
+                video_alts[srcs[0]] = srcs[1:3]
+                vid.replace_with(f"\n[영상 {len(videos)}]\n")
         body_styles = styled_lines(write)
         for br in write.select("br"):
             br.replace_with("\n")
@@ -201,6 +204,7 @@ def parse_post(html: str, gall_id: str, post_no: int) -> Post:
         body=body,
         images=images,
         videos=videos,
+        video_alts=video_alts,
         upvotes=_int(_text(soup.select_one(".up_num"))),
         views=_int(_text(soup.select_one(".gall_count"))),
         comment_count=_int(_text(soup.select_one(".gall_comment"))),
