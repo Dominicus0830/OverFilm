@@ -757,6 +757,7 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         def panel(path: str):
             if path.startswith("api/"):
                 return JSONResponse({"detail": "없음"}, status_code=404)
-            return FileResponse(PANEL_DIST / "index.html")
+            # 새 버전을 설치하면 바로 새 화면이 뜨게 (브라우저가 예전 index.html 을 쓰지 않게)
+            return FileResponse(PANEL_DIST / "index.html", headers={"Cache-Control": "no-cache"})
 
     return app

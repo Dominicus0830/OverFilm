@@ -232,6 +232,11 @@ class Store:
         self.conn.execute("UPDATE posts SET discarded=1 WHERE id=?", (post_id,))
         self.conn.commit()
 
+    def undiscard_post(self, gall_id: str, post_no: int) -> None:
+        """글 링크를 직접 다시 넣으면 폐기를 푼다."""
+        self.conn.execute("UPDATE posts SET discarded=0 WHERE gall_id=? AND post_no=?", (gall_id, post_no))
+        self.conn.commit()
+
     def add_filter_result(
         self,
         post_id: int,
