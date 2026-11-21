@@ -123,6 +123,8 @@ table.facts { border-collapse: collapse; width: 100%; max-width: 760px; }
 .log li { padding: 4px 0; border-bottom: 1px solid var(--line); }
 .log .faint { margin-right: 8px; font-variant-numeric: tabular-nums; }
 .server-log { margin-top: 16px; }
+.window-note { margin: 0 0 12px; padding: 8px 12px; border-radius: 4px; font-size: var(--fs-note);
+  background: var(--warn-bg); color: var(--warn); }
 .server-log summary { cursor: pointer; font-size: var(--fs-note); }
 .server-log-text { max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-all;
   font-size: var(--fs-note); padding: 8px; border: 1px solid var(--line); border-radius: 4px; }

@@ -171,7 +171,10 @@ def find_app_browser() -> Path | None:
 
 
 def open_window(url: str, profile: Path) -> bool:
-    """OverShorts 창을 연다. 앱 창으로 열었으면 True, 기본 브라우저로 대신 열었으면 False."""
+    """OverShorts 창을 연다. 앱 창으로 열었으면 True, 기본 브라우저로 대신 열었으면 False.
+    주소에 ?window=1 을 붙여, 이 창의 연결만 '창'으로 센다 (다른 브라우저 탭은 서버 종료 판단에서 뺀다).
+    기본 브라우저로 대신 열 때도 붙인다: 그때는 그 탭이 OverShorts 창 역할이다."""
+    url = url + ("&" if "?" in url else "?") + "window=1"
     browser = find_app_browser()
     if browser is not None:
         try:

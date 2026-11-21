@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Event, WorkerState, api, subscribe} from './api';
+import {Event, Hello, WorkerState, api, isAppWindow, subscribe} from './api';
 import {Home} from './screens/Home';
 import {NewJob} from './screens/NewJob';
 import {Queue} from './screens/Queue';
@@ -34,12 +34,21 @@ export function App() {
   }, [theme]);
   // 작업이 도는 중에 창을 닫으려 하면 묻는다 (창 모드는 창을 닫으면 서버도 꺼져 작업이 멈춘다)
   const working = useRef(false);
+  const appWindow = isAppWindow();
+  // 창 모드: 이 창 말고 다른 브라우저 탭에서도 패널이 열려 있는지 (안내용)
+  const [windowMode, setWindowMode] = useState(false);
+  const [otherTabs, setOtherTabs] = useState(0);
+  useEffect(() => {
+    api<Hello>('/api/hello')
+      .then((h) => { setWindowMode(Boolean(h.window)); setOtherTabs(h.other_tabs ?? 0); })
+      .catch(() => { /* 예전 서버: 안내 없음 */ });
+  }, []);
   useEffect(() => {
     api<WorkerState>('/api/worker')
       .then((w) => { working.current = w.current !== null || w.pending.length > 0; })
       .catch(() => { /* 모르면 묻지 않는다 */ });
     const onLeave = (ev: BeforeUnloadEvent) => {
-      if (!working.current) return;
+      if (!working.current || !appWindow) return; // 다른 탭을 닫는 것은 서버를 끄지 않는다
       ev.preventDefault();
       ev.returnValue = '작업이 도는 중입니다. 창을 닫으면 작업이 멈춥니다.';
     };
@@ -48,6 +57,7 @@ export function App() {
   }, []);
   useEffect(() => subscribe((e) => {
     if (e.type === 'queue') working.current = Boolean(e.current) || (e.pending ?? 0) > 0;
+    if (e.type === 'clients') { setOtherTabs(e.other_tabs ?? 0); return; } // 로그에는 넣지 않는다
     setEvents((old) => [...old.slice(-199), e]);
     if (e.type === 'jobs_changed' || e.type === 'task') setTick((t) => t + 1);
     if (e.type === 'confirm' && e.kind === 'llm_limit') setLimitAsk(e.message ?? 'Claude 한도에 걸렸습니다');
@@ -72,6 +82,14 @@ export function App() {
       </nav>
       {/* 화면을 바꿀 때 내용만 0.12초 옅게 나타난다(움직임 줄이기 설정이면 없음) */}
       <main className="main" key={screen}>
+        {windowMode && appWindow && otherTabs > 0 && (
+          <p className="window-note" role="status" data-automation-id="other-tabs-note">
+            다른 브라우저 탭에서도 이 패널이 열려 있습니다({otherTabs}개). 이 창을 닫으면 OverShorts가 꺼지고 그 탭도 끊깁니다.</p>
+        )}
+        {windowMode && !appWindow && (
+          <p className="window-note" role="status" data-automation-id="secondary-tab-note">
+            이 탭은 보조 화면입니다. OverShorts 창을 닫으면 OverShorts가 꺼지고 이 탭도 끊깁니다.</p>
+        )}
         {screen === '홈' && <Home tick={tick} go={setScreen} events={events} />}
         {screen === '새로 만들기' && <NewJob go={setScreen} />}
         {screen === '작업 큐' && <Queue tick={tick} events={events} />}

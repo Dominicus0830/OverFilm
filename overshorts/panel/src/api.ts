@@ -33,7 +33,23 @@ export type WorkerState = {current: {id: number; label: string} | null;
   pending: {id: number; label: string}[]; paused: boolean; cancelling: boolean};
 
 export type Event = {type: string; time?: string; message?: string; stage?: string; label?: string;
-  state?: string; level?: string; kind?: string; pending?: number; current?: string | null};
+  state?: string; level?: string; kind?: string; pending?: number; current?: string | null;
+  app_windows?: number; other_tabs?: number};
+
+/** 창 모드로 띄운 OverShorts 창인지 (주소의 ?window=1, 새로 고쳐도 유지되게 이 탭에 기억).
+ * 이 창의 연결만 서버가 '창'으로 센다: 창을 닫으면 다른 브라우저 탭이 남아 있어도 서버가 꺼진다. */
+export function isAppWindow(): boolean {
+  try {
+    if (new URLSearchParams(location.search).get('window') === '1') sessionStorage.setItem('overshorts-window', '1');
+    return sessionStorage.getItem('overshorts-window') === '1';
+  } catch {
+    return new URLSearchParams(location.search).get('window') === '1';
+  }
+}
+
+/** 서버가 알려 주는 연결 수 (창 모드). */
+export type Hello = {app: string; version: string; build: string; window: boolean; app_windows: number;
+  other_tabs: number; busy: boolean};
 
 /** WebSocket 구독. 끊기면 3초 뒤 다시 붙는다. */
 export function subscribe(onEvent: (e: Event) => void): () => void {
@@ -41,7 +57,7 @@ export function subscribe(onEvent: (e: Event) => void): () => void {
   let closed = false;
   const open = () => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    sock = new WebSocket(`${proto}://${location.host}/ws`);
+    sock = new WebSocket(`${proto}://${location.host}/ws${isAppWindow() ? '?window=1' : ''}`);
     sock.onmessage = (m) => {
       try { onEvent(JSON.parse(m.data)); } catch { /* 무시 */ }
     };

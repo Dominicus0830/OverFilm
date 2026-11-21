@@ -66,7 +66,8 @@ def _stop(app: FastAPI, worker: Worker) -> None:
 
 async def _exit_when_no_window(app: FastAPI, hub: Hub, worker: Worker,
                                grace: float = 12.0, first_wait: float = 180.0) -> None:
-    """창 모드: 패널 창이 모두 닫히고 grace 초 동안 다시 붙지 않으면 서버를 끈다.
+    """창 모드: OverShorts 창(/ws?window=1)이 모두 닫히고 grace 초 동안 다시 붙지 않으면 서버를 끈다.
+    다른 브라우저에 열어 둔 패널 탭은 세지 않는다(그 탭이 남아 있어도 꺼진다).
     새로 고침·잠깐 끊김은 패널이 3초 안에 다시 붙으므로 꺼지지 않는다.
     창이 한 번도 붙지 않으면(창을 못 열었으면) first_wait 초 뒤에 끈다. 숨은 서버가 남지 않게."""
     loop = asyncio.get_running_loop()
@@ -75,7 +76,7 @@ async def _exit_when_no_window(app: FastAPI, hub: Hub, worker: Worker,
     while True:
         await asyncio.sleep(2.0)
         now = loop.time()
-        if hub.clients:
+        if hub.window_clients:  # 다른 브라우저 탭은 세지 않는다
             seen, last_seen = True, now
             continue
         if (seen and now - last_seen >= grace) or (not seen and now - started >= first_wait):
@@ -89,13 +90,22 @@ class Hub:
     def __init__(self) -> None:
         self.loop: asyncio.AbstractEventLoop | None = None
         self.clients: set[asyncio.Queue] = set()
+        # 창 모드에서 띄운 OverShorts 창의 연결 (/ws?window=1). 다른 브라우저 탭(/ws)은 여기 없다:
+        # 창을 닫았는데 다른 브라우저에 패널 탭이 남아 있어도 서버가 꺼지게 (2026-11-21, 파일 잠김)
+        self.window_clients: set[asyncio.Queue] = set()
+
+    def client_counts(self) -> dict[str, Any]:
+        window = len(self.window_clients)
+        return {"type": "clients", "app_windows": window, "other_tabs": max(0, len(self.clients) - window)}
         self.recent: list[dict[str, Any]] = []
         self.lock = threading.Lock()
 
-    def emit(self, event: dict[str, Any]) -> None:
+    def emit(self, event: dict[str, Any], keep: bool = True) -> None:
+        """keep=False: 지금 붙은 화면에만 보내고 로그(recent)에는 남기지 않는다 (연결 수 같은 상태)."""
         event = {"time": datetime.now().isoformat(timespec="seconds"), **event}
-        with self.lock:
-            self.recent = (self.recent + [event])[-200:]
+        if keep:
+            with self.lock:
+                self.recent = (self.recent + [event])[-200:]
         loop = self.loop
         if loop is None:
             return
@@ -349,7 +359,8 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
 
         build = app.state.__dict__.setdefault("build", build_id())
         return {"app": "overshorts", "version": __version__, "build": build,
-                "window": idle_exit, "busy": worker.current is not None or worker.tasks.qsize() > 0}
+                "window": idle_exit, **{k: v for k, v in hub.client_counts().items() if k != "type"},
+                "busy": worker.current is not None or worker.tasks.qsize() > 0}
 
     @app.post("/api/shutdown")
     def shutdown(x_overshorts_token: str = Header(default="")) -> dict[str, Any]:
@@ -858,7 +869,11 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
     async def ws(sock: WebSocket) -> None:
         await sock.accept()
         q: asyncio.Queue = asyncio.Queue(maxsize=500)
+        is_window = sock.query_params.get("window") == "1"
         hub.clients.add(q)
+        if is_window:
+            hub.window_clients.add(q)
+        hub.emit(hub.client_counts(), keep=False)
 
         async def pump() -> None:
             while True:
@@ -875,6 +890,8 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         finally:
             sender.cancel()
             hub.clients.discard(q)
+            hub.window_clients.discard(q)
+            hub.emit(hub.client_counts(), keep=False)
 
     app.mount("/files/jobs", StaticFiles(directory=str(data / "jobs")), name="jobs")
     if PANEL_DIST.is_dir():
