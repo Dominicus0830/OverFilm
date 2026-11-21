@@ -182,9 +182,9 @@ export function useScroll(contentH: number, viewH: number, start: number, end: n
 
 /** 본문 글만 있는 장면 (사진 없는 부분). */
 export const BodyText: React.FC<{text: string; runs?: StyledLine[] | null}> = ({text, runs}) => (runs ? (
-  <div style={{padding: '10px 6px', wordBreak: 'break-all'}}><RichLines lines={runs} /></div>
+  <div style={{padding: '10px 6px', wordBreak: 'keep-all', overflowWrap: 'anywhere'}}><RichLines lines={runs} /></div>
 ) : (
-  <div style={{padding: '10px 6px', whiteSpace: 'pre-wrap', wordBreak: 'break-all'}}>{text}</div>
+  <div style={{padding: '10px 6px', whiteSpace: 'pre-wrap', wordBreak: 'keep-all', overflowWrap: 'anywhere'}}>{text}</div>
 ));
 
 export function textHeight(text: string, runs?: StyledLine[] | null): number {
