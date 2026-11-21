@@ -185,6 +185,25 @@ class Collector:
         else:
             report.blocked.append((post_no, result.reasons))
 
+    def _video(self, src: str, alts: list[str]) -> tuple[bytes, bool]:
+        """본문 영상: mp4 주소부터, 안 되면 같은 영상의 다른 주소. 디시 움짤은 webp 로만 올 때가 있어
+        그때는 그림으로 받는다. 돌려주는 bool = 움짤 그림(영상 아님). 모두 실패하면 마지막 오류."""
+        last: FetchError | None = None
+        still: bytes | None = None
+        get_motion = getattr(self.fetcher, "get_motion", None)
+        for u in [src, *alts][:3]:
+            try:
+                data, is_video = get_motion(u) if get_motion else (self.fetcher.get_video(u), True)
+            except FetchError as err:
+                last = err
+                continue
+            if is_video:
+                return data, False
+            still = still or data  # 움짤 그림: 다른 주소에 mp4 가 있으면 그쪽을
+        if still is not None:
+            return still, True
+        raise last or FetchError("영상 주소가 없습니다")
+
     def _images(self, url: DcUrl, post: Post, report: IngestReport) -> list[dict]:
         """규칙을 통과한 글의 첨부 사진·동영상만 받는다.
 
@@ -201,16 +220,21 @@ class Collector:
                             data = self.fetcher.get_image(src)
                             name = f"{post.post_no}-{i}.img"
                         else:
-                            data = self.fetcher.get_video(src)
-                            name = f"{post.post_no}-v{i}.mp4"
+                            data, moving = self._video(src, post.video_alts.get(src) or [])
+                            if moving:  # mp4 를 못 받아 움짤 그림(webp·gif)으로: 사진처럼 넣는다 (움직임은 브라우저가)
+                                item.update(kind="image", moving=True)
+                                report.errors.append(f"{post.post_no} 영상: mp4 를 못 받아 움짤 그림으로 넣음")
+                            name = f"{post.post_no}-v{i}" + (".img" if moving else ".mp4")
                         path = self.image_dir / url.gall_id / name
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_bytes(data)
-                        item.update(local=str(path), inspected=False if kind == "image" else None)
+                        item.update(local=str(path), inspected=False if item["kind"] == "image" else None)
                     except FetchError as err:
                         what = "그림" if kind == "image" else "영상"
+                        item["error"] = f"{what}을 받지 못함: {str(err)[:120]}"
                         report.errors.append(f"{post.post_no} {what}: {err}")
                     except OSError as err:
+                        item["error"] = f"파일 저장 실패: {str(err)[:120]}"
                         report.errors.append(f"{post.post_no} 파일 저장 실패: {err}")
                 out.append(item)
         return out

@@ -371,7 +371,10 @@ def build_frame_spec(timing: dict[str, Any], script: dict[str, Any], post: dict[
                                "words": [{"text": line[:crules.max_chars * 2], "start": t0, "end": round(end, 3)}]})
         segments.append(out)
     has_media = any(sg["media"] or sg.get("image") for sg in segments)
-    preset = opts.preset if opts.preset in ("frame", "card") else ("frame" if has_media else "card")
+    # 편집 유형(옵갤형 등)을 골랐으면 미디어가 없어도 그 유형 화면(디시 화면) 그대로.
+    # 썰 카드형 자동 전환은 유형이 없을 때만 (2026-11-21: 영상을 못 받은 글이 카드형으로 바뀐 버그)
+    preset = opts.preset if opts.preset in ("frame", "card") else (
+        "frame" if has_media or edit is not None else "card")
     bgm = None
     if opts.bgm_dir is not None and opts.bgm_dir.is_dir():
         try:
@@ -668,6 +671,11 @@ def spec_pending(store: Store, jobs_dir: Path, bg_dir: Path | None,
                 spec = build_spec(timing, str(script.get("title") or ""), str(row["subject"] or ""),
                                   str(script.get("fact") or ""), source, bg_name)
             _add_verify_warnings(spec, job_dir)
+            # 수집 때 못 받은 사진·영상: 왜 화면에 없는지 검수에서 보이게
+            lost = [f"원문 {'영상' if m.get('kind') == 'video' else '사진'}: {m['error']}"
+                    for m in _json_list(row["images"]) if isinstance(m, dict) and m.get("error")]
+            if lost:
+                spec["warnings"] = [*(spec.get("warnings") or []), *lost[:5]]
             spec["source_text"] = source_text  # 출처 끄기/켜기를 다시 만들지 않고 바꿀 수 있게
             spec["warnings"] = [*(timing.get("warnings") or []), *(spec.get("warnings") or [])]
             spec_path = job_dir / "spec.json"
