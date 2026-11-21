@@ -1,0 +1,10 @@
+{
+  "name": "OverShorts",
+  "short_name": "OverShorts",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#1f2329",
+  "theme_color": "#1f2329",
+  "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]
+}

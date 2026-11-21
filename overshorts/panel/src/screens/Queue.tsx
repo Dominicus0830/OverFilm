@@ -117,6 +117,31 @@ export function Queue({tick, events}: {tick: number; events: Event[]}) {
           <li key={i}><span className="faint">{e.time?.slice(11)}</span>{e.label ?? e.stage ?? e.type} {e.message ?? e.state ?? ''}</li>
         ))}
       </ul>
+      <ServerLog />
     </section>
+  );
+}
+
+/** 서버 기록: 창 모드는 콘솔 창이 없어서 서버 출력(오류 포함)이 로그 파일로 간다. 펼치면 끝부분을 읽는다. */
+function ServerLog() {
+  const [log, setLog] = useState<{path: string | null; lines: string[]} | null>(null);
+  const [err, setErr] = useState('');
+  const load = () => api<{path: string | null; lines: string[]}>('/api/server-log')
+    .then((l) => { setLog(l); setErr(''); }).catch((e) => setErr(e.message));
+  return (
+    <details className="server-log" onToggle={(e) => { if ((e.target as HTMLDetailsElement).open) load(); }}>
+      <summary data-automation-id="server-log-toggle">서버 기록 (오류가 나면 여기를 보세요)</summary>
+      {err && <p className="error">{err}</p>}
+      {log && !log.path && <p className="muted">로그 파일이 없습니다. 서버 출력은 실행한 콘솔 창에 나옵니다.</p>}
+      {log?.path && (<>
+        <p className="muted"><code>{log.path}</code></p>
+        <div className="actions">
+          <button onClick={load} data-automation-id="server-log-reload">다시 읽기</button>
+          <button className="link" data-automation-id="server-log-folder"
+            onClick={() => api('/api/server-log/open', {}).catch((e) => setErr(e.message))}>폴더 열기</button>
+        </div>
+        <pre className="server-log-text">{log.lines.slice(-200).join('\n') || '(비어 있음)'}</pre>
+      </>)}
+    </details>
   );
 }

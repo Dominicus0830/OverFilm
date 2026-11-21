@@ -1,5 +1,5 @@
-import React, {useEffect, useState} from 'react';
-import {Event, api, subscribe} from './api';
+import React, {useEffect, useRef, useState} from 'react';
+import {Event, WorkerState, api, subscribe} from './api';
 import {Home} from './screens/Home';
 import {NewJob} from './screens/NewJob';
 import {Queue} from './screens/Queue';
@@ -32,7 +32,22 @@ export function App() {
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem('theme', theme); } catch { /* 저장 못 해도 됨 */ }
   }, [theme]);
+  // 작업이 도는 중에 창을 닫으려 하면 묻는다 (창 모드는 창을 닫으면 서버도 꺼져 작업이 멈춘다)
+  const working = useRef(false);
+  useEffect(() => {
+    api<WorkerState>('/api/worker')
+      .then((w) => { working.current = w.current !== null || w.pending.length > 0; })
+      .catch(() => { /* 모르면 묻지 않는다 */ });
+    const onLeave = (ev: BeforeUnloadEvent) => {
+      if (!working.current) return;
+      ev.preventDefault();
+      ev.returnValue = '작업이 도는 중입니다. 창을 닫으면 작업이 멈춥니다.';
+    };
+    window.addEventListener('beforeunload', onLeave);
+    return () => window.removeEventListener('beforeunload', onLeave);
+  }, []);
   useEffect(() => subscribe((e) => {
+    if (e.type === 'queue') working.current = Boolean(e.current) || (e.pending ?? 0) > 0;
     setEvents((old) => [...old.slice(-199), e]);
     if (e.type === 'jobs_changed' || e.type === 'task') setTick((t) => t + 1);
     if (e.type === 'confirm' && e.kind === 'llm_limit') setLimitAsk(e.message ?? 'Claude 한도에 걸렸습니다');

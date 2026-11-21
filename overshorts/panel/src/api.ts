@@ -33,7 +33,7 @@ export type WorkerState = {current: {id: number; label: string} | null;
   pending: {id: number; label: string}[]; paused: boolean; cancelling: boolean};
 
 export type Event = {type: string; time?: string; message?: string; stage?: string; label?: string;
-  state?: string; level?: string; kind?: string};
+  state?: string; level?: string; kind?: string; pending?: number; current?: string | null};
 
 /** WebSocket 구독. 끊기면 3초 뒤 다시 붙는다. */
 export function subscribe(onEvent: (e: Event) => void): () => void {

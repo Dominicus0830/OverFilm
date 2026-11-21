@@ -87,6 +87,12 @@ Edge-TTS 는 비공식 엔드포인트라 수익화 채널은 유료 API 권장 
 
 `overshorts serve` 로 띄우면 브라우저가 열린다 (`http://127.0.0.1:8765/`, 이 PC 에서만 접속).
 
+`overshorts serve --window` 는 브라우저 탭 대신 **OverShorts 창**(Edge, 없으면 Chrome 의 앱 창 모드, 전용 프로필
+`<설정 폴더>/window`)으로 연다. 창을 모두 닫으면 약 12초 뒤 서버도 꺼지고(도는 작업은 취소, 닫기 전에 패널이 묻는다),
+같은 빌드의 서버가 이미 켜져 있으면 창만 그 서버에 붙인다. 다른 빌드면 그 서버를 끄고(`/api/shutdown`, 데이터 폴더
+`.server.json` 의 토큰) 새로 켠다. Windows 설치본의 `OverShorts.exe` 는 콘솔 창 없이 이 모드로 켜지고 출력은
+`%LOCALAPPDATA%\OverShorts\logs\overshorts.log` 에 남는다(패널 작업 큐 ▸ 서버 기록). 실행기 소스는 `packaging/windows/`.
+
 | 화면 | 하는 일 |
 | --- | --- |
 | 홈 | 오늘 수집·생성·승인 수, 크롤링 예산 게이지·차단 상태, Claude 한도, GPU, 다음 할 일 |

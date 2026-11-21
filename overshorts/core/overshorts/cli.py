@@ -10,6 +10,7 @@
     overshorts approve <작업>         승인 (패널 전 임시)
     overshorts render                 승인된 작업 최종 렌더
     overshorts serve                  패널 열기 (localhost, 브라우저 자동)
+    overshorts serve --window         OverShorts 창으로 열기 (창을 닫으면 꺼짐)
     overshorts budget                 오늘 요청 예산·쿨다운 상태
 """
 
@@ -103,18 +104,60 @@ def _serve(args) -> int:
 
     port = max(1024, min(int(args.port), 65535))
     url = f"http://127.0.0.1:{port}/"
-    if not args.no_browser:
-        import threading
-        import webbrowser
+    window = bool(getattr(args, "window", False))
+    home = Path(str(args.config)).resolve().parent
+    token = ""
+    if window:
+        from . import window as win
 
-        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
-    print(f"OverShorts 패널: {url}")
+        running = win.running_server(port)
+        if running is not None and running.get("build") == win.build_id():
+            # 같은 빌드가 이미 켜져 있다: 서버는 그대로 두고 창만 붙인다
+            win.open_window(url, home / "window")
+            return 0
+        if running is not None and not win.ask_shutdown(home, port):
+            win.alert("예전 버전의 OverShorts가 아직 켜져 있어 새 버전을 열 수 없습니다 (포트 %d).\n"
+                      "열려 있는 OverShorts 창(검은 창 포함)을 모두 닫고 다시 켜 주세요." % port)
+            return 3  # 이미 메시지 상자로 알렸다 (실행기가 또 띄우지 않게)
+        if running is None and win.port_open(port) and win.old_server(port):
+            win.alert("예전 버전의 OverShorts가 아직 켜져 있어 새 버전을 열 수 없습니다 (포트 %d).\n"
+                      "검은 OverShorts 창을 닫고 다시 켜 주세요. 이번 한 번만 필요합니다." % port)
+            return 3  # 이미 메시지 상자로 알렸다 (실행기가 또 띄우지 않게)
+        if running is None and win.port_open(port):
+            win.alert("포트 %d 을 다른 프로그램이 쓰고 있어 OverShorts를 열 수 없습니다.\n"
+                      "설정 파일(config.yaml)이 있는 폴더에서 다른 포트로 바꾸거나 그 프로그램을 꺼 주세요." % port)
+            return 3  # 이미 메시지 상자로 알렸다 (실행기가 또 띄우지 않게)
+        token = win.new_token()
+    print(f"OverShorts 패널: {url}", flush=True)
     from .config import complete_config_file
 
     added = complete_config_file(args.config)
     if added:
         print(f"설정 파일에 기본값을 채웠습니다: {', '.join(added)} ({args.config})")
-    uvicorn.run(create_app(args.config), host="127.0.0.1", port=port, log_level="warning")
+    app = create_app(args.config, idle_exit=window, shutdown_token=token or None)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    app.state.request_exit = lambda: setattr(server, "should_exit", True)
+    if window:
+        import threading
+
+        from . import window as win
+
+        win.write_server_file(home, port, token)
+
+        def open_when_ready() -> None:
+            for _ in range(100):  # 서버가 받을 준비가 되면 창을 연다 (최대 약 20초)
+                if server.started:
+                    break
+                threading.Event().wait(0.2)
+            win.open_window(url, home / "window")
+
+        threading.Thread(target=open_when_ready, name="overshorts-window", daemon=True).start()
+    elif not args.no_browser:
+        import threading
+        import webbrowser
+
+        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+    server.run()
     return 0
 
 
@@ -145,6 +188,8 @@ def main(argv: list[str] | None = None) -> int:
     sv = sub.add_parser("serve", help="패널 열기 (브라우저 자동)")
     sv.add_argument("--port", type=int, default=8765)
     sv.add_argument("--no-browser", action="store_true")
+    sv.add_argument("--window", action="store_true",
+                    help="브라우저 탭 대신 OverShorts 창으로 열고, 창을 닫으면 서버도 끈다")
     sub.add_parser("filter", help="규칙 통과 글을 LLM 필터로 분류 (로컬 Ollama)")
     sc = sub.add_parser("script", help="필터 통과 글의 대본 쓰기 (Claude Code)")
     sc.add_argument("--post", type=int, action="append", help="이 글만 (여러 번 가능)")
