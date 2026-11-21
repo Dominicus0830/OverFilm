@@ -87,7 +87,7 @@ class Pipeline:
         from .images import ImageInspector, inspect_pending
 
         f = self.cfg.get("filter") or {}
-        insp = ImageInspector(self.data / "models", blur_faces=bool(f.get("blur_faces", True)),
+        insp = ImageInspector(self.data / "models", blur_faces=bool(f.get("blur_faces", False)),
                               drop_nsfw=bool(f.get("drop_nsfw_images", True)))
         try:
             counts = inspect_pending(self.store, insp, self.data / "images")
@@ -144,7 +144,8 @@ class Pipeline:
         opts = spec_options(self.cfg)
         if isinstance(self.prefs().get("show_source"), bool):
             opts.show_source = self.prefs()["show_source"]
-        c = spec_pending(self.store, self.data / "jobs", Path(str(bg)) if bg else None, opts=opts)
+        c = spec_pending(self.store, self.data / "jobs", Path(str(bg)) if bg else None, opts=opts,
+                         fetch_image=self.fetcher.get_image)
         self._say("preview", f"검수 대기 {c['ready']}개")
 
     def run_to_review(self) -> None:

@@ -299,6 +299,23 @@ class PresetSaveIn(BaseModel):
     references: list[str] = Field(default_factory=list, max_length=5)
 
 
+class PresetCopyIn(BaseModel):
+    label: str = Field(default="", max_length=20)
+
+
+class PremiereFileIn(BaseModel):
+    name: str = Field(max_length=200)
+    data: str = Field(max_length=90_000_000, description="파일 base64 (64MB 까지)")
+
+
+class PresetLearnIn(BaseModel):
+    base: str | None = Field(default=None, max_length=32)  # 보충할 유형 id (없으면 새 유형)
+    premiere: PremiereFileIn | None = None
+    jobs: list[int] = Field(default_factory=list, max_length=10)  # 통과된 쇼츠 작업 번호
+    links: list[str] = Field(default_factory=list, max_length=5)  # 유튜브 링크
+    note: str = Field(default="", max_length=1000)
+
+
 class CringeIn(BaseModel):
     line: int = Field(ge=0, le=100)
     text: str = Field(max_length=300)
@@ -828,6 +845,56 @@ def create_app(config_path: str | None = None, cfg: dict[str, Any] | None = None
         if not delete_custom_preset(_style_dir(), preset_id):
             raise HTTPException(404, "내가 만든 유형이 아닙니다")
         return {"ok": True}
+
+    @app.post("/api/presets/{preset_id}/copy")
+    def presets_copy(preset_id: str, body: PresetCopyIn) -> dict[str, Any]:
+        """스타일 복사: 새 이름의 내 유형으로 복제해 바로 저장한다."""
+        from ..presets_custom import summarize
+        from ..presets_learn import copy_preset
+
+        try:
+            p = copy_preset(_style_dir(), preset_id, body.label)
+        except (ValueError, OSError) as err:
+            raise HTTPException(400, str(err)[:300]) from err
+        return {"ok": True, "id": p.id, "label": p.label, "summary": summarize(p)}
+
+    @app.get("/api/presets/passed")
+    def presets_passed() -> list[dict[str, Any]]:
+        """학습에 쓸 수 있는 통과된 쇼츠 목록."""
+        from ..presets_learn import passed_shorts
+
+        s = db()
+        try:
+            return passed_shorts(s)
+        finally:
+            s.close()
+
+    @app.post("/api/presets/learn")
+    def presets_learn(body: PresetLearnIn) -> dict[str, Any]:
+        """Premiere 파일·통과된 쇼츠·유튜브 링크로 스타일 학습 (보충 또는 새 유형). 저장은 하지 않는다."""
+        import base64
+        import binascii
+
+        from ..llm import LlmError
+        from ..presets_learn import learn, premiere_facts
+
+        facts = None
+        if body.premiere is not None:
+            try:
+                raw = base64.b64decode(body.premiere.data.split(",", 1)[-1], validate=False)
+                facts = premiere_facts(raw, body.premiere.name)
+            except (ValueError, binascii.Error) as err:
+                return {"ok": False, "error": str(err)[:300]}
+        s = db()
+        try:
+            router = (pipeline_factory(s) if pipeline_factory else Pipeline(cfg, s, data)).router()
+            try:
+                return {"ok": True, "premiere": facts,
+                        **learn(router, s, _style_dir(), body.base, facts, body.jobs, body.links, body.note)}
+            except (LlmError, ValueError) as err:
+                return {"ok": False, "error": str(err)[:300]}
+        finally:
+            s.close()
 
     @app.post("/api/review/{job_id}/discard")
     def discard(job_id: int) -> dict[str, Any]:

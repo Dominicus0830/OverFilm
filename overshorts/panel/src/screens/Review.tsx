@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {createPortal} from 'react-dom';
 import {Icon} from '../ui/Icon';
 import {Player, PlayerRef} from '@remotion/player';
 import {Story} from '../../../render/src/Story';
@@ -6,7 +7,8 @@ import {sanitize} from '../../../render/src/spec';
 import {api, ReviewItem, ScriptLine} from '../api';
 import {VoicePicker} from './VoicePicker';
 import {Switch} from '../ui/Switch';
-import type {Screen} from '../App';
+import {Section, openSection} from '../ui/Pane';
+import {Timeline} from '../workspace/Timeline';
 
 const PART_KO: Record<string, string> = {hook: '훅', body: '전개', comment: '댓글 읽기', outro: '마무리'};
 const SEG_KO: Record<string, string> = {title: '제목', media: '본문 미디어', body: '본문 글', comments: '댓글 반응',
@@ -30,9 +32,21 @@ function overlapMarks(body: string, lines: ScriptLine[]): boolean[] {
   return marks;
 }
 
-export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
+/** 작업 공간에서 이 화면이 그려 넣을 자리: 가운데 모니터, 오른쪽 속성, 아래 타임라인. */
+export type ReviewSlots = {monitor: HTMLElement | null; props: HTMLElement | null; timeline: HTMLElement | null};
+
+/**
+ * 검수: 고른 글(jobId)이 검수 대기면 미리보기·승인 버튼은 모니터에, 대본·보이스·원문은 속성에,
+ * 장면은 타임라인에 그린다(한 컴포넌트가 상태를 갖고 세 자리에 portal 로). 검수 대기가 아니면 아무것도 안 그린다.
+ */
+export function Review({tick, jobId, onPick, onItems, onNotice, slots}: {
+  tick: number; jobId: number | null; onPick: (jobId: number) => void; onItems: (ids: number[]) => void;
+  /** 한 줄 알림(승인했음 등): 글이 검수 목록에서 빠져도 위 상태 줄에 남는다 */
+  onNotice: (m: string) => void; slots: ReviewSlots;
+}) {
   const [items, setItems] = useState<ReviewItem[]>([]);
-  const [pos, setPos] = useState(0);
+  const [time, setTime] = useState(0);
+  const [curSeg, setCurSeg] = useState<number | null>(null);
   const [lines, setLines] = useState<ScriptLine[]>([]);
   const [dirty, setDirty] = useState(false);
   const [regen, setRegen] = useState(false);
@@ -44,9 +58,11 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
   const player = useRef<PlayerRef>(null);
 
   useEffect(() => { api<ReviewItem[]>('/api/review').then(setItems).catch((e) => setMsg(e.message)); }, [tick]);
+  useEffect(() => { onItems(items.map((x) => x.job_id)); }, [items, onItems]);
   useEffect(() => { api<typeof library>('/api/memes').then(setLibrary).catch(() => undefined); }, [tick]);
   useEffect(() => { api<{show_source?: boolean}>('/api/prefs').then((p) => setShowSource(p.show_source !== false)).catch(() => undefined); }, []);
-  const item = items[Math.min(pos, Math.max(0, items.length - 1))];
+  const item = items.find((x) => x.job_id === jobId);
+  const pos = item ? items.indexOf(item) : -1;
   useEffect(() => { setLines(item?.script.lines ?? []); setDirty(false); setRegen(false); setReport(null); },
     [item?.job_id, item?.version]);
 
@@ -110,9 +126,11 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.ctrlKey || e.metaKey || e.altKey) return;
       const k = e.key.toLowerCase();
-      if (k === 'j') setPos((p) => Math.min(p + 1, Math.max(0, items.length - 1)));
-      else if (k === 'k') setPos((p) => Math.max(0, p - 1));
-      else if (k === 'a') act('approve');
+      if (!item) return;
+      if (k === 'j' || k === 'k') {
+        const next = items[pos + (k === 'j' ? 1 : -1)];
+        if (next) onPick(next.job_id);
+      } else if (k === 'a') act('approve');
       else if (k === 'e' && dirty) act('edit');
       else if (k === 'r') setRegen((r) => !r);
       else if (k === 'd') act('discard');
@@ -122,7 +140,7 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [items.length, act, dirty, toEditor]);
+  }, [items, item, pos, onPick, act, dirty, toEditor]);
 
   const playLine = (i: number) => {
     const sc = spec?.scenes.filter((s) => s.line === i);
@@ -192,16 +210,31 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
     setReport(null);
   };
 
-  if (!item) {
-    return (
-      <section className="empty">
-        <h1>검수</h1>
-        <p>검수할 영상이 없습니다.</p>
-        <button className="primary" onClick={() => go('새로 만들기')}>링크 넣기</button>
-        {msg && <p className="muted">{msg}</p>}
-      </section>
-    );
-  }
+  useEffect(() => { if (msg) onNotice(msg); }, [msg, onNotice]);
+  // 재생 위치 → 타임라인 재생 막대·지금 장면
+  useEffect(() => {
+    const p = player.current;
+    if (!p || !spec) return;
+    const on = (e: {detail: {frame: number}}) => setTime(e.detail.frame / Math.max(1, spec.fps));
+    p.addEventListener('frameupdate', on);
+    return () => p.removeEventListener('frameupdate', on);
+  }, [spec, slots.monitor]);
+  useEffect(() => { setTime(0); setCurSeg(null); }, [item?.job_id]);
+  const seek = (t: number) => {
+    if (!spec || !player.current) return;
+    const at = Math.min(spec.duration, Math.max(0, t));
+    player.current.seekTo(Math.round(at * spec.fps));
+    setTime(at);
+  };
+  const pickSeg = (i: number) => {
+    const g = spec?.segments[i];
+    if (g) seek(g.start);
+    setCurSeg(i);
+    openSection('script');
+    requestAnimationFrame(() => document.getElementById(`seg-${i}`)?.scrollIntoView({behavior: 'smooth', block: 'center'}));
+  };
+
+  if (!item) return null;
   const flagged = new Map((item.script.cringe?.issues ?? []).map((i) => [i.line, i.reason]));
   // 오글 검사 줄 번호는 나레이션(pause 뺀) 순서 기준
   const spoken = lines.map((l, i) => (l.part === 'pause' ? -1 : i)).filter((i) => i >= 0);
@@ -215,158 +248,28 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
   const marks = overlapMarks(item.body, lines);
   const bodyChars = [...item.body];
   const llm = item.filters.filter((f) => f.stage === 'llm').slice(-1)[0];
+  const warnings = [...item.script.warnings, ...((item.spec?.warnings as string[] | undefined) ?? [])];
 
-  return (
-    <section className="review">
-      <header className="review-head">
-        <h1>검수 <span className="muted small num">{pos + 1} / {items.length} · J/K 로 넘기기</span></h1>
-        <span className="status small" role="status">{msg}</span>
-        <Switch checked={showSource} onChange={() => toggleSource()} label="출처 표시"
-          hint="영상 아래 '출처: DC인사이드 …' 표시" automationId="show-source" />
-      </header>
-      <div className="review-cols">
-        <div className="col">
-          <h3>원문</h3>
-          <p className="muted small">제목·본문·고른 댓글 · <a href={item.post_url} target="_blank" rel="noreferrer">원문 열기</a></p>
-          <h4>{item.title}</h4>
-          <p className="body">{bodyChars.map((ch, i) => marks[i] ? <mark key={i}>{ch}</mark> : ch)}</p>
-          <p className="muted small">노란색 = 대본과 겹치는 부분</p>
-          <ul className="comments">
-            {item.comments.slice(0, 50).map((c, i) => {
-              const picked = (item.script.segments ?? []).some((g) => g.comments.includes(i))
-                || lines.some((l) => l.part === 'comment' && l.comment_no === i);
-              return (
-                <li key={i} className={picked ? 'picked' : ''} style={{marginLeft: c.depth ? 18 : 0}}>
-                  [{i}] {c.depth ? '└ ' : ''}<span className="muted">{c.nick}{c.ip ? `(${c.ip})` : ''}</span>{' '}
-                  {c.text}{c.dccon ? ` (디시콘: ${c.dccon.name})` : ''}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-        <div className="col">
-          <h3>대본</h3>
-          <p className="muted small">문장을 바로 고칠 수 있습니다. 재생 단추는 그 문장만 듣기 · 예상 {item.script.est_seconds}초</p>
-          <p className="small">화면 제목: <b>{item.script.title}</b>
-            {(item.script.title_alts ?? []).length > 0 && (
-              <span className="muted"> · 다른 후보: {(item.script.title_alts ?? []).join(' / ')}</span>)}</p>
-          {item.script.composition && (
-            <p className="muted small">구성 {item.script.composition}
-              {item.script.composition === 'A' ? ' (제목 → 본문 → 댓글)' : ' (제목 → 본문)'}
-              {item.script.composition_reason ? ` · ${item.script.composition_reason}` : ''}</p>
-          )}
-          {groups.map(({seg, idx}) => (
-            <div key={seg} className={item.script.segments ? 'seg' : undefined}>
-              {item.script.segments?.[seg] && (() => {
-                const g = item.script.segments[seg];
-                return (
-                  <div className="seg-head">
-                    <span className="kind">{seg + 1}. {SEG_KO[g.kind] ?? g.kind}</span>
-                    {g.subtitle && <span className="muted">“{g.subtitle}”</span>}
-                    {g.media.length > 0 && <span className="muted">{g.media.map((m) => m.name).join(', ')}</span>}
-                    {g.comments.length > 0 && <span className="muted">댓글 {g.comments.map((n) => `[${n}]`).join(' ')}</span>}
-                    {g.kind === 'reaction' && <span className="muted">{g.image || '그림 없음'}{g.say ? ` · “${g.say}”` : ''}</span>}
-                    {g.kind === 'reaction' && <button className="small-btn" data-automation-id={`seg-remove-${seg}`}
-                      onClick={() => removeSeg(seg)}>빼기</button>}
-                    <Switch checked={g.tts} onChange={(v) => setTts(seg, v)} label="TTS 읽기" hint={g.tts_reason}
-                      automationId={`seg-tts-${seg}`} />
-                    {g.tts_reason && <span className="faint">{g.tts_reason}</span>}
-                  </div>
-                );
-              })()}
-              {idx.map((i) => {
-                const l = lines[i];
-                return (
-                  <div key={i} className={flagged.has(spoken.indexOf(i)) ? 'line flagged' : 'line'}>
-                    <button className="play" aria-label={`${i + 1}번째 문장 듣기`} onClick={() => playLine(i)}><Icon name="play" size={12} /></button>
-                    <span className="part">{PART_KO[l.part] ?? l.part}</span>
-                    <input value={l.text} aria-label={`${i + 1}번째 문장`} readOnly={l.part === 'comment'}
-                      title={l.part === 'comment' ? '댓글은 원문 그대로 (고칠 수 없음)' : undefined} onChange={(e) => {
-                        const next = lines.slice(); next[i] = {...l, text: e.target.value}; setLines(next); setDirty(true);
-                      }} />
-                    {flagged.has(spoken.indexOf(i)) && <span className="tag warn" title={flagged.get(spoken.indexOf(i))}>오글?</span>}
-                    <button className="small-btn" onClick={() => setReport({line: i, reason: ''})}>오글</button>
-                  </div>
-                );
-              })}
-              {item.script.segments && (
-                <button className="small-btn seg-add" data-automation-id={`seg-add-reaction-${seg}`}
-                  onClick={() => setReact({after: seg, image: '', say: '', say_style: 'calm'})}>＋ 이 뒤에 짤</button>
-              )}
-            </div>
-          ))}
-          {react && (
-            <div className="card">
-              <p>{react.after + 1}번째 장면 뒤에 짤 장면 넣기 (소리 없이 그림 + 자막)</p>
-              <label className="small">그림 · 영웅:이름 / 짤:짤 모음 이름 / 검색:찾을 짤
-                <input list="meme-list" value={react.image} placeholder="예: 영웅:아나, 검색:윈스턴 포효 짤"
-                  data-automation-id="reaction-image" onChange={(e) => setReact({...react, image: e.target.value})} />
-              </label>
-              <datalist id="meme-list">
-                {library.memes.map((m) => <option key={m.name} value={`짤:${m.name}`}>{m.use}</option>)}
-                {library.heroes.map((h) => <option key={h} value={`영웅:${h}`} />)}
-              </datalist>
-              <label className="small">짤 모음에 그림 올리기
-                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-automation-id="reaction-upload"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMeme(f); }} />
-              </label>
-              <label className="small">자막 (대사 그대로, 40자)
-                <input value={react.say} maxLength={40} data-automation-id="reaction-say"
-                  onChange={(e) => setReact({...react, say: e.target.value})}
-                  onKeyDown={(e) => { if (e.key === 'Enter') sendReaction(); }} />
-              </label>
-              <label className="small">자막 모양
-                <select value={react.say_style} data-automation-id="reaction-style"
-                  onChange={(e) => setReact({...react, say_style: e.target.value})}>
-                  <option value="calm">무심하게 (흰 글자)</option>
-                  <option value="question">되묻기 (흰 굵은 글자)</option>
-                  <option value="shout">버럭 (크고 굵은 빨강)</option>
-                  <option value="sad">시무룩 (손글씨 파랑)</option>
-                  <option value="smug">약올림 (노랑 굵게)</option>
-                </select>
-              </label>
-              <div className="actions"><button className="primary" onClick={sendReaction}>넣기</button>
-                <button onClick={() => setReact(null)}>취소</button></div>
-            </div>
-          )}
-          {report && (
-            <div className="card">
-              <p>{report.line + 1}번째 문장이 오글거리는 이유 (선택)</p>
-              <input autoFocus value={report.reason} onChange={(e) => setReport({...report, reason: e.target.value})}
-                onKeyDown={(e) => { if (e.key === 'Enter') sendReport(); }} />
-              <div className="actions"><button onClick={sendReport}>저장</button><button onClick={() => setReport(null)}>취소</button></div>
-            </div>
-          )}
-          <VoicePicker jobId={item.job_id} />
-          {item.script.alt_script_id ? (
-            <p className="small">지금 <b>{item.script.variant || 'A'}안</b>{' '}
-              <button className="small-btn" onClick={() => pickVariant(item.script.alt_script_id as number)} data-automation-id="review-variant">
-                {item.script.variant === 'B' ? 'A' : 'B'}안으로 바꾸기</button></p>) : null}
-          <p className="muted small">톤: {item.tone} · 프리셋: {PRESET_KO[spec?.preset ?? 'card']} · 대본 {item.version}번째</p>
-        </div>
-        <div className="col">
-          <h3>미리보기</h3>
-          {spec ? (
-            <Player ref={player} component={Story} inputProps={spec as unknown as Record<string, unknown>}
-              durationInFrames={Math.max(1, Math.round(spec.duration * spec.fps))} fps={spec.fps}
-              compositionWidth={spec.width} compositionHeight={spec.height} controls
-              style={{width: '100%', aspectRatio: '9 / 16', borderRadius: 4, overflow: 'hidden'}} />
-          ) : <p className="muted">미리보기가 없습니다</p>}
-          <p className="muted small">9:16 Player, 렌더 없이 재생</p>
-        </div>
+  const monitor = (
+    <div className="review-monitor" data-automation-id="review-monitor">
+      <div className="monitor">
+        {spec ? (
+          <Player ref={player} component={Story} inputProps={spec as unknown as Record<string, unknown>}
+            durationInFrames={Math.max(1, Math.round(spec.duration * spec.fps))} fps={spec.fps}
+            compositionWidth={spec.width} compositionHeight={spec.height} controls
+            style={{height: '100%', maxWidth: '100%', aspectRatio: '9 / 16'}} />
+        ) : <p className="muted">미리보기가 없습니다</p>}
       </div>
-      <footer className="review-foot">
-        <div className="muted small">
-          필터: {llm ? `${llm.verdict}${llm.fit_score !== null ? ` · 적합도 ${llm.fit_score}` : ''}` : '규칙만'}
+      <div className="monitor-foot">
+        <div className="small muted monitor-facts">
+          <span className="num">{pos + 1} / {items.length} · J/K</span>
+          {' · '}필터 {llm ? `${llm.verdict}${llm.fit_score !== null ? ` ${llm.fit_score}` : ''}` : '규칙만'}
           {' · '}원문 겹침 {Math.round(item.overlap_ratio * 100)}%{item.overlap_ratio > 0.3 ? ' (30% 초과)' : ''}
-          {' · '}오글 점수 {item.script.cringe ? item.script.cringe.score : '-'}
-          {[...item.script.warnings, ...((item.spec?.warnings as string[] | undefined) ?? [])].length > 0 && (
-            <div className="warnline">경고: {[...item.script.warnings,
-              ...((item.spec?.warnings as string[] | undefined) ?? [])].join(' / ')}</div>)}
+          {' · '}오글 {item.script.cringe ? item.script.cringe.score : '-'}
+          {warnings.length > 0 && <div className="warnline">경고: {warnings.join(' / ')}</div>}
         </div>
         <div className="actions">
-          <button className="primary" onClick={() => act('approve')} data-automation-id="review-approve">승인 (A)</button>
-          <button disabled={!dirty} onClick={() => act('edit')} data-automation-id="review-edit">수정 반영 (E)</button>
+          <button onClick={() => act('discard')} className="danger-btn" data-automation-id="review-discard">폐기 (D)</button>
           <div className="menu">
             <button onClick={() => setRegen(!regen)} data-automation-id="review-regen" aria-expanded={regen}>
               재생성 (R) <Icon name="chevron" size={12} className={regen ? 'turn open' : 'turn'} /></button>
@@ -388,10 +291,148 @@ export function Review({tick, go}: {tick: number; go: (s: Screen) => void}) {
           </div>
           <button disabled={dirty} onClick={toEditor} data-automation-id="review-overfilm"
             title={dirty ? '고친 대본을 먼저 반영(E)하세요' : '제목·자막·짤·댓글 장·출처를 OverFilm 편집기 타임라인으로 넘겨 더 고칩니다'}>
-            OverFilm 편집기로 (O)</button>
-          <button onClick={() => act('discard')} data-automation-id="review-discard">폐기 (D)</button>
+            편집기로 (O)</button>
+          <button disabled={!dirty} onClick={() => act('edit')} data-automation-id="review-edit">수정 반영 (E)</button>
+          <button className="primary" onClick={() => act('approve')} data-automation-id="review-approve">승인하고 렌더 (A)</button>
         </div>
-      </footer>
-    </section>
+      </div>
+    </div>
+  );
+
+  const props = (
+    <>
+      <Section id="script" title="대본" extra={<span className="faint small num">
+        {item.script.variant ? `${item.script.variant}안 · ` : ''}예상 {item.script.est_seconds}초</span>}>
+        <p className="small">화면 제목: <b>{item.script.title}</b>
+          {(item.script.title_alts ?? []).length > 0 && (
+            <span className="muted"> · 다른 후보: {(item.script.title_alts ?? []).join(' / ')}</span>)}</p>
+        {item.script.composition && (
+          <p className="muted small">구성 {item.script.composition}
+            {item.script.composition === 'A' ? ' (제목 → 본문 → 댓글)' : ' (제목 → 본문)'}
+            {item.script.composition_reason ? ` · ${item.script.composition_reason}` : ''}</p>
+        )}
+        {groups.map(({seg, idx}) => (
+          <div key={seg} id={`seg-${seg}`} className={`${item.script.segments ? 'seg' : ''} ${curSeg === seg ? 'seg-on' : ''}`}>
+            {item.script.segments?.[seg] && (() => {
+              const g = item.script.segments[seg];
+              return (
+                <div className="seg-head">
+                  <button className="kind link-plain" onClick={() => pickSeg(seg)} title="이 장면 처음으로">
+                    {seg + 1}. {SEG_KO[g.kind] ?? g.kind}</button>
+                  {g.subtitle && <span className="muted">“{g.subtitle}”</span>}
+                  {g.media.length > 0 && <span className="muted">{g.media.map((m) => m.name).join(', ')}</span>}
+                  {g.comments.length > 0 && <span className="muted">댓글 {g.comments.map((n) => `[${n}]`).join(' ')}</span>}
+                  {g.kind === 'reaction' && <span className="muted">{g.image || '그림 없음'}{g.say ? ` · “${g.say}”` : ''}</span>}
+                  {g.kind === 'reaction' && <button className="small-btn" data-automation-id={`seg-remove-${seg}`}
+                    onClick={() => removeSeg(seg)}>빼기</button>}
+                  <Switch checked={g.tts} onChange={(v) => setTts(seg, v)} label="TTS" hint={g.tts_reason}
+                    automationId={`seg-tts-${seg}`} />
+                </div>
+              );
+            })()}
+            {idx.map((i) => {
+              const l = lines[i];
+              return (
+                <div key={i} className={flagged.has(spoken.indexOf(i)) ? 'line flagged' : 'line'}>
+                  <button className="play" aria-label={`${i + 1}번째 문장 듣기`} onClick={() => playLine(i)}><Icon name="play" size={12} /></button>
+                  <span className="part">{PART_KO[l.part] ?? l.part}</span>
+                  <input value={l.text} aria-label={`${i + 1}번째 문장`} readOnly={l.part === 'comment'}
+                    title={l.part === 'comment' ? '댓글은 원문 그대로 (고칠 수 없음)' : l.text} onChange={(e) => {
+                      const next = lines.slice(); next[i] = {...l, text: e.target.value}; setLines(next); setDirty(true);
+                    }} />
+                  {flagged.has(spoken.indexOf(i)) && <span className="tag warn" title={flagged.get(spoken.indexOf(i))}>오글?</span>}
+                  <button className="small-btn" onClick={() => setReport({line: i, reason: ''})}>오글</button>
+                </div>
+              );
+            })}
+            {item.script.segments && (
+              <button className="small-btn seg-add" data-automation-id={`seg-add-reaction-${seg}`}
+                onClick={() => setReact({after: seg, image: '', say: '', say_style: 'calm'})}>＋ 이 뒤에 짤</button>
+            )}
+          </div>
+        ))}
+        {react && (
+          <div className="card">
+            <p>{react.after + 1}번째 장면 뒤에 짤 장면 넣기 (소리 없이 그림 + 자막)</p>
+            <label className="small">그림 · 영웅:이름 / 짤:짤 모음 이름 / 검색:찾을 짤
+              <input list="meme-list" value={react.image} placeholder="예: 영웅:아나, 검색:윈스턴 포효 짤"
+                data-automation-id="reaction-image" onChange={(e) => setReact({...react, image: e.target.value})} />
+            </label>
+            <datalist id="meme-list">
+              {library.memes.map((m) => <option key={m.name} value={`짤:${m.name}`}>{m.use}</option>)}
+              {library.heroes.map((h) => <option key={h} value={`영웅:${h}`} />)}
+            </datalist>
+            <label className="small">짤 모음에 그림 올리기
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-automation-id="reaction-upload"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMeme(f); }} />
+            </label>
+            <label className="small">자막 (대사 그대로, 40자)
+              <input value={react.say} maxLength={40} data-automation-id="reaction-say"
+                onChange={(e) => setReact({...react, say: e.target.value})}
+                onKeyDown={(e) => { if (e.key === 'Enter') sendReaction(); }} />
+            </label>
+            <label className="small">자막 모양
+              <select value={react.say_style} data-automation-id="reaction-style"
+                onChange={(e) => setReact({...react, say_style: e.target.value})}>
+                <option value="calm">무심하게 (흰 글자)</option>
+                <option value="question">되묻기 (흰 굵은 글자)</option>
+                <option value="shout">버럭 (크고 굵은 빨강)</option>
+                <option value="sad">시무룩 (손글씨 파랑)</option>
+                <option value="smug">약올림 (노랑 굵게)</option>
+              </select>
+            </label>
+            <div className="actions"><button className="primary" onClick={sendReaction}>넣기</button>
+              <button onClick={() => setReact(null)}>취소</button></div>
+          </div>
+        )}
+        {report && (
+          <div className="card">
+            <p>{report.line + 1}번째 문장이 오글거리는 이유 (선택)</p>
+            <input autoFocus value={report.reason} onChange={(e) => setReport({...report, reason: e.target.value})}
+              onKeyDown={(e) => { if (e.key === 'Enter') sendReport(); }} />
+            <div className="actions"><button onClick={sendReport}>저장</button><button onClick={() => setReport(null)}>취소</button></div>
+          </div>
+        )}
+        {item.script.alt_script_id ? (
+          <p className="small">지금 <b>{item.script.variant || 'A'}안</b>{' '}
+            <button className="small-btn" onClick={() => pickVariant(item.script.alt_script_id as number)} data-automation-id="review-variant">
+              {item.script.variant === 'B' ? 'A' : 'B'}안으로 바꾸기</button></p>) : null}
+        <p className="muted small">톤: {item.tone} · 프리셋: {PRESET_KO[spec?.preset ?? 'card']} · 대본 {item.version}번째</p>
+      </Section>
+      <Section id="voice" title="보이스">
+        <VoicePicker jobId={item.job_id} />
+      </Section>
+      <Section id="source" title="출처 표시">
+        <Switch checked={showSource} onChange={() => toggleSource()} label="영상 아래 '출처: DC인사이드 …' 넣기"
+          automationId="show-source" />
+      </Section>
+      <Section id="original" title="원문" defaultOpen={false}
+        extra={<a className="small" href={item.post_url} target="_blank" rel="noreferrer">원문 열기</a>}>
+        <h4>{item.title}</h4>
+        <p className="body">{bodyChars.map((ch, i) => marks[i] ? <mark key={i}>{ch}</mark> : ch)}</p>
+        <p className="muted small">노란색 = 대본과 겹치는 부분 · 굵은 댓글 = 영상에 쓴 댓글</p>
+        <ul className="comments">
+          {item.comments.slice(0, 50).map((c, i) => {
+            const picked = (item.script.segments ?? []).some((g) => g.comments.includes(i))
+              || lines.some((l) => l.part === 'comment' && l.comment_no === i);
+            return (
+              <li key={i} className={picked ? 'picked' : ''} style={{marginLeft: c.depth ? 18 : 0}}>
+                [{i}] {c.depth ? '└ ' : ''}<span className="muted">{c.nick}{c.ip ? `(${c.ip})` : ''}</span>{' '}
+                {c.text}{c.dccon ? ` (디시콘: ${c.dccon.name})` : ''}
+              </li>
+            );
+          })}
+        </ul>
+      </Section>
+    </>
+  );
+
+  return (
+    <>
+      {slots.monitor && createPortal(monitor, slots.monitor)}
+      {slots.props && createPortal(props, slots.props)}
+      {slots.timeline && spec && createPortal(
+        <Timeline spec={spec} time={time} seg={curSeg} onSeek={seek} onPickSeg={pickSeg} />, slots.timeline)}
+    </>
   );
 }

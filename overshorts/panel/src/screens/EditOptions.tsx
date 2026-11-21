@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {api} from '../api';
-import type {Screen} from '../App';
+import type {Go} from '../nav';
 
 export type PresetInfo = {id: string; label: string; origin: string; summary: string[]};
 type SettingsView = {values: Record<string, Record<string, unknown>>};
@@ -8,7 +8,7 @@ type SettingsView = {values: Record<string, Record<string, unknown>>};
 const on = (v: unknown) => ['true', 'on', 'yes', '1', '켬'].includes(String(v ?? '').toLowerCase());
 
 /** 편집 스타일 유형 + 순화·린터·전사 대조 토글. 값은 설정(config.yaml)에 저장돼 다음 작업부터 쓰인다. */
-export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (apply: () => Promise<void>) => void}) {
+export function EditOptions({go, onReady}: {go: Go; onReady: (apply: () => Promise<void>) => void}) {
   const [presets, setPresets] = useState<PresetInfo[]>([]);
   const [type, setType] = useState('ogal');
   const [soften, setSoften] = useState(false);
@@ -49,7 +49,7 @@ export function EditOptions({go, onReady}: {go: (s: Screen) => void; onReady: (a
         </select>
       </label>
       {cur && <ul className="opts muted small">{cur.summary.slice(1, 5).map((l) => <li key={l}>{l}</li>)}</ul>}
-      <button className="link" onClick={() => go('스타일')} data-automation-id="new-make-type">내 유형 만들기</button>
+      <button className="link" onClick={() => go('style')} data-automation-id="new-make-type">내 유형 만들기</button>
       <p className="muted small">아래 옵션은 기본으로 꺼져 있어 원문 내용을 그대로 씁니다.</p>
       <label className="check"><input type="checkbox" checked={soften} onChange={(e) => setSoften(e.target.checked)}
         data-automation-id="opt-soften" /> 순화 (욕설·혐오 표현을 피해서 씀)</label>

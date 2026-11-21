@@ -1,13 +1,13 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {api} from '../api';
-import type {Screen} from '../App';
+import type {Go} from '../nav';
 import {EditOptions} from './EditOptions';
 import {Dialog} from '../ui/Dialog';
 
 type Confirm = {requests_min: number; requests_max: number; hour_left: number; day_left: number};
 type Parsed = {ok: boolean; kind?: string; label?: string; error?: string; recommend_only?: boolean};
 
-export function NewJob({go}: {go: (s: Screen) => void}) {
+export function NewJob({go}: {go: Go}) {
   const [url, setUrl] = useState('');
   const [parsed, setParsed] = useState<Parsed | null>(null);
   const [advanced, setAdvanced] = useState(false);
@@ -41,7 +41,7 @@ export function NewJob({go}: {go: (s: Screen) => void}) {
         remember: ok && remember});
       if (!r.ok && r.confirm) { setConfirm(r.confirm); return; }
       setConfirm(null);
-      go('작업 큐');
+      go('close');
     } catch (e) {
       setMsg((e as Error).message);
     } finally { setBusy(false); }
@@ -49,7 +49,6 @@ export function NewJob({go}: {go: (s: Screen) => void}) {
 
   return (
     <section>
-      <h1>새로 만들기</h1>
       <label className="field">
         <span>DC 갤러리 링크나 게시물 링크</span>
         <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://gall.dcinside.com/mgallery/board/lists/?id=…"
