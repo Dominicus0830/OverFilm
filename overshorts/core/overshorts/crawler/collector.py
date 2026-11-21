@@ -86,7 +86,7 @@ class Collector:
             url = self._resolve_gall_type(url, opts)
             report.url = url
             if url.kind == "post" and url.post_no is not None:
-                self._ingest_post(url, url.post_no, report)
+                self._ingest_post(url, url.post_no, report, explicit=True)
             else:
                 self.store.upsert_source(raw_url, url.kind, url.gall_type, url.gall_id,
                                          opts.__dict__)
@@ -151,8 +151,13 @@ class Collector:
             self._ingest_post(url, row.post_no, report)
             self.fetcher.guard.post_fetched()
 
-    def _ingest_post(self, url: DcUrl, post_no: int, report: IngestReport) -> None:
-        if self.store.is_discarded(url.gall_id, post_no):
+    def _ingest_post(self, url: DcUrl, post_no: int, report: IngestReport,
+                     explicit: bool = False) -> None:
+        if explicit:
+            # 글 링크를 직접 넣었으면 예전에 '폐기'했어도 다시 만든다 (2026-11-21 사용자 요청).
+            # 폐기는 갤러리 전체 수집에서만 그 글을 건너뛰게 한다.
+            self.store.undiscard_post(url.gall_id, post_no)
+        elif self.store.is_discarded(url.gall_id, post_no):
             report.skipped_known += 1
             return
         view = url.view_url(post_no)
