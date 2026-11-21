@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 
 use super::overfilm::{Elems, check, combo, number, plain_error, text};
 use crate::FilmcraftApp;
+use crate::icons::{self, Icon};
 
 const PRE: &str = "overfilm.panel";
 
@@ -58,6 +59,57 @@ const TOOL_GROUPS: &[(&str, &[(&str, &str)])] = &[
 /// The tools of all groups, in order.
 fn tools() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
     TOOL_GROUPS.iter().flat_map(|(_, list)| list.iter())
+}
+
+/// A group's line icon (the editor's own set, `docs/design.md`).
+fn group_icon(group: &str) -> Icon {
+    match group {
+        "Get ready" => Icon::Monitor,
+        "Cut" => Icon::Razor,
+        "Read the match" => Icon::Search,
+        "Captions" => Icon::Captions,
+        "Export" => Icon::Export,
+        _ => Icon::Undo,
+    }
+}
+
+/// The icon of a run step's state (one circle, a different mark inside).
+fn state_icon(state: &str) -> Icon {
+    match state {
+        "done" => Icon::StepDone,
+        "running" => Icon::StepRunning,
+        "failed" => Icon::StepFailed,
+        "skipped" => Icon::StepSkipped,
+        _ => Icon::StepWaiting,
+    }
+}
+
+/// A 14 pt line icon in the text flow, in `color`.
+fn inline_icon(ui: &mut egui::Ui, icon: Icon, color: egui::Color32) -> Rect {
+    let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), egui::Sense::hover());
+    icons::paint(ui.painter(), r, icon, color);
+    r
+}
+
+/// A line icon to the left of a button's centred words (Run, Stop).
+fn button_icon(ui: &egui::Ui, r: &egui::Response, icon: Icon, words: &str, color: egui::Color32) {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let w = ui.painter().layout_no_wrap(words.to_string(), font, color).size().x;
+    let c = egui::pos2(r.rect.center().x - w / 2.0 - 12.0, r.rect.center().y);
+    let color = if r.enabled() { color } else { color.gamma_multiply(0.5) };
+    icons::paint(ui.painter(), Rect::from_center_size(c, vec2(12.0, 12.0)), icon, color);
+}
+
+/// Choices that appear under a tick: they fade in over the style's animation time (0.12 s, none
+/// when Preferences ▸ Appearance turns animations off) instead of popping in.
+fn reveal(ui: &mut egui::Ui, salt: &str, shown: bool, body: impl FnOnce(&mut egui::Ui)) {
+    let a = ui.ctx().animate_bool(egui::Id::unique(("overfilm-panel-reveal", salt)), shown);
+    if shown {
+        ui.scope(|ui| {
+            ui.multiply_opacity(a);
+            body(ui);
+        });
+    }
 }
 
 /// A group's heading in the user's words.
@@ -303,12 +355,16 @@ const RUN_BAR_HEIGHT: f32 = 56.0;
 
 /// A group of related choices: a heading and a thin line round them (no shadow, no fill), with a
 /// wider gap between groups than between the choices inside one.
-fn section(ui: &mut egui::Ui, t: crate::theme::Tokens, title: &str, body: impl FnOnce(&mut egui::Ui)) {
+fn section(ui: &mut egui::Ui, t: crate::theme::Tokens, icon: Icon, title: &str, body: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new().stroke(egui::Stroke::new(1.0, t.separator)).corner_radius(t.radius_sm as u8).inner_margin(egui::Margin::symmetric(8, 6)).show(
         ui,
         |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new(title).strong().color(t.text));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                inline_icon(ui, icon, t.text_dim);
+                ui.label(RichText::new(title).strong().color(t.text));
+            });
             ui.add_space(2.0);
             body(ui);
         },
@@ -403,9 +459,10 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         ui.add_space(8.0);
         ui.add_enabled_ui(!running, |ui| {
             // 1. Auto Cut
-            section(ui, t, tl!("Cut"), |ui| {
+            section(ui, t, Icon::Razor, tl!("Cut"), |ui| {
                 check(ui, &mut elems, format!("{PRE}.autoCut"), tl!("Auto Cut waiting and pauses (tournament broadcasts)"), &mut p["autoCut"]);
-                if p["autoCut"].as_bool().unwrap_or(false) {
+                let shown = p["autoCut"].as_bool().unwrap_or(false);
+                reveal(ui, "cut", shown, |ui| {
                     ui.indent("overfilm-panel-cut", |ui| {
                         egui::Grid::new("overfilm-panel-cut-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                             combo(
@@ -431,7 +488,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                             });
                         });
                     });
-                }
+                });
                 review_gate(
                     ui,
                     &mut elems,
@@ -444,11 +501,11 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 );
             });
             // 2. Kills and players, so the captions get the names
-            section(ui, t, tl!("Kills, ultimates and players"), |ui| {
+            section(ui, t, Icon::Search, tl!("Kills, ultimates and players"), |ui| {
                 check(ui, &mut elems, format!("{PRE}.kills"), tl!("Read kills, ultimates and players first (names for the captions)"), &mut p["kills"]);
             });
             // 3. Captions
-            section(ui, t, tl!("Captions"), |ui| {
+            section(ui, t, Icon::Captions, tl!("Captions"), |ui| {
                 egui::Grid::new("overfilm-panel-cap-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                     let mut kinds = vec![("new", tl!("Recognise the speech").to_string())];
                     if has_words {
@@ -513,17 +570,19 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                         tl!("Then let Claude Code check the captions"),
                         &mut p["reviewCaptions"],
                     );
-                    if review_on && p["reviewCaptions"].as_bool().unwrap_or(false) {
+                    let shown = review_on && p["reviewCaptions"].as_bool().unwrap_or(false);
+                    reveal(ui, "review-wishes", shown, |ui| {
                         ui.indent("overfilm-panel-review-wishes", |ui| {
                             crate::panels::overfilm_review::wishes_ui(ui, &mut elems, PRE, &mut wishes);
                         });
-                    }
+                    });
                 }
             });
             // 4. Render
-            section(ui, t, tl!("Render"), |ui| {
+            section(ui, t, Icon::Export, tl!("Render"), |ui| {
                 check(ui, &mut elems, format!("{PRE}.render"), tl!("Then render the finished video"), &mut p["render"]);
-                if p["render"].as_bool().unwrap_or(false) {
+                let shown = p["render"].as_bool().unwrap_or(false);
+                reveal(ui, "render", shown, |ui| {
                     ui.indent("overfilm-panel-render", |ui| {
                         egui::Grid::new("overfilm-panel-render-grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                             combo(ui, &mut elems, format!("{PRE}.renderFormat"), tl!("File type:"), &mut p["renderFormat"], &render_formats());
@@ -550,7 +609,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                             check(ui, &mut elems, format!("{PRE}.burnCaptions"), tl!("Burn the captions into the picture"), &mut p["burnCaptions"]);
                         }
                     });
-                }
+                });
             });
         });
         // the run's steps
@@ -568,11 +627,23 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 if let Some(secs) = st["seconds"].as_f64() {
                     line.push_str(&format!(" ({})", clock(secs)));
                 }
-                let r = ui.label(RichText::new(&line).color(color)).rect;
+                // the state as a line icon before the words (the colour follows the words)
+                let r = ui
+                    .horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        let icon = state_icon(state);
+                        let c = if state == "done" { t.text_dim } else { color };
+                        inline_icon(ui, icon, c).union(ui.label(RichText::new(&line).color(color)).rect)
+                    })
+                    .inner;
                 let mut detail = st["message"].as_str().unwrap_or_default().to_string();
                 if state == "running" {
                     let frac = st["progress"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0) as f32;
-                    ui.add(egui::ProgressBar::new(frac).desired_height(6.0));
+                    // the bar glides to a new value over the animation time instead of jumping
+                    let time = ui.style().animation_time;
+                    let shown =
+                        if time > 0.0 { ui.ctx().animate_value_with_time(egui::Id::unique(("overfilm-panel-step-progress", n)), frac, time) } else { frac };
+                    ui.add(egui::ProgressBar::new(shown).desired_height(6.0));
                     detail = format!("{:.0} % {}{}", frac * 100.0, st["status"].as_str().unwrap_or_default(), super::eta_suffix(st));
                 }
                 if !detail.is_empty() {
@@ -590,7 +661,11 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         ui.label(RichText::new(tl!("Tools")).strong());
         egui::Grid::new("overfilm-panel-tools").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
             for (group, list) in TOOL_GROUPS.iter() {
-                ui.label(RichText::new(group_label(group)).color(t.text_dim));
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    inline_icon(ui, group_icon(group), t.text_dim);
+                    ui.label(RichText::new(group_label(group)).color(t.text_dim));
+                });
                 ui.horizontal_wrapped(|ui| {
                     for (id, label) in list.iter() {
                         let enabled = facts.tools.iter().find(|(k, _)| k == id).is_some_and(|(_, on)| *on);
@@ -622,6 +697,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
     bar.separator();
     if running {
         let r = bar.add_sized([bar.available_width(), 30.0], egui::Button::new(tl!("Stop")));
+        button_icon(&bar, &r, Icon::Square, tl!("Stop"), t.text);
         elems.push((format!("{PRE}.stop"), r.rect, "Stop".into()));
         stop = r.clicked();
     } else {
@@ -630,6 +706,7 @@ pub fn show(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
         }
         let b = egui::Button::new(RichText::new(tl!("Run")).strong().color(egui::Color32::WHITE)).fill(t.accent);
         let r = bar.add_enabled(has_seq, b.min_size(vec2(bar.available_width(), 30.0)));
+        button_icon(&bar, &r, Icon::Play, tl!("Run"), egui::Color32::WHITE);
         elems.push((format!("{PRE}.run"), r.rect, "Run".into()));
         run = r.clicked();
     }

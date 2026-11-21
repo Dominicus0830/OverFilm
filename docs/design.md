@@ -54,3 +54,44 @@ until it is made, each app keeps its own.
 - `advanced`: a closed collapsing header for the options most people never change.
 - `review_gate`: a tick that needs a setting; when off it is greyed with the reason under it.
 - Run/Stop: a full-width filled button pinned under the scrolling choices.
+
+## Icons (stage 3)
+
+One line-icon family for all three apps, drawn by us, so there is no third-party licence to track
+and no asset file (they are code, not images):
+
+- Grid 16 x 16, stroke 1.25 (whole device pixels in the editor), one colour that follows the text
+  colour, small filled marks only where a line would be too thin (play triangle, slider knobs, dots).
+- Source of truth: `crates/ui-egui/src/icons.rs` (the editor's `Icon` set, original work, same
+  licence as the repository). OverFilmSubs draws the same shapes (`apps/overfilm-subs/src/ui/widgets.rs`,
+  `Icon`), and the OverShorts panel has them as SVG paths (`overshorts/panel/src/ui/Icon.tsx`).
+  A new icon is drawn in the editor set first and copied with the same coordinates.
+- No emoji, no text symbols as icons (▶ ● ■ ▾), no Adobe iconography (AGENTS.md section 1), no
+  icon fonts or icon packages. Lucide (ISC) and Phosphor (MIT) were looked at in the UI/UX
+  proposal and not needed: the editor set already covers what the OverFilm screens use.
+- An icon goes beside a word, not instead of it, except in the folded Subs rail (where the word is
+  the tooltip) and the Review play button (which has an `aria-label`).
+
+Where they are used:
+
+| App | Where | Icons |
+|---|---|---|
+| Editor, OverFilm panel | Group headings | Cut `Razor`, Kills `Search`, Captions `Captions`, Render `Export` |
+| | Tools groups | Get ready `Monitor`, Cut `Razor`, Read the match `Search`, Captions `Captions`, Export `Export`, Back up `Undo` |
+| | Run steps | `StepWaiting`, `StepRunning`, `StepDone`, `StepSkipped`, `StepFailed` (one circle, a different mark) |
+| | Run / Stop | `Play` / `Square` |
+| OverFilmSubs | Navigation rail | New `Add`, Recent `Clock`, Voices `Mic`, Glossary `Book`, Settings `Gear` |
+| | Expander | `ChevronDown`, turned over when open |
+| OverShorts panel | Side menu | Home, New, Queue, Review, Voices, Style, Sources, Settings, theme Sun/Moon |
+| | Buttons | play, record, stop, chevron (instead of ▶ ● ■ ▾) |
+
+## Motion (stage 3)
+
+Only state changes move, for 0.12 to 0.15 s, by fading or sliding. No bounce, sparkle, scroll
+effects or animation libraries (no GSAP, Lenis, Anime.js, Magic UI).
+
+| App | What moves | Time | Turned off by |
+|---|---|---|---|
+| Editor | Choices that appear under a tick (Auto Cut, Render, caption review wishes) fade in; a running step's progress bar glides to its new value; folding "Advanced" (egui) | 0.12 s (`theme::ANIMATION_TIME`) | Preferences ▸ Appearance ▸ animations off (time 0) |
+| OverFilmSubs | The rail's selected marker slides to the chosen page; the expander chevron turns; the switch knob (stage 2) | 0.15 s (`theme::MOTION`) | — |
+| OverShorts | A screen's content fades in when the menu changes; menu icon colour; chevron turns; switch and dialog (stage 2) | 0.12 s (`--ease`) | `prefers-reduced-motion: reduce` |
