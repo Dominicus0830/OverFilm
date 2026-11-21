@@ -93,12 +93,12 @@ class Hub:
         # 창 모드에서 띄운 OverShorts 창의 연결 (/ws?window=1). 다른 브라우저 탭(/ws)은 여기 없다:
         # 창을 닫았는데 다른 브라우저에 패널 탭이 남아 있어도 서버가 꺼지게 (2026-11-21, 파일 잠김)
         self.window_clients: set[asyncio.Queue] = set()
+        self.recent: list[dict[str, Any]] = []
+        self.lock = threading.Lock()
 
     def client_counts(self) -> dict[str, Any]:
         window = len(self.window_clients)
         return {"type": "clients", "app_windows": window, "other_tabs": max(0, len(self.clients) - window)}
-        self.recent: list[dict[str, Any]] = []
-        self.lock = threading.Lock()
 
     def emit(self, event: dict[str, Any], keep: bool = True) -> None:
         """keep=False: 지금 붙은 화면에만 보내고 로그(recent)에는 남기지 않는다 (연결 수 같은 상태)."""
