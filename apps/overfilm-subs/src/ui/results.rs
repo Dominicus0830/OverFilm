@@ -106,7 +106,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
                         if subtle_button(ui, "묻지 않기").clicked() {
                             act = Some(false);
                         }
-                        if accent_button(ui, "단어집에 넣기").clicked() {
+                        if button(ui, "단어집에 넣기").clicked() {
                             act = Some(true);
                         }
                     },
@@ -342,10 +342,14 @@ fn group_row(ui: &mut egui::Ui, p: &super::theme::Palette, title: &str, desc: &s
     if !desc.is_empty() {
         ui.painter().text(egui::pos2(rect.left() + 12.0, rect.top() + 33.0), Align2::LEFT_CENTER, desc, FontId::proportional(12.0), p.text2);
     }
-    let badge = egui::Rect::from_center_size(egui::pos2(rect.right() - 20.0, top), vec2(28.0, 18.0));
-    ui.painter().rect_filled(badge, CornerRadius::same(9), p.control);
-    ui.painter().rect_stroke(badge, CornerRadius::same(9), Stroke::new(1.0, p.control_stroke), egui::StrokeKind::Inside);
-    ui.painter().text(badge.center(), Align2::CENTER_CENTER, count.to_string(), FontId::proportional(12.0), p.text);
+    // The count is plain right-aligned text (no pill badge, docs/design.md).
+    ui.painter().text(
+        egui::pos2(rect.right() - 10.0, top),
+        Align2::RIGHT_CENTER,
+        count.to_string(),
+        FontId::proportional(12.0),
+        if selected { p.text } else { p.text2 },
+    );
     resp
 }
 
@@ -519,7 +523,7 @@ fn editor(r: &mut Review, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
                     actions.push(Action::Ignore(i.index, i.kind));
                 }
                 if let Some(s) = &i.suggestion
-                    && accent_button(ui, "고치기").on_hover_text(s.replace('\n', " / ")).clicked()
+                    && button(ui, "고치기").on_hover_text(s.replace('\n', " / ")).clicked()
                 {
                     actions.push(Action::Apply(k, s.clone()));
                 }
