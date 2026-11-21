@@ -2,6 +2,7 @@
 // 실제 디시 크기(가로 480px, 글자 13px)로 그린 뒤 화면 폭에 맞게 통째로 키운다. 연출(확대·글자별 색) 없음.
 import React from 'react';
 import {Img, OffthreadVideo, interpolate, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
+import {GALLERCON_SVG, REPLY_ARROW_PNG} from './dcAssets';
 import {mapFont} from './fonts';
 import {SpecComment, SpecMedia, SpecPost, StyledLine, StyledRun} from './spec';
 
@@ -65,9 +66,11 @@ export const Scaled: React.FC<{width: number; height: number; children: React.Re
   );
 };
 
+// 닉 옆 딱지: 디시 sp_gallercon.svg 스프라이트 (고닉 fix_nik / 반고닉 nik 자리 그대로).
 const NickIcon: React.FC<{icon: string}> = ({icon}) => (icon ? (
-  <span style={{display: 'inline-block', width: 12, height: 11, marginLeft: 3, verticalAlign: -1, borderRadius: 2,
-    background: icon === 'fix' ? '#6b79c8' : '#c4c9de', border: '1px solid #9aa'}} />
+  <span style={{display: 'inline-block', boxSizing: 'content-box', width: 0, height: 0, padding: '11px 0 0 12px',
+    marginLeft: 2, verticalAlign: -1, background: `url(${GALLERCON_SVG}) no-repeat`,
+    backgroundSize: icon === 'fix' ? 101 : 92, backgroundPosition: icon === 'fix' ? '-0.5px -17px' : '0 0'}} />
 ) : null);
 
 /** 글 머리: [말머리] 제목 / 닉 · 날짜 */
@@ -83,7 +86,7 @@ export const PostHead: React.FC<{post: SpecPost}> = ({post}) => (
   </div>
 );
 
-/** 본문 속 사진: 오른쪽 위 번호, 오른쪽 아래 '댓글 열기', 아래에 그 사진 다음 본문 줄 */
+/** 본문 속 사진·영상과 그 아래 본문 줄. 번호 칩·'댓글 열기' 버튼은 안 그린다 (2026-11-21 사용자). */
 export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
   const aspect = m.width && m.height ? m.width / m.height : 16 / 9;
   const h = Math.round(SKIN_W / aspect);
@@ -94,13 +97,6 @@ export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
         {m.kind === 'video' ? <OffthreadVideo src={src(m.src)} muted={m.muted} style={style}
           playbackRate={m.playback_rate && m.playback_rate > 0 ? m.playback_rate : 1} />
           : <Img src={src(m.src)} style={style} />}
-        {m.number ? (
-          <span style={{position: 'absolute', top: 6, right: 6, minWidth: 16, height: 16, fontSize: 11,
-            lineHeight: '16px', textAlign: 'center', background: '#fff', color: '#555', border: '1px solid #ccc',
-            fontWeight: 700}}>{m.number}</span>
-        ) : null}
-        <span style={{position: 'absolute', right: 8, bottom: 8, fontSize: 11, color: '#fff', padding: '4px 9px',
-          background: 'rgba(40,40,40,0.85)', borderRadius: 3, fontWeight: 700}}>댓글 열기 ▾</span>
       </div>
       {m.caption_runs ? (
         <div style={{padding: '4px 2px 6px', wordBreak: 'break-all'}}><RichLines lines={m.caption_runs} /></div>
@@ -118,35 +114,93 @@ export function photoHeight(m: SpecMedia): number {
   return 8 + SKIN_W / aspect + lines * FONT * 1.5 + 10;
 }
 
-// 디시 댓글창 (2026-11-15 사용자 캡처 기준): 왼쪽 닉 칸(약 40%) · 오른쪽 글 칸, 줄마다 옅은 구분선.
-// 답글은 회색 상자 안에서 들여쓰고 글 앞에 파란 'ㄴ'. 디시콘은 글 칸에 그림 그대로.
-const NICK_W = 190;
-const REPLY_INDENT = 58;
+// 디시 댓글창: 실제 디시 PC 댓글 HTML 구조와 CSS(common.css)를 그대로 쓴다 (2026-11-21 사용자: "HTML CSS 그대로").
+// 폭만 좁힌 가상 화면(CMT_W)에 그리고, 내용 높이만큼만 흰 상자로 화면 가운데에 놓는다.
+export const CMT_W = 560;
+const DATE_W = 86; // '11.14 17:45:31' + 여백
+const TXT_W = CMT_W - 24 - (152 + 33) - DATE_W; // 원댓글 글 칸 (한 줄 약 20자)
+const R_TXT_W = CMT_W - 30 - 2 - 24 - (133 + 23) - DATE_W - 16; // 답글 글 칸 (약 18자)
+const DC_FONT = '-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","맑은 고딕",arial,굴림,Gulim,sans-serif';
 
-const CommentRow: React.FC<{c: SpecComment; blurNick: boolean}> = ({c, blurNick}) => (
-  <div style={{display: 'flex', alignItems: 'flex-start', padding: '8px 10px 9px', borderBottom: '1px solid #eee'}}>
-    <div style={{width: c.depth ? NICK_W - REPLY_INDENT + 8 : NICK_W, flexShrink: 0, fontSize: 12, color: '#666',
-      filter: blurNick ? 'blur(4px)' : undefined, whiteSpace: 'nowrap', overflow: 'hidden', lineHeight: '19px'}}>
-      {c.nick}{c.ip ? <span style={{color: '#999'}}>({c.ip})</span> : null}<NickIcon icon={c.icon} />
-    </div>
-    <div style={{flex: 1, display: 'flex', gap: 8, minWidth: 0}}>
-      {c.depth ? <span style={{color: '#3b4890', fontSize: 12, fontWeight: 700, lineHeight: '19px'}}>ㄴ</span> : null}
-      <div style={{flex: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 13, color: '#333',
-        lineHeight: '19.5px'}}>
-        {c.text ? c.text.split(/(@\S+)/).map((part, i) => (part.startsWith('@')
-          ? <span key={i} style={{color: DC_BLUE}}>{part}</span> : <span key={i}>{part}</span>)) : null}
-        {c.dccon ? (
-          <div style={{marginTop: c.text ? 4 : 0}}>
-            {c.dccon.src ? <Img src={src(c.dccon.src)} style={{width: 100, height: 100, objectFit: 'contain'}} />
-              : <span style={{color: '#999'}}>({c.dccon.name})</span>}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  </div>
+const DC_CSS = `
+.dcc{width:${CMT_W}px;background:#fff;color:#333;font-size:13px;font-family:${DC_FONT};border-top:2px solid #3b4890;border-bottom:1px solid #eee;text-align:left}
+.dcc ul,.dcc li,.dcc p{margin:0;padding:0;list-style:none}
+.dcc em{font-style:normal}
+.dcc .clear:after{clear:both;display:block;visibility:hidden;content:""}
+.dcc .fr{float:right}
+.dcc .cmt_info{position:relative;padding:9px 12px 7px;border-top:1px solid #eee}
+.dcc .cmt_list>li:first-child .cmt_info{border-top:none}
+.dcc .cmt_info p{line-height:20px}
+.dcc .cmt_nickbox{float:left;width:152px;margin-right:33px;margin-top:3px;line-height:13px}
+.dcc .gall_writer{display:inline-flex;align-items:start;max-width:100%}
+.dcc .nickname{font-size:12px;color:#777;vertical-align:top;white-space:nowrap}
+.dcc .nickname>em{display:inline-block;max-width:84px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;vertical-align:top}
+.dcc .nickname.in>em{max-width:110px;padding-right:1px}
+.dcc .reply .nickname.in>em{max-width:107px}
+.dcc .nickname .ip{display:inline-block;vertical-align:1px;font-family:tahoma,sans-serif;font-size:11px;color:#999}
+.dcc .nomem_nicknum{color:#333}
+.dcc .writer_nikcon{margin-left:2px;line-height:0}
+.dcc .writer_nikcon i{display:inline-block;box-sizing:content-box;width:0;height:0;padding:11px 0 0 12px;vertical-align:-1px;background:url(${GALLERCON_SVG}) no-repeat;background-size:92px;background-position:0 0}
+.dcc .writer_nikcon i.fix{background-size:101px;background-position:-0.5px -17px}
+.dcc .cmt_txtbox{float:left;width:${TXT_W}px}
+.dcc .usertxt{float:left;width:${TXT_W}px;line-height:20px;word-break:break-all;overflow:hidden;white-space:pre-wrap}
+.dcc .date_time{float:left;font-size:12px;color:#999;vertical-align:top;margin-top:1px}
+.dcc .reply{overflow:visible}
+.dcc .cmt_list>li:first-child .reply{padding:12px 0 0;border-top:none}
+.dcc .reply_box{margin:0 0 12px 30px;border:1px solid #ddd;border-width:0 1px 1px 1px;background:#fafafa}
+.dcc .cmt_list>li:first-child .reply_box{border-top-width:1px}
+.dcc .reply_list li{padding:9px 12px 7px;border-top:1px solid #ddd}
+.dcc .reply_list li:first-child{border-top:none}
+.dcc .reply .cmt_nickbox{width:133px;margin-right:23px}
+.dcc .reply .cmt_txtbox{width:${R_TXT_W + 16}px}
+.dcc .reply_info{position:relative}
+.dcc .reply_info .usertxt{position:relative;width:${R_TXT_W}px;padding-left:16px}
+.dcc .reply_info .usertxt::before{content:" ";position:absolute;left:0;top:3px;width:8px;height:8px;background:url(${REPLY_ARROW_PNG}) no-repeat}
+.dcc .comment_dccon{position:relative;margin:3px 0 5px;float:left}
+.dcc .reply .comment_dccon{padding-left:16px}
+.dcc .coment_dccon_img{float:left;height:100px;line-height:0}
+.dcc .written_dccon{width:100px;height:100px;object-fit:contain}
+.dcc .blur{filter:blur(4px)}
+`;
+
+/** 닉네임 칸: 디시 gallog_icon 그대로 (고닉 fix_nik, 반고닉 nik, 유동은 (IP)). */
+const Writer: React.FC<{c: SpecComment}> = ({c}) => (
+  <span className="gall_writer ub-writer">
+    <span className={c.icon ? 'nickname in' : 'nickname'}><em>{c.nick}</em>
+      {!c.icon && c.ip ? <span className="ip">({c.ip})</span> : null}</span>
+    {c.icon ? <a className="writer_nikcon"><i className={c.icon === 'fix' ? 'fix' : ''} /></a> : null}
+  </span>
 );
 
-/** 댓글창 한 장 (스크린샷처럼 한 번에). 원댓글 밑 답글은 회색 상자 안에. */
+/** 댓글의 디시콘 그림들 (받은 그림만. 못 받은 건 괄호 글자 대신 안 보임). */
+const cons = (c: SpecComment): string[] => (c.dccons?.length ? c.dccons.map((d) => d.src)
+  : c.dccon?.src ? [c.dccon.src] : []);
+
+/** 디시콘 그림 하나. 못 불러오면 깨진 그림 대신 그 칸을 숨긴다. */
+const DcconImg: React.FC<{src: string}> = ({src: url}) => {
+  const [bad, setBad] = React.useState(false);
+  if (bad) return null;
+  return <div className="coment_dccon_img"><Img className="written_dccon" src={url} onError={() => setBad(true)} /></div>;
+};
+
+const CmtBody: React.FC<{c: SpecComment; blurNick: boolean}> = ({c, blurNick}) => (
+  <>
+    <div className={blurNick ? 'cmt_nickbox blur' : 'cmt_nickbox'}><Writer c={c} /></div>
+    <div className="clear cmt_txtbox">
+      {c.text ? <p className="usertxt ub-word">{c.text}</p> : null}
+      {cons(c).length ? (
+        <div className="comment_dccon clear">
+          {cons(c).map((d, i) => (
+            <DcconImg key={i} src={src(d)} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+    <div className="fr clear">{c.date ? <span className="date_time">{c.date}</span> : null}</div>
+  </>
+);
+
+/** 댓글창 한 장 (디시 화면을 그대로 캡처한 것처럼). 원댓글 밑 답글은 reply_box 안에. */
 export const CommentPage: React.FC<{comments: SpecComment[]; blurNick: boolean}> = ({comments, blurNick}) => {
   const blocks: SpecComment[][] = [];
   for (const c of comments) {
@@ -154,16 +208,21 @@ export const CommentPage: React.FC<{comments: SpecComment[]; blurNick: boolean}>
     else blocks.push([c]);
   }
   return (
-    <div style={{background: '#fff'}}>
-      {blocks.map((b, i) => (b[0].depth ? (
-        <div key={i} style={{padding: '0 0 6px', borderBottom: '1px solid #eee'}}>
-          <div style={{background: '#f8f8f8', border: '1px solid #e3e3e3', marginLeft: REPLY_INDENT - 8,
-            marginRight: 6}}>
-            {b.map((c, k) => <div key={c.no} style={k === b.length - 1 ? {} : {}}>
-              <CommentRow c={c} blurNick={blurNick} /></div>)}
-          </div>
-        </div>
-      ) : <CommentRow key={b[0].no} c={b[0]} blurNick={blurNick} />))}
+    <div className="dcc comment_box">
+      <style>{DC_CSS}</style>
+      <ul className="cmt_list">
+        {blocks.map((b) => (b[0].depth ? (
+          <li key={`r${b[0].no}`}>
+            <div className="reply show"><div className="reply_box"><ul className="reply_list">
+              {b.map((c) => <li key={c.no} className="ub-content"><div className="reply_info clear">
+                <CmtBody c={c} blurNick={blurNick} /></div></li>)}
+            </ul></div></div>
+          </li>
+        ) : (
+          <li key={b[0].no} className="ub-content"><div className="cmt_info clear">
+            <CmtBody c={b[0]} blurNick={blurNick} /></div></li>
+        )))}
+      </ul>
     </div>
   );
 };
@@ -182,9 +241,9 @@ export function useScroll(contentH: number, viewH: number, start: number, end: n
 
 /** 본문 글만 있는 장면 (사진 없는 부분). */
 export const BodyText: React.FC<{text: string; runs?: StyledLine[] | null}> = ({text, runs}) => (runs ? (
-  <div style={{padding: '10px 6px', wordBreak: 'break-all'}}><RichLines lines={runs} /></div>
+  <div style={{padding: '10px 6px', wordBreak: 'keep-all', overflowWrap: 'anywhere'}}><RichLines lines={runs} /></div>
 ) : (
-  <div style={{padding: '10px 6px', whiteSpace: 'pre-wrap', wordBreak: 'break-all'}}>{text}</div>
+  <div style={{padding: '10px 6px', whiteSpace: 'pre-wrap', wordBreak: 'keep-all', overflowWrap: 'anywhere'}}>{text}</div>
 ));
 
 export function textHeight(text: string, runs?: StyledLine[] | null): number {

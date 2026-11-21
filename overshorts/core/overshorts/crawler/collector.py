@@ -62,7 +62,7 @@ class Collector:
                  cache_dir: str | Path | None = None, max_comments: int = 50,
                  now: Callable[[], datetime] = datetime.now,
                  image_dir: str | Path | None = None, max_images: int = 6,
-                 max_videos: int = 3, max_dccons: int = 8):
+                 max_videos: int = 3, max_dccons: int = 40):
         self.store = store
         self.fetcher = fetcher
         self.rules = rules or RuleConfig()
@@ -217,29 +217,32 @@ class Collector:
 
     def _dccons(self, url: DcUrl, post: Post, comments: list[Comment],
                 report: IngestReport) -> None:
-        """디시콘 그림을 앞에서부터 몇 개만 받는다 (같은 디시콘은 한 번)."""
+        """디시콘 그림을 받는다 (같은 디시콘은 한 번, 글당 max_dccons 개까지). 댓글 화면에 그림 그대로 넣는다."""
         if self.image_dir is None:
             return
         got: dict[str, str] = {}
         for c in comments:
             if not c.dccon:
                 continue
-            src = c.dccon.get("url") or ""
-            if src in got:
-                c.dccon["local"] = got[src]
-                continue
-            if len(got) >= self.max_dccons:
-                continue
-            try:
-                data = self.fetcher.get_image(src)
-                path = self.image_dir / url.gall_id / f"{post.post_no}-con{len(got)}.img"
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(data)
-                got[src] = str(path)
-                c.dccon["local"] = str(path)
-            except (FetchError, OSError) as err:
-                got[src] = ""
-                report.errors.append(f"{post.post_no} 디시콘: {err}")
+            for con in [c.dccon, *(c.dccon.get("more") or [])]:
+                if not isinstance(con, dict):
+                    continue
+                src = con.get("url") or ""
+                if src in got:
+                    con["local"] = got[src]
+                    continue
+                if len(got) >= self.max_dccons:
+                    continue
+                try:
+                    data = self.fetcher.get_image(src)
+                    path = self.image_dir / url.gall_id / f"{post.post_no}-con{len(got)}.img"
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(data)
+                    got[src] = str(path)
+                    con["local"] = str(path)
+                except (FetchError, OSError) as err:
+                    got[src] = ""
+                    report.errors.append(f"{post.post_no} 디시콘: {err}")
 
     def _comments(self, url: DcUrl, post: Post, referer: str,
                   report: IngestReport) -> list[Comment]:

@@ -4,6 +4,7 @@
   "label": "옵갤형",
   "description": "짤·괴담·뻘글 + 짧은 댓글 (참고 영상 ①②). 글 머리 → 짤 → 댓글 연속.",
   "tts": "off",
+  "verbatim": true,
   "sections": {
     "target_sec": [
       20,
@@ -44,8 +45,8 @@
     ],
     "max_total": 27,
     "max_screens": 9,
-    "min_screen_sec": 2.8,
-    "max_screen_sec": 6,
+    "min_screen_sec": 3.0,
+    "max_screen_sec": 4,
     "skip": "time_order"
   },
   "effects": {
@@ -53,7 +54,7 @@
     "sfx": false,
     "original_sound": false
   },
-  "guide": "원문 제목·본문·댓글은 한 글자도 고치지 않는다. 짤이 있으면 짤 장면은 글 머리 바로 뒤에 두고, 이어서 댓글 화면을 연속으로 보인다. 마지막은 검정 엔딩.",
+  "guide": "갤글 그대로 (2026-11-21 사용자 규칙): 원문 제목·본문·댓글은 한 글자도 고치지 않고, 해설·요약·덧붙임·새 제목 없이 원문만 보인다. 짤 장면은 원문 사진만. 짤이 있으면 짤 장면은 글 머리 바로 뒤에 두고, 이어서 댓글 화면을 연속으로 보인다. 마지막은 검정 엔딩.",
   "reference": {
     "videos": [
       "https://youtube.com/shorts/lKP7Ixw1ixc",

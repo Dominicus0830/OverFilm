@@ -107,7 +107,7 @@ class Verdict:
 
 class ImageInspector:
     def __init__(self, models_dir: str | Path, download: bool = True,
-                 blur_faces: bool = True, drop_nsfw: bool = True):
+                 blur_faces: bool = False, drop_nsfw: bool = True):
         self.models_dir = Path(models_dir)
         self.download = download
         self.blur_faces = blur_faces

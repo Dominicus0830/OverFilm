@@ -7,7 +7,7 @@ import {
   AbsoluteFill, Audio, Img, Sequence, staticFile, useCurrentFrame, useVideoConfig,
 } from 'remotion';
 import {
-  BodyText, CommentPage, PhotoBlock, PostHead, SKIN_W, Scaled, photoHeight, runCss, textHeight, useScroll,
+  BodyText, CMT_W, CommentPage, PhotoBlock, PostHead, SKIN_W, Scaled, photoHeight, runCss, textHeight, useScroll,
 } from './DcSkin';
 import {FONT_FAMILY, HAND_FONT, SHOUT_FONT, loadFonts} from './fonts';
 import {RenderSpec, SayStyle, SpecMedia, SpecSegment, StyledLine, sanitize} from './spec';
@@ -148,6 +148,19 @@ const TextPage: React.FC<{spec: RenderSpec; text: string; runs?: StyledLine[] | 
   start: number; end: number}> = ({spec, text, runs, head, view, start, end}) => {
   const k = 1080 / SKIN_W;
   const y = useScroll((head ? 52 : 0) + textHeight(text, runs), view / k, start, end);
+  // 짧은 글: 흰 바탕을 글 크기에 맞춰 화면 정중앙에, 글자는 키운다 (2026-11-21 사용자 의견).
+  // 키우는 배율 z: 가상 화면 폭을 1/z 로 줄이고 CSS zoom 으로 키워, 실제 폭은 1080 그대로 두고 줄바꿈만 다시 한다.
+  const z = head ? 1 : shortTextZoom(text, runs, view / k);
+  if (z > 1) {
+    return (
+      <div style={{position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+        <div style={{width: SKIN_W / z, zoom: k * z, background: '#fff', color: '#333', fontSize: 13,
+          lineHeight: 1.5}}>
+          <BodyText text={text} runs={runs} />
+        </div>
+      </div>
+    );
+  }
   return (
     <Scaled width={1080} height={view} scrollY={y}>
       {head ? <PostHead post={spec.post} /> : null}
@@ -155,6 +168,22 @@ const TextPage: React.FC<{spec: RenderSpec; text: string; runs?: StyledLine[] | 
     </Scaled>
   );
 };
+
+/** 글이 무대의 85% 안에 들어가는 가장 큰 배율 (1~3). 1 이면 지금처럼 꽉 찬 디시 화면. */
+function shortTextZoom(text: string, runs: StyledLine[] | null | undefined, viewVirtual: number): number {
+  const base = textHeight(text, runs);
+  if (base > viewVirtual * 0.5) return 1; // 이미 화면 절반 넘게 차면 그대로
+  const paras = text.split('\n');
+  const big = runs ? Math.max(1, ...runs.flat().map((r) => (r.size && r.size > 16 ? Math.min(30, r.size * 0.65) / 13 : 1)))
+    : 1;
+  for (let z = 3; z > 1; z = Math.round((z - 0.1) * 10) / 10) {
+    // 가상 폭이 1/z 로 줄면 한 줄 글자 수도 1/z
+    const rows = paras.reduce((n, p) => n + Math.max(1, Math.ceil((p.length * z * big) / 36)), 0);
+    const h = (20 + rows * 13 * 1.5 * big) * z; // 키운 뒤 가상 높이
+    if (h <= viewVirtual * 0.85) return z;
+  }
+  return 1;
+}
 
 const SegmentStage: React.FC<{spec: RenderSpec; seg: SpecSegment; next: SpecSegment | null; height: number;
   safe: Safe}> = ({spec, seg, next, height, safe}) => {
@@ -174,10 +203,14 @@ const SegmentStage: React.FC<{spec: RenderSpec; seg: SpecSegment; next: SpecSegm
       const first = seg.comments.find((c) => c.page === p);
       if (first && first.appear <= t + 0.02) page = p;
     }
+    // 댓글 있는 만큼만 흰 상자로, 화면 가운데에 (빈 아래 칸 없이). 넘치면 위부터 보이고 아래가 잘린다.
     return wrap(
-      <Scaled width={1080} height={box.h}>
-        <CommentPage comments={seg.comments.filter((c) => c.page === page)} blurNick={spec.nickname === 'blur'} />
-      </Scaled>,
+      <div style={{position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+        justifyContent: 'safe center', alignItems: 'center'}}>
+        <div style={{zoom: 1080 / CMT_W, flexShrink: 0}}>
+          <CommentPage comments={seg.comments.filter((c) => c.page === page)} blurNick={spec.nickname === 'blur'} />
+        </div>
+      </div>,
     );
   }
   if (seg.kind === 'reaction') {

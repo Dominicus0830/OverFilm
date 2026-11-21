@@ -45,7 +45,7 @@
     "max_total": 18,
     "max_screens": 7,
     "min_screen_sec": 3.0,
-    "max_screen_sec": 8,
+    "max_screen_sec": 4,
     "skip": "time_order"
   },
   "effects": {
