@@ -9,8 +9,10 @@ const NOWRAP: React.CSSProperties = {whiteSpace: 'nowrap'};
  * 스타일 목록: 복사(새 이름으로 복제해 바로 저장)·학습으로 보충·지우기(내 유형만).
  * 목록을 다시 읽는 것은 부모가 한다(`onChanged`).
  */
-export function StyleList({list, onChanged, onSupplement, onMessage}: {
+export function StyleList({list, onChanged, onSupplement, onMessage, compact}: {
   list: PresetInfo[]; onChanged: () => void; onSupplement: (id: string) => void; onMessage: (m: string) => void;
+  /** 좁은 속성 패널: 표 대신 한 줄 이름 + 아래 규칙 요약 */
+  compact?: boolean;
 }) {
   const [copying, setCopying] = useState<PresetInfo | null>(null);
   const [name, setName] = useState('');
@@ -32,8 +34,30 @@ export function StyleList({list, onChanged, onSupplement, onMessage}: {
     catch (e) { onMessage((e as Error).message); }
   };
 
+  const buttons = (p: PresetInfo) => (<>
+    <button className="small-btn" onClick={() => openCopy(p)} data-automation-id={`style-copy-${p.id}`}>
+      복사</button>{' '}
+    <button className="small-btn" onClick={() => onSupplement(p.id)}
+      title="학습 자료로 이 스타일을 보충" data-automation-id={`style-supplement-${p.id}`}>보충</button>{' '}
+    {p.origin === 'custom' && <button className="small-btn danger" onClick={() => remove(p.id)}
+      data-automation-id={`style-remove-${p.id}`}>지우기</button>}
+  </>);
+
   return (
     <>
+      {compact ? (
+        <ul className="style-rows" aria-label="편집 유형">
+          {list.map((p) => (
+            <li key={p.id}>
+              <div className="style-row-head">
+                <b>{p.label}</b><span className="faint small">{p.origin === 'custom' ? '내 유형' : '기본'}</span>
+                <span className="grow" /><span style={NOWRAP}>{buttons(p)}</span>
+              </div>
+              <div className="muted small">{p.summary.slice(1).join(' · ')}</div>
+            </li>
+          ))}
+        </ul>
+      ) : (
       <table className="jobs" aria-label="편집 유형">
         <thead><tr><th>유형</th><th>종류</th><th>규칙</th><th /></tr></thead>
         <tbody>
@@ -42,18 +66,11 @@ export function StyleList({list, onChanged, onSupplement, onMessage}: {
               <td style={NOWRAP}><b>{p.label}</b></td>
               <td className="muted" style={NOWRAP}>{p.origin === 'custom' ? '내 유형' : '기본'}</td>
               <td className="muted small">{p.summary.slice(1).join(' · ')}</td>
-              <td style={NOWRAP}>
-                <button className="small-btn" onClick={() => openCopy(p)} data-automation-id={`style-copy-${p.id}`}>
-                  복사</button>{' '}
-                <button className="small-btn" onClick={() => onSupplement(p.id)}
-                  title="학습 자료로 이 스타일을 보충" data-automation-id={`style-supplement-${p.id}`}>보충</button>{' '}
-                {p.origin === 'custom' && <button className="small-btn danger" onClick={() => remove(p.id)}
-                  data-automation-id={`style-remove-${p.id}`}>지우기</button>}
-              </td>
+              <td style={NOWRAP}>{buttons(p)}</td>
             </tr>
           ))}
         </tbody>
-      </table>
+      </table>)}
       <Dialog open={copying !== null} title="스타일 복사" onDismiss={() => setCopying(null)}
         automationId="style-copy-dialog">
         {copying && (<>
