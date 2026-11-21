@@ -86,7 +86,7 @@ export const PostHead: React.FC<{post: SpecPost}> = ({post}) => (
   </div>
 );
 
-/** 본문 속 사진: 오른쪽 위 번호, 오른쪽 아래 '댓글 열기', 아래에 그 사진 다음 본문 줄 */
+/** 본문 속 사진·영상과 그 아래 본문 줄. 번호 칩·'댓글 열기' 버튼은 안 그린다 (2026-11-21 사용자). */
 export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
   const aspect = m.width && m.height ? m.width / m.height : 16 / 9;
   const h = Math.round(SKIN_W / aspect);
@@ -97,13 +97,6 @@ export const PhotoBlock: React.FC<{m: SpecMedia}> = ({m}) => {
         {m.kind === 'video' ? <OffthreadVideo src={src(m.src)} muted={m.muted} style={style}
           playbackRate={m.playback_rate && m.playback_rate > 0 ? m.playback_rate : 1} />
           : <Img src={src(m.src)} style={style} />}
-        {m.number ? (
-          <span style={{position: 'absolute', top: 6, right: 6, minWidth: 16, height: 16, fontSize: 11,
-            lineHeight: '16px', textAlign: 'center', background: '#fff', color: '#555', border: '1px solid #ccc',
-            fontWeight: 700}}>{m.number}</span>
-        ) : null}
-        <span style={{position: 'absolute', right: 8, bottom: 8, fontSize: 11, color: '#fff', padding: '4px 9px',
-          background: 'rgba(40,40,40,0.85)', borderRadius: 3, fontWeight: 700}}>댓글 열기 ▾</span>
       </div>
       {m.caption_runs ? (
         <div style={{padding: '4px 2px 6px', wordBreak: 'break-all'}}><RichLines lines={m.caption_runs} /></div>
